@@ -1,0 +1,1506 @@
+'use strict';
+/* Protótipo navegável — Mobilab — Gestão de Táxi e Moto Táxi (Natulab).
+   SIMULAÇÃO: sem backend, sem AD real. Dados ficam no navegador (localStorage). */
+
+// ---------------- Parâmetros (no sistema real: configuráveis — RF-19) ----------------
+const SITES = { MED: 'Natulab Medicamentos', CD: 'CD Natulab', SUP: 'Natulab Suplementos' };
+const SITE_SHORT = { MED: 'MED', CD: 'CD', SUP: 'SUP' };
+// Grade inicial (tabela informada). Editável pelo Facilities e pela TI na tela “Grade e rotas”.
+const SEED_GRADE = [
+  ['07:10', 0], ['08:00', 1], ['08:40', 0], ['09:30', 1], ['11:00', 0], ['11:40', 1],
+  ['13:45', 0], ['14:20', 1], ['15:00', 0], ['15:40', 1], ['16:20', 0], ['17:00', 1],
+].map(([hora, dir], i) => ({ id: `G${i + 1}`, hora, paradas: dir ? ['SUP', 'CD', 'MED'] : ['MED', 'CD', 'SUP'], ativo: true }));
+const SLOT_CAP = 7;                       // Spin — limite do horário quando passa do padrão
+const CAP_PADRAO = 4;                     // padrão: carro de 4 vagas; acima disso a viagem vai de Spin
+// Vagas de referência: até 4 ocupados = carro (4); a partir daí a Spin (7) assume.
+const capSlot = (occ) => (occ >= CAP_PADRAO ? SLOT_CAP : CAP_PADRAO);
+const veicPrevisto = (occ) => (occ >= CAP_PADRAO ? 'Spin' : 'Carro');
+const EXPEDIENTE = ['07:30', '17:00'];    // DEC-02 em aberto
+const BAG = {
+  nenhuma: { l: 'Sem bagagem', p: 0 },
+  pequena: { l: 'Pequena (mochila/pasta)', p: 1 },
+  media: { l: 'Média (mala de mão)', p: 2 },
+  grande: { l: 'Grande (mala/caixa)', p: 3 },
+};
+const TIPOS = { grade: 'Entre sites', cidade: 'Táxi na cidade', inter: 'Táxi intermunicipal', moto: 'Moto Táxi (envio de itens)' };
+// Moto Táxi = envio de ITENS (não leva pessoas). Locais informados pelo dono — confirmar equivalência com os sites da grade.
+const LOCAIS_MOTO = { S1: 'Site 1', CD: 'CD', LIFE: 'Life' };
+const ITEM_TAM = {
+  pequeno: { l: 'Pequeno (envelope, caixinha)', p: 1 },
+  medio: { l: 'Médio (caixa até ~40 cm)', p: 2 },
+  grande: { l: 'Grande (ocupa o baú todo)', p: 4 },
+};
+const MOTO_CARGA = 4;     // pontos de carga por moto
+const MOTO_TOL_MIN = 60;  // janela para agrupar envios no mesmo trajeto (tolerância em validação — DEC-05)
+const ANTEC_MIN = { grade: 60, cidade: 60, inter: 48 * 60, moto: null };
+const STATUS = {
+  analise: 'Em análise', confirmada: 'Confirmada', recusada: 'Recusada', reagendada: 'Reagendada',
+  andamento: 'Em andamento', concluida: 'Concluída', cancelada: 'Cancelada', naorealizada: 'Não realizada',
+};
+const ATIVOS = ['analise', 'confirmada', 'reagendada', 'andamento'];
+const VEICULOS = [
+  { id: 'V1', nome: 'Chevrolet Spin', placa: 'RFA-1A23', tipo: 'carro', cap: 7, bag: 6 },
+  { id: 'V2', nome: 'Onix Sedan', placa: 'RFB-2B34', tipo: 'carro', cap: 4, bag: 4 },
+  { id: 'V3', nome: 'HB20 Hatch', placa: 'RFC-3C45', tipo: 'carro', cap: 4, bag: 2 },
+  { id: 'M1', nome: 'Moto 01', placa: 'PKM-4D56', tipo: 'moto', cap: 0, bag: 4 },
+  { id: 'M2', nome: 'Moto 02', placa: 'PKM-5E67', tipo: 'moto', cap: 0, bag: 4 },
+];
+// Motoristas NÃO acessam o sistema: o Facilities cadastra nome + WhatsApp e envia a viagem por lá.
+const SEED_MOTORISTAS = [
+  { id: 'D1', nome: 'João Batista', tipo: 'carro', fone: '75999990001', ativo: true },
+  { id: 'D2', nome: 'Rita Oliveira', tipo: 'carro', fone: '75999990002', ativo: true },
+  { id: 'D3', nome: 'Marcos Silva', tipo: 'moto', fone: '75999990003', ativo: true },
+  { id: 'D4', nome: 'Paulo Santos', tipo: 'moto', fone: '75999990004', ativo: true },
+];
+const DURACAO_MIN = 60; // intervalo mínimo entre viagens do mesmo veículo/motorista (RF-14)
+
+// ---------------- Utilidades ----------------
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pad = (n) => String(n).padStart(2, '0');
+const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const at = (dateStr, hm) => { const [y, m, d] = dateStr.split('-').map(Number); const [h, mi] = hm.split(':').map(Number); return new Date(y, m - 1, d, h, mi); };
+const isWeekday = (d) => d.getDay() >= 1 && d.getDay() <= 5;
+const fmtDay = (d) => d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+const fmtDate = (s) => { const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
+const fmtDT = (s, h) => `${fmtDay(at(s, h))} ${h}`;
+const nowStamp = () => new Date().toLocaleString('pt-BR');
+const mondayOf = (d) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); const dow = x.getDay() || 7; return addDays(x, 1 - dow); };
+const workday = (offset) => { let d = new Date(); d = new Date(d.getFullYear(), d.getMonth(), d.getDate()); while (!isWeekday(d)) d = addDays(d, 1); let n = offset; while (n > 0) { d = addDays(d, 1); if (isWeekday(d)) n--; } return ymd(d); };
+const siteName = (code) => SITES[code] || LOCAIS_MOTO[code] || code;
+// Normaliza local para comparar/agrupar: código cadastrado ou texto livre que coincide com um nome cadastrado → código.
+const normLoc = (v) => {
+  const s = String(v).trim();
+  if (SITES[s] || LOCAIS_MOTO[s]) return s;
+  const t = s.toLowerCase().replace(/\s+/g, ' ');
+  const hit = [...Object.entries(LOCAIS_MOTO), ...Object.entries(SITES)].find(([, n]) => n.toLowerCase() === t);
+  return hit ? hit[0] : t;
+};
+const tamCurto = (t) => ITEM_TAM[t].l.split(' ')[0].toLowerCase();
+const cargaPts = (r) => (r.tipo === 'moto' ? ITEM_TAM[r.tam].p * r.vol : BAG[r.bag].p);
+const resumo = (r) => (r.tipo === 'moto' ? `${r.vol}× ${r.item} (${tamCurto(r.tam)})` : `${r.pax} pax · ${BAG[r.bag].l.split(' ')[0]}`);
+const veic = (id) => VEICULOS.find((v) => v.id === id);
+const mot = (id) => S.motoristas.find((m) => m.id === id);
+const fmtFone = (d) => (d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : d);
+const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
+
+// ---------------- Estado ----------------
+const KEY = 'mobilab-sim-v4';
+let S;
+function load() { try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* sem storage: segue em memória */ } }
+
+function seed() {
+  const d0 = workday(0), d1 = workday(1), d2 = workday(2), d3 = workday(3);
+  const item = (desc, vol, tam, recebedor) => ({ item: desc, vol, tam, recebedor, pax: 0, bag: 'nenhuma' });
+  const r = (o) => ({ veiculo: null, motorista: null, os: null, excecao: false, motivo: '', criado: nowStamp(), ...o });
+  const reqs = [
+    r({ id: 'SOL-1041', tipo: 'grade', nome: 'Ana Souza', email: 'ana.souza@natulab.com.br', cc: '4010 – Tecnologia da Informação', data: d1, hora: '08:40', origem: 'MED', destino: 'SUP', pax: 2, bag: 'nenhuma', just: 'Suporte presencial na linha de envase', status: 'analise' }),
+    r({ id: 'SOL-1042', tipo: 'grade', nome: 'Bruno Lima', email: 'bruno.lima@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: d1, hora: '08:40', origem: 'MED', destino: 'CD', pax: 2, bag: 'pequena', just: 'Auditoria interna no CD', status: 'analise' }),
+    r({ id: 'SOL-1043', tipo: 'grade', nome: 'Carla Mendes', email: 'carla.mendes@natulab.com.br', cc: '5030 – Logística', data: d1, hora: '13:45', origem: 'MED', destino: 'SUP', pax: 2, bag: 'media', just: 'Inventário', status: 'analise' }),
+    r({ id: 'SOL-1044', tipo: 'grade', nome: 'Diego Rocha', email: 'diego.rocha@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: d1, hora: '13:45', origem: 'CD', destino: 'SUP', pax: 3, bag: 'pequena', just: 'Coleta de amostras', status: 'analise' }),
+    r({ id: 'SOL-1045', tipo: 'grade', nome: 'Helena Costa', email: 'helena.costa@natulab.com.br', cc: '2010 – Recursos Humanos', data: d0, hora: '15:00', origem: 'MED', destino: 'SUP', pax: 3, bag: 'nenhuma', just: 'Treinamento de integração', status: 'confirmada', veiculo: 'V1', motorista: 'D1' }),
+    r({ id: 'SOL-1046', tipo: 'cidade', nome: 'Elisa Prado', email: 'elisa.prado@natulab.com.br', cc: '6010 – Comercial', data: d2, hora: '10:00', origem: 'MED', destino: 'Centro – Cartório de Notas', pax: 1, bag: 'nenhuma', just: 'Reconhecimento de firma em contrato', status: 'analise' }),
+    r({ id: 'SOL-1047', tipo: 'moto', nome: 'Felipe Andrade', email: 'felipe.andrade@natulab.com.br', cc: '4030 – Suprimentos', data: d0, hora: '14:30', origem: 'S1', destino: 'Correios – Agência Centro', ...item('Documentos fiscais', 1, 'pequeno', 'Balcão dos Correios'), just: 'Postagem de documentos fiscais', status: 'confirmada', veiculo: 'M1', motorista: 'D3', os: 'OS-2026-000121' }),
+    r({ id: 'SOL-1048', tipo: 'inter', nome: 'Gustavo Reis', email: 'gustavo.reis@natulab.com.br', cc: '1000 – Diretoria', data: d3, hora: '06:00', origem: 'MED', destino: 'Aeroporto de Salvador', pax: 2, bag: 'grande', just: 'Viagem para auditoria de fornecedor', status: 'analise' }),
+    r({ id: 'SOL-1049', tipo: 'moto', nome: 'Ivo Pereira', email: 'ivo.pereira@natulab.com.br', cc: '7010 – Pesquisa e Desenvolvimento', data: d1, hora: '09:00', origem: 'LIFE', destino: 'Laboratório parceiro – Centro', ...item('Amostras para análise externa', 1, 'medio', 'Recepção do laboratório'), just: 'Análise externa de lote', status: 'analise' }),
+    r({ id: 'SOL-1050', tipo: 'moto', nome: 'Jéssica Alves', email: 'jessica.alves@natulab.com.br', cc: '8010 – Financeiro', data: d1, hora: '13:30', origem: 'S1', destino: 'Agência bancária – Centro', ...item('Documentos bancários', 1, 'pequeno', 'Gerente PJ'), just: 'Entrega de documentos bancários', status: 'confirmada', veiculo: 'M1', motorista: 'D3', os: 'OS-2026-000122' }),
+    r({ id: 'SOL-1051', tipo: 'moto', nome: 'Kátia Ramos', email: 'katia.ramos@natulab.com.br', cc: '4030 – Suprimentos', data: d1, hora: '10:00', origem: 'S1', destino: 'CD', ...item('Envelope com notas fiscais', 1, 'pequeno', 'Recebimento do CD'), just: 'Conferência de entrada de mercadoria', status: 'analise' }),
+    r({ id: 'SOL-1052', tipo: 'moto', nome: 'Lucas Martins', email: 'lucas.martins@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: d1, hora: '10:30', origem: 'S1', destino: 'CD', ...item('Caixa pequena de amostras de retenção', 1, 'pequeno', 'Laboratório CQ – CD'), just: 'Transferência de amostras', status: 'analise' }),
+  ];
+  reqs.find((x) => x.id === 'SOL-1047').wpp = nowStamp();
+  return {
+    user: null, reqs, motoristas: SEED_MOTORISTAS.map((m) => ({ ...m })), grade: SEED_GRADE.map((g) => ({ ...g, paradas: [...g.paradas] })),
+    log: [], seq: { req: 1052, os: 122, mot: 4, grade: SEED_GRADE.length }, week: 0,
+  };
+}
+
+function audit(acao, ref, antes, depois) {
+  S.log.unshift({ t: nowStamp(), user: S.user ? S.user.nome : '—', acao, ref, antes: antes ?? '', depois: depois ?? '' });
+}
+
+// ---------------- Regras de negócio ----------------
+function inExpediente(d) {
+  if (!isWeekday(d)) return false;
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return hm >= EXPEDIENTE[0] && hm < EXPEDIENTE[1];
+}
+/* Fora do expediente → primeiro horário permitido é o 2º horário da próxima grade operacional (seção 7.3). */
+function offHoursTarget(now = new Date()) {
+  if (inExpediente(now)) return null;
+  let d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const hm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  if (!isWeekday(d) || hm >= EXPEDIENTE[1]) { d = addDays(d, 1); while (!isWeekday(d)) d = addDays(d, 1); }
+  const g = grade();
+  return { data: ymd(d), hora: (g[1] || g[0] || { hora: EXPEDIENTE[0] }).hora };
+}
+function minAllowedGrade() {
+  const now = new Date();
+  const byAntec = new Date(now.getTime() + ANTEC_MIN.grade * 60000);
+  const off = offHoursTarget(now);
+  if (!off) return byAntec;
+  const t = at(off.data, off.hora);
+  return t > byAntec ? t : byAntec;
+}
+function slotOcc(data, hora, ignoreId) {
+  return S.reqs.filter((r) => r.tipo === 'grade' && r.data === data && r.hora === hora && ATIVOS.includes(r.status) && r.id !== ignoreId)
+    .reduce((s, r) => s + Number(r.pax), 0);
+}
+const grade = () => S.grade.filter((g) => g.ativo).sort((a, b) => a.hora.localeCompare(b.hora));
+const slotOf = (hora) => S.grade.find((g) => g.ativo && g.hora === hora);
+const periodo = (h) => (h < '12:00' ? 'Manhã' : h < '18:00' ? 'Tarde' : 'Noite');
+const rotaTxt = (p, short) => p.map((c) => (short ? SITE_SHORT[c] : siteName(c))).join(' → ');
+function trechoOk(paradas, o, d) { const i = paradas.indexOf(o), j = paradas.indexOf(d); return i >= 0 && j > i; }
+function nextCompatibleSlot(data, hora, origem, destino, pax) {
+  const min = minAllowedGrade();
+  let d = at(data, '00:00');
+  for (let k = 0; k < 15; k++, d = addDays(d, 1)) {
+    if (!isWeekday(d)) continue;
+    const ds = ymd(d);
+    for (const { hora: h, paradas } of grade()) {
+      const t = at(ds, h);
+      if (t <= at(data, hora) || t < min) continue;
+      if (!trechoOk(paradas, origem, destino)) continue;
+      if (slotOcc(ds, h) + pax <= SLOT_CAP) return { data: ds, hora: h };
+    }
+  }
+  return null;
+}
+// Duração que a solicitação ocupa veículo/motorista. Bate-volta avulso: ida + espera + volta.
+const durOf = (r) => (r.bv && r.tipo !== 'grade' ? r.bv.espera + 2 * DURACAO_MIN : DURACAO_MIN);
+function busy(kind, id, data, hora, ignoreIds = [], dur = DURACAO_MIN) {
+  const t = at(data, hora).getTime();
+  return S.reqs.some((r) => {
+    if (ignoreIds.includes(r.id) || !['confirmada', 'reagendada', 'andamento'].includes(r.status) || r[kind] !== id || r.data !== data) return false;
+    const tr = at(r.data, r.hora).getTime();
+    return t < tr + durOf(r) * 60000 && tr < t + dur * 60000; // intervalos se sobrepõem
+  });
+}
+function newReqId() { S.seq.req += 1; return `SOL-${S.seq.req}`; }
+function newOsId() { S.seq.os += 1; return `OS-2026-${String(S.seq.os).padStart(6, '0')}`; }
+
+// ---------------- Render base ----------------
+const app = () => $('#app');
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 3200); }
+function openModal(html) { const m = $('#modal'); $('.modal-card', m).innerHTML = html; m.hidden = false; }
+function closeModal() { $('#modal').hidden = true; }
+$('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('click', (e) => { const m = $('#menu'); if (m && !m.hidden && !e.target.closest('.user-wrap')) m.hidden = true; });
+const pill = (st) => `<span class="pill st-${esc(st)}">${esc(STATUS[st] || st)}</span>`;
+const brand = `<a class="brand" href="#"><span class="w">NATU<span>LAB</span></span><span class="s">FARMACÊUTICA</span></a>`;
+
+function route() {
+  const h = location.hash.replace('#', '') || '';
+  if (!S.user) return renderLogin();
+  const home = { colaborador: 'agenda', facilities: 'painel', ti: 'painel' }[S.user.role];
+  const allowed = NAV[S.user.role].map(([k]) => k);
+  const page = allowed.includes(h) ? h : home;
+  ({ agenda: renderAgenda, minhas: renderMinhas, painel: renderPainel, viagens: renderViagens, solicitacoes: renderTodas, motoristas: renderMotoristas,
+    grade: renderGrade, historico: renderHistorico, cadastros: renderCadastros })[page](page);
+}
+window.addEventListener('hashchange', route);
+
+// Perfis → telas. TI / Administração do sistema tem acesso a tudo.
+const NAV_COLAB = [['agenda', 'Agenda'], ['minhas', 'Minhas solicitações']];
+const NAV_FAC = [['painel', 'Painel'], ['viagens', 'Viagens'], ['solicitacoes', 'Solicitações'], ['motoristas', 'Motoristas'], ['grade', 'Grade e rotas']];
+const NAV = {
+  colaborador: NAV_COLAB,
+  facilities: NAV_FAC,
+  ti: [...NAV_FAC, ...NAV_COLAB, ['historico', 'Histórico'], ['cadastros', 'Cadastros']],
+};
+// Ícones (traço, herdam a cor do texto)
+const ICO = {
+  cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.6 3 5.2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+  left: '<path d="M15 5l-7 7 7 7"/>', right: '<path d="M9 5l7 7-7 7"/>', down: '<path d="M6 9l6 6 6-6"/>',
+  filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
+  route: '<circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5"/>',
+  pin: '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>', plus: '<path d="M12 5v14M5 12h14"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5l8.5 6 8.5-6"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+};
+const ico = (n, s = 18) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO[n]}</svg>`;
+
+function openAjuda() {
+  openModal(`
+    <h3>Política de transporte</h3>
+    <p class="sub">Regras usadas nesta simulação (em validação com o Facilities).</p>
+    <ul class="help-list">
+      <li><b>Grade entre sites:</b> escolha um horário na Agenda e solicite com pelo menos <b>1 hora</b> de antecedência.</li>
+      <li><b>Fora do expediente</b> (${EXPEDIENTE[0]}–${EXPEDIENTE[1]}, seg–sex): a solicitação vai para o <b>2º horário</b> do próximo dia útil.</li>
+      <li><b>Capacidade:</b> cada horário tem <b>${CAP_PADRAO} vagas</b> (carro). Se passar de ${CAP_PADRAO} passageiros, a viagem vai de <b>Spin</b> (até ${SLOT_CAP}). Ocupação conta solicitações em análise e confirmadas.</li>
+      <li><b>Táxi na cidade:</b> 1 h de antecedência · <b>Intermunicipal:</b> 48 h · <b>Moto Táxi:</b> envio de itens (prazo a definir).</li>
+      <li>Toda solicitação passa pela análise do <b>Facilities</b>; você acompanha o status em “Minhas solicitações”.</li>
+    </ul>
+    <div class="modal-acts"><button class="btn green" id="cx">Entendi</button></div>`);
+  $('#cx').onclick = closeModal;
+}
+
+function shell(page, content) {
+  const nav = NAV[S.user.role];
+  const nMinhas = S.reqs.filter((r) => r.email === S.user.email && ATIVOS.includes(r.status)).length;
+  const nNovas = minhasMsgs().filter((e) => !e.lida).length;
+  app().innerHTML = `
+    <header class="topbar">
+      ${brand}
+      <nav>${nav.map(([k, l]) => `<a href="#${k}" class="${k === page ? 'on' : ''}">${l}${k === 'minhas' && nMinhas ? ` <span class="count">${nMinhas}</span>` : ''}</a>`).join('')}
+        <a href="#" id="ajuda">Ajuda</a></nav>
+      <span class="spacer"></span>
+      <span class="badge-sim">SIMULAÇÃO</span>
+      <button class="icon-btn bell" id="bell" aria-label="Mensagens do Facilities${nNovas ? ` (${nNovas} novas)` : ''}" title="Mensagens do Facilities">${ico('bell', 18)}${nNovas ? `<span class="dot">${nNovas}</span>` : ''}</button>
+      <div class="user-wrap">
+        <button class="user" id="umenu" aria-haspopup="true" aria-expanded="false"><span class="avatar">${esc(initials(S.user.nome))}</span>
+          <span class="who"><b>${esc(S.user.nome)}</b>${esc(S.user.cargo)}</span>${ico('down', 16)}</button>
+        <div class="menu" id="menu" hidden>
+          <button id="reset">Restaurar dados de exemplo</button>
+          <button id="logout">Sair</button>
+        </div>
+      </div>
+    </header>
+    <main>${content}</main>`;
+  $('#ajuda').onclick = (e) => { e.preventDefault(); openAjuda(); };
+  $('#bell').onclick = openCaixa;
+  $('#umenu').onclick = () => { const m = $('#menu'); m.hidden = !m.hidden; $('#umenu').setAttribute('aria-expanded', String(!m.hidden)); };
+  $('#logout').onclick = () => { audit('Logout', S.user.email); S.user = null; save(); location.hash = ''; route(); };
+  $('#reset').onclick = () => { if (confirm('Restaurar os dados de exemplo da simulação?')) { const u = S.user; S = seed(); S.user = u; save(); route(); toast('Dados de exemplo restaurados.'); } };
+}
+
+// ---------------- Login ----------------
+const heroArt = `
+<svg viewBox="0 0 640 420" role="img" aria-label="Rota entre os sites Natulab">
+  <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#1b3a7a"/><stop offset="1" stop-color="#2d5bd1"/></linearGradient></defs>
+  <path d="M70 300 C 180 120, 300 360, 420 190 S 580 110, 590 120" fill="none" stroke="#0b2a8f" stroke-width="10" stroke-linecap="round" stroke-dasharray="2 22" opacity=".55"/>
+  <g transform="translate(70 300)"><circle r="34" fill="#fff"/><circle r="22" fill="url(#g)"/><text y="70" text-anchor="middle" font-size="20" font-weight="800" fill="#0b2a8f">Medicamentos</text></g>
+  <g transform="translate(330 270)"><circle r="34" fill="#fff"/><circle r="22" fill="url(#g)"/><text y="70" text-anchor="middle" font-size="20" font-weight="800" fill="#0b2a8f">CD Natulab</text></g>
+  <g transform="translate(590 120)"><circle r="34" fill="#fff"/><circle r="22" fill="url(#g)"/><text y="70" text-anchor="middle" font-size="20" font-weight="800" fill="#0b2a8f">Suplementos</text></g>
+  <g transform="translate(160 120)">
+    <rect x="0" y="20" width="190" height="80" rx="22" fill="#fff"/>
+    <path d="M18 20 L50 -18 H150 L182 20 Z" fill="#fff"/>
+    <path d="M60 -8 H100 V20 H40 Z M110 -8 H145 L168 20 H110 Z" fill="#cfe6ff"/>
+    <rect x="0" y="52" width="190" height="10" fill="#4a8f22"/>
+    <circle cx="45" cy="100" r="22" fill="#13295a"/><circle cx="45" cy="100" r="9" fill="#fff"/>
+    <circle cx="150" cy="100" r="22" fill="#13295a"/><circle cx="150" cy="100" r="9" fill="#fff"/>
+  </g>
+  <g transform="translate(420 300)">
+    <circle cx="0" cy="40" r="26" fill="#13295a"/><circle cx="0" cy="40" r="10" fill="#fff"/>
+    <circle cx="110" cy="40" r="26" fill="#13295a"/><circle cx="110" cy="40" r="10" fill="#fff"/>
+    <path d="M0 40 L40 0 H80 L110 40" fill="none" stroke="#fff" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M38 0 L52 -28 H70" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+    <rect x="44" y="-10" width="44" height="16" rx="8" fill="#4a8f22"/>
+  </g>
+</svg>`;
+
+function renderLogin() {
+  app().innerHTML = `
+  <div class="login-wrap"><div class="login">
+    <section class="login-hero">
+      <h1>Mobilab</h1>
+      <div class="sub">Táxi e Moto Táxi corporativo</div>
+      <div class="art">${heroArt}</div>
+      <div class="hero-foot">
+        <div class="contact"><span><b>SAC</b> 0800 730 7370</span><span>|</span><b>natulab.com.br</b></div>
+        <div class="tag">Bem-estar todos os dias</div>
+        <div class="lead">Solicite, acompanhe e organize seus deslocamentos entre os sites.</div>
+      </div>
+      <span class="hero-pill">Natulab</span>
+    </section>
+    <section class="login-form">
+      <div class="login-top">${brand}<span class="chip-brand"><i></i>Mobilab</span></div>
+      <h2>Bem-vindo de volta</h2>
+      <p class="hint">Informe suas credenciais abaixo para acessar sua conta.</p>
+      <form id="lf" novalidate>
+        <div class="field"><label for="em">E-mail</label><input class="input" id="em" type="email" placeholder="seuemail@exemplo.com" autocomplete="username"></div>
+        <div class="field"><label for="pw">Senha</label><div class="pw"><input class="input" id="pw" type="password" placeholder="Digite sua senha" autocomplete="current-password">
+          <button type="button" id="eye" aria-label="Mostrar senha"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
+        <div class="row-between"><label class="check"><input type="checkbox" checked> Lembrar de mim</label><a class="link-strong" href="#" id="forgot">Esqueci minha senha</a></div>
+        <button class="btn-primary" type="submit">Entrar</button>
+        <div id="lerr" class="err" hidden></div>
+      </form>
+      <div class="demo">
+        <p><b>Simulação:</b> qualquer senha funciona. Entre como:</p>
+        <div class="chips">
+          <button data-em="colaborador@natulab.com.br">Colaborador</button>
+          <button data-em="facilities@natulab.com.br">Facilities</button>
+          <button data-em="ti@natulab.com.br">TI / Administração</button>
+        </div>
+      </div>
+      <div class="login-foot">Copyright © ${new Date().getFullYear()} Mobilab · Natulab</div>
+    </section>
+  </div></div>`;
+  $('#eye').onclick = () => { const p = $('#pw'); p.type = p.type === 'password' ? 'text' : 'password'; };
+  $('#forgot').onclick = (e) => { e.preventDefault(); toast('Na versão final o acesso é pela conta corporativa (AD) — sem senha própria.'); };
+  document.querySelectorAll('.demo button').forEach((b) => { b.onclick = () => { $('#em').value = b.dataset.em; $('#pw').value = 'demo'; $('#lf').requestSubmit(); }; });
+  $('#lf').onsubmit = (e) => {
+    e.preventDefault();
+    const em = $('#em').value.trim().toLowerCase();
+    const err = $('#lerr');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || !$('#pw').value) { err.textContent = 'Informe um e-mail válido e a senha.'; err.hidden = false; return; }
+    if (em.includes('facilities')) S.user = { email: em, nome: 'Equipe Facilities', cargo: 'Facilities', role: 'facilities' };
+    else if (em.startsWith('ti@')) S.user = { email: em, nome: 'Equipe TI', cargo: 'TI / Administração do sistema', role: 'ti', cc: '4010 – Tecnologia da Informação' };
+    else {
+      const nome = em.split('@')[0].split(/[._-]/).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ');
+      S.user = { email: em, nome, cargo: 'Tecnologia da Informação', role: 'colaborador', cc: '4010 – Tecnologia da Informação' };
+    }
+    audit('Login', em);
+    save();
+    location.hash = '';
+    route();
+  };
+}
+
+// ---------------- Colaborador: Agenda ----------------
+const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const SITE_CURTO = { MED: 'Medicamentos', CD: 'CD', SUP: 'Suplementos' };
+const curto = (c) => SITE_CURTO[c] || siteName(c);
+const UI = { per: 'todos', view: 'grade', sel: null }; // estado só da tela (não persiste)
+
+function weekLabel(a, b) {
+  if (a.getMonth() === b.getMonth()) return `${pad(a.getDate())} – ${pad(b.getDate())} de ${MESES[b.getMonth()]}, ${b.getFullYear()}`;
+  return `${pad(a.getDate())} ${MESES[a.getMonth()].slice(0, 3)} – ${pad(b.getDate())} ${MESES[b.getMonth()].slice(0, 3)}, ${b.getFullYear()}`;
+}
+const SLOT_LBL = { disp: 'Disponível', poucas: 'Poucas vagas', lotado: 'Lotado', indisp: 'Fora do prazo' };
+function slotInfo(ds, slot, min, mine) {
+  const occ = slotOcc(ds, slot.hora);
+  const cap = capSlot(occ);
+  const livres = Math.max(0, cap - occ);
+  const my = mine.find((r) => r.tipo === 'grade' && r.data === ds && r.hora === slot.hora && ATIVOS.includes(r.status));
+  let cls = 'disp';
+  if (my) cls = 'minha';
+  else if (at(ds, slot.hora) < min) cls = 'indisp';
+  else if (!livres) cls = 'lotado';
+  else if (livres <= 2) cls = 'poucas';
+  return { occ, livres, cap, veic: veicPrevisto(occ), my, cls, pct: Math.min(100, Math.round((occ / cap) * 100)), lbl: my ? STATUS[my.status] : SLOT_LBL[cls] };
+}
+const vagasTxt = (n) => (n ? `${n} ${n === 1 ? 'vaga' : 'vagas'}` : 'Lotado');
+
+function painelSlot(sel, min, mine) {
+  const slot = sel && slotOf(sel.h);
+  if (!slot) {
+    return `<div class="det-empty">${ico('cal', 28)}<b>Selecione um horário</b><p>Clique em um horário da agenda para ver a rota, as vagas e o veículo antes de solicitar.</p></div>`;
+  }
+  const inf = slotInfo(sel.d, slot, min, mine);
+  const conf = S.reqs.filter((r) => r.tipo === 'grade' && r.data === sel.d && r.hora === sel.h && ['confirmada', 'andamento', 'concluida'].includes(r.status));
+  const v = veic((conf.find((r) => r.veiculo) || {}).veiculo);
+  const m = mot((conf.find((r) => r.motorista) || {}).motorista);
+  const p = slot.paradas;
+  const stops = p.map((c, i) => `<li class="${i === 0 ? 'ini' : i === p.length - 1 ? 'fim' : 'mid'}">
+      <small>${i === 0 ? 'Saída' : i === p.length - 1 ? 'Destino' : 'Parada'}</small><b>${esc(siteName(c))}</b>${i === 0 ? `<span>${esc(sel.h)}</span>` : ''}</li>`).join('');
+  let acao;
+  if (inf.my) acao = `<button class="btn-cta" id="go" data-act="ver">Ver minha solicitação</button>`;
+  else if (inf.cls === 'indisp') acao = `<button class="btn-cta" disabled>Fora do prazo de solicitação</button><p class="cta-note">Antecedência mínima de 1 h ou regra de expediente.</p>`;
+  else if (inf.cls === 'lotado') acao = `<button class="btn-cta" disabled>Horário lotado</button><p class="cta-note">Escolha outro horário ou use a solicitação avulsa.</p>`;
+  else acao = `<button class="btn-cta" id="go" data-act="sol">Solicitar este horário</button>`;
+  return `
+    <div class="det-h"><div><span class="eyebrow">Detalhes do transporte</span><div class="det-t">${esc(sel.h)}</div>
+      <span class="sp sp-${inf.cls}"><i></i>${esc(inf.lbl)}</span></div>
+      <button class="icon-btn" id="detx" aria-label="Fechar detalhes">${ico('x', 18)}</button></div>
+    <ol class="tl">${stops}</ol>
+    <div class="det-grid">
+      <div>${ico('cal', 18)}<span><small>Data</small>${esc(fmtDate(sel.d))}</span></div>
+      <div>${ico('users', 18)}<span><small>Disponibilidade</small>${inf.livres} de ${inf.cap} vagas</span></div>
+      <div>${ico('route', 18)}<span><small>Itinerário</small>${esc(p.map(curto).join(' → '))}</span></div>
+      <div>${ico('pin', 18)}<span><small>Veículo</small>${v ? `${esc(v.nome)} · ${esc(v.placa)}` : `${inf.veic} (previsto)`}</span></div>
+    </div>
+    <div class="drv"><span class="avatar ${m ? '' : 'off'}">${m ? esc(initials(m.nome)) : '?'}</span>
+      <span><small>Motorista</small>${m ? esc(m.nome) : 'Definido pelo Facilities na confirmação'}</span></div>
+    <div class="note">Chegue ao ponto de embarque com pelo menos 5 minutos de antecedência.</div>
+    ${acao}
+    <a href="#" class="det-link" id="pol">Ver política de transporte</a>`;
+}
+
+function renderAgenda(page) {
+  const base = addDays(mondayOf(new Date()), S.week * 7);
+  const days = [0, 1, 2, 3, 4].map((i) => addDays(base, i));
+  const min = minAllowedGrade();
+  const off = offHoursTarget();
+  const todayStr = ymd(new Date());
+  const mine = S.reqs.filter((r) => r.email === S.user.email);
+  const g = grade().filter((s) => UI.per === 'todos' || periodo(s.hora) === UI.per);
+  if (UI.sel && !days.some((d) => ymd(d) === UI.sel.d)) UI.sel = null;
+
+  let livresSemana = 0;
+  days.forEach((d) => grade().forEach((s) => { const i = slotInfo(ymd(d), s, min, mine); if (i.cls !== 'indisp') livresSemana += i.livres; }));
+  const pend = mine.filter((r) => r.status === 'analise').length;
+  const novas = minhasMsgs().filter((e) => !e.lida);
+
+  const card = (ds, s) => {
+    const i = slotInfo(ds, s, min, mine);
+    const sel = UI.sel && UI.sel.d === ds && UI.sel.h === s.hora;
+    const p = s.paradas, via = p.slice(1, -1).map(curto).join(', ');
+    return `<button class="sc s-${i.cls}${sel ? ' sel' : ''}" data-d="${ds}" data-h="${s.hora}" title="${esc(rotaTxt(p))}">
+      <span class="sc-top"><span class="t">${s.hora}</span>${i.my ? `<span class="tag">${esc(i.lbl)}</span>` : `<span class="vg">${ico('users', 14)}${vagasTxt(i.livres)}</span>`}</span>
+      <span class="sc-r"><span>${esc(curto(p[0]))}</span> <span><i>→</i> ${esc(curto(p[p.length - 1]))}</span></span>
+      <span class="sc-m"><span>${via ? `via ${esc(via)}` : 'direto'}</span><span>${i.veic}</span></span>
+      <span class="bar"><i style="width:${i.pct}%"></i></span></button>`;
+  };
+  const col = (d) => {
+    const ds = ymd(d), hoje = ds === todayStr;
+    let html = `<section class="day${hoje ? ' today' : ''}"><div class="day-h"><b>${DIAS[d.getDay()]}</b>${hoje ? '<span class="hoje">Hoje</span>' : ''}<small>${pad(d.getDate())} ${MESES[d.getMonth()].slice(0, 3)}</small></div><div class="day-b">`;
+    if (!g.length) html += '<div class="empty">Nenhum horário.</div>';
+    ['Manhã', 'Tarde', 'Noite'].forEach((per) => {
+      const ss = g.filter((s) => periodo(s.hora) === per);
+      if (!ss.length) return;
+      html += `<div class="per"><span>${per}</span><small>${ss.length} ${ss.length === 1 ? 'horário' : 'horários'}</small></div>${ss.map((s) => card(ds, s)).join('')}`;
+    });
+    return html + '</div></section>';
+  };
+  const lista = () => `<div class="card lst-wrap"><div class="table-wrap"><table class="lst"><thead><tr><th>Dia</th><th>Horário</th><th>Rota</th><th>Vagas</th><th>Situação</th></tr></thead><tbody>
+    ${days.map((d) => g.map((s) => {
+      const ds = ymd(d), i = slotInfo(ds, s, min, mine), sel = UI.sel && UI.sel.d === ds && UI.sel.h === s.hora;
+      return `<tr class="sc s-${i.cls}${sel ? ' sel' : ''}" data-d="${ds}" data-h="${s.hora}" tabindex="0"><td>${DIAS[d.getDay()]} <small>${fmtDate(ds)}</small></td><td><b>${s.hora}</b></td>
+        <td>${esc(s.paradas.map(curto).join(' → '))}</td><td>${vagasTxt(i.livres)}</td><td><span class="sp sp-${i.cls}"><i></i>${esc(i.lbl)}</span></td></tr>`;
+    }).join('')).join('')}</tbody></table></div></div>`;
+  const seg = (k, l) => `<button class="seg-b${UI.per === k ? ' on' : ''}" data-per="${k}">${l}</button>`;
+
+  shell(page, `
+    <div class="hero">
+      <div><span class="eyebrow">Mobilidade corporativa</span><h1>Olá, ${esc(S.user.nome)}</h1>
+        <p>Encontre um horário, confira os detalhes da rota e solicite sua vaga.</p></div>
+      <button class="btn-cta inline" id="avulsa">${ico('plus', 18)} Solicitação avulsa</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="si blue">${ico('cal', 20)}</span><span><b>${g.length * days.length}</b><small>horários na semana</small></span></div>
+      <div class="stat"><span class="si green">${ico('users', 20)}</span><span><b>${livresSemana}</b><small>vagas disponíveis</small></span></div>
+      <div class="stat"><span class="si amber">${ico('clock', 20)}</span><span><b>${pend}</b><small>${pend === 1 ? 'solicitação pendente' : 'solicitações pendentes'}</small></span></div>
+      <div class="stat info">${ico('info', 18)}<span>A ocupação considera solicitações em análise e confirmadas. Padrão: ${CAP_PADRAO} vagas por horário; acima disso, Spin (${SLOT_CAP}).</span></div>
+    </div>
+    ${novas.length ? `<div class="notif">
+      <div class="notif-h"><span class="si green">${ico('mail', 20)}</span><div><b>${novas.every((e) => !e.kind) ? (novas.length === 1 ? 'Viagem confirmada' : `${novas.length} viagens confirmadas`) : `${novas.length} ${novas.length === 1 ? 'mensagem nova' : 'mensagens novas'} do Facilities`}</b>
+        <small>Enviadas também para o seu e-mail: confirmações, recusas e remarcações.</small></div></div>
+      ${novas.slice(0, 3).map((e) => `<button class="mail-row nova k-${e.kind || 'ok'}" data-em="${esc(e.id)}"><i></i><span><b>${esc(e.assunto)}</b><small>${esc(e.quando)} · ${esc(e.refs.join(', '))}</small></span><span class="lnk">Abrir</span></button>`).join('')}
+    </div>` : ''}
+    ${off ? `<div class="banner warn">${ico('clock', 18)}<div><b>Fora do expediente do Facilities.</b> Solicitações da grade feitas agora vão para o <b>2º horário do próximo dia útil: ${esc(fmtDT(off.data, off.hora))}</b>.</div></div>` : ''}
+    <div class="toolbar">
+      <div class="wk">
+        <button class="icon-btn" id="prev" aria-label="Semana anterior">${ico('left')}</button>
+        <div class="wk-box">${ico('cal', 18)}<span><small>${S.week === 0 ? 'Semana atual' : S.week < 0 ? 'Semana anterior' : 'Próxima semana'}</small><b>${weekLabel(days[0], days[4])}</b></span></div>
+        <button class="icon-btn" id="next" aria-label="Próxima semana">${ico('right')}</button>
+        <button class="btn" id="hoje">Hoje</button>
+      </div>
+      <div class="wk">
+        <span class="lbl">${ico('filter', 16)} Período</span>
+        <div class="seg">${seg('todos', 'Todos')}${seg('Manhã', 'Manhã')}${seg('Tarde', 'Tarde')}</div>
+        <div class="seg view"><button class="seg-b${UI.view === 'grade' ? ' on' : ''}" data-view="grade" aria-label="Ver em grade">${ico('grid', 16)}</button><button class="seg-b${UI.view === 'lista' ? ' on' : ''}" data-view="lista" aria-label="Ver em lista">${ico('list', 16)}</button></div>
+      </div>
+    </div>
+    <div class="ag-body">
+      <div class="ag-main">${UI.view === 'grade' ? `<div class="cal-scroll"><div class="week">${days.map(col).join('')}</div></div>` : lista()}</div>
+      <aside class="det" id="det">${painelSlot(UI.sel, min, mine)}</aside>
+    </div>`);
+
+  $('#prev').onclick = () => { S.week -= 1; save(); route(); };
+  $('#next').onclick = () => { S.week += 1; save(); route(); };
+  $('#hoje').onclick = () => { S.week = 0; save(); route(); };
+  $('#avulsa').onclick = openAvulsa;
+  document.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { UI.per = b.dataset.per; route(); }; });
+  document.querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => { UI.view = b.dataset.view; route(); }; });
+  document.querySelectorAll('.notif .mail-row').forEach((b) => { b.onclick = () => openEmail(b.dataset.em); });
+  const pick = (el) => {
+    UI.sel = { d: el.dataset.d, h: el.dataset.h };
+    route();
+    const det = $('#det');
+    if (det && det.scrollIntoView && window.matchMedia && window.matchMedia('(max-width: 1180px)').matches) det.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  document.querySelectorAll('.sc').forEach((el) => {
+    el.onclick = () => pick(el);
+    el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(el); } };
+  });
+  const go = $('#go');
+  if (go) go.onclick = () => openSlot(UI.sel.d, UI.sel.h); // com solicitação ativa, openSlot abre o detalhe dela
+  const x = $('#detx'); if (x) x.onclick = () => { UI.sel = null; route(); };
+  const pol = $('#pol'); if (pol) pol.onclick = (e) => { e.preventDefault(); openAjuda(); };
+}
+
+function trechoOptions(rt, sel) {
+  const out = [];
+  for (let i = 0; i < rt.length; i++) for (let j = i + 1; j < rt.length; j++) {
+    const v = `${rt[i]}|${rt[j]}`;
+    out.push(`<option value="${v}" ${v === sel ? 'selected' : ''}>${siteName(rt[i])} → ${siteName(rt[j])}</option>`);
+  }
+  return out.join('');
+}
+const siteOptions = (sel) => Object.entries(SITES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('') + `<option value="OUTRO" ${sel === 'OUTRO' ? 'selected' : ''}>Outro (informar)</option>`;
+const locOptions = (sel) => Object.entries(LOCAIS_MOTO).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('') + '<option value="OUTRO">Outro (informar)</option>';
+const bagOptions = (sel) => Object.entries(BAG).map(([k, b]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${b.l}</option>`).join('');
+
+// Retorno da grade: horários posteriores à ida cuja rota cobre o trecho da volta (de → para).
+function retornoSlots(data, hora, rd, de, para, pax) {
+  if (!rd || !isWeekday(at(rd, '12:00'))) return [];
+  const min = minAllowedGrade();
+  return grade().filter((g) => trechoOk(g.paradas, de, para) && at(rd, g.hora) > at(data, hora)).map((g) => {
+    const occ = slotOcc(rd, g.hora);
+    const meu = S.reqs.some((r) => r.email === S.user.email && r.tipo === 'grade' && r.data === rd && r.hora === g.hora && ATIVOS.includes(r.status));
+    const why = at(rd, g.hora) < min ? 'fora do prazo' : meu ? 'você já tem solicitação' : occ + pax > SLOT_CAP ? 'sem vagas' : '';
+    return { hora: g.hora, paradas: g.paradas, occ, why };
+  });
+}
+const ESPERAS = [30, 60, 90, 120, 180, 240];
+const fmtMin = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60}` : ''}`);
+const addMin = (hm, m) => { const [h, mi] = hm.split(':').map(Number); const t = h * 60 + mi + m; return `${pad(Math.floor(t / 60) % 24)}:${pad(t % 60)}`; };
+const modoRet = () => { const r = document.querySelector('input[name="rm"]:checked'); return (r && r.value) || 'nao'; };
+// Bloco de retorno compartilhado: Sem retorno · Bate-volta · Retorno em outro horário + "Voltar para".
+function retornoHtml(kind) {
+  const g = kind === 'grade';
+  const op = (v, t, d, on) => `<label class="ret-o"><input type="radio" name="rm" value="${v}" ${on ? 'checked' : ''}><span><b>${t}</b><small>${d}</small></span></label>`;
+  return `
+      <div class="f full ret-box ${g ? '' : 'c-carro'}"><span class="ret-l">Retorno</span><div class="ret-opts">
+        ${op('nao', 'Sem retorno', 'Somente ida', true)}
+        ${op('bv', 'Bate-volta', g ? 'Volta no 1º horário da grade após o tempo no destino' : 'O motorista aguarda e traz de volta', false)}
+        ${op('outro', 'Retorno em outro horário', g ? 'Escolha o horário de volta (mesmo dia)' : 'Nova corrida mais tarde, no mesmo dia', false)}
+      </div></div>
+      <div class="f r-bv" hidden><label for="rpe">Tempo no destino</label><select id="rpe">${ESPERAS.map((m) => `<option value="${m}" ${m === 60 ? 'selected' : ''}>até ${fmtMin(m)}</option>`).join('')}</select></div>
+      <div class="f r-on" hidden><label for="rvo">Voltar para</label><select id="rvo"></select><input id="rvot" placeholder="Endereço / local de volta" hidden style="margin-top:6px"></div>
+      <div class="f r-ou" hidden><label for="rth">Horário do retorno <small>(mesmo dia)</small></label>${g ? '<select id="rth"></select><input id="rtht" type="time" value="17:00" hidden>' : '<input id="rth" type="time" value="17:00">'}</div>
+      <div class="f full r-on" hidden><div class="ret-info" id="rtinfo"></div></div>`;
+}
+const showRet = (m, off) => {
+  document.querySelectorAll('.r-bv').forEach((e) => { e.hidden = off || m !== 'bv'; });
+  document.querySelectorAll('.r-ou').forEach((e) => { e.hidden = off || m !== 'outro'; });
+  document.querySelectorAll('.r-on').forEach((e) => { e.hidden = off || m === 'nao'; });
+};
+const parDe = (r) => r.par && S.reqs.find((x) => x.id === r.par);
+const pernaTxt = (r) => (r.perna === 'ida' ? 'Ida' : r.perna === 'volta' ? 'Retorno' : r.bv ? 'Bate-volta' : '');
+const bvTxt = (r) => (r.bv ? `Bate-volta: aguarda até ${fmtMin(r.bv.espera)} no destino e volta para ${siteName(r.bv.volta)}` : '');
+
+function openSlot(data, hora, preset) {
+  const existing = S.reqs.find((r) => r.email === S.user.email && r.tipo === 'grade' && r.data === data && r.hora === hora && ATIVOS.includes(r.status));
+  if (existing) return openDetalhe(existing.id);
+  const slot = slotOf(hora);
+  if (!slot) { toast('Este horário não está mais ativo na grade.'); return; }
+  const occ = slotOcc(data, hora);
+  const p = preset || {};
+  openModal(`
+    <h3>Solicitar — ${esc(fmtDT(data, hora))}</h3>
+    <p class="sub">Rota: ${esc(rotaTxt(slot.paradas))} · ocupação atual ${occ}/${capSlot(occ)} (${veicPrevisto(occ)})</p>
+    <form id="sf" class="form-grid">
+      <div class="f"><label>Solicitante</label><input readonly value="${esc(S.user.nome)}"></div>
+      <div class="f"><label>Centro de custo</label><input readonly value="${esc(S.user.cc)}"><small>Carregado do cadastro corporativo</small></div>
+      <div class="f full"><label for="tr">Trecho</label><select id="tr">${trechoOptions(slot.paradas, p.trecho)}</select></div>
+      <div class="f"><label for="px">Passageiros</label><input id="px" type="number" min="1" max="${SLOT_CAP}" value="${esc(p.pax || 1)}"><small>Incluindo você. Até ${CAP_PADRAO}: carro · acima: Spin (máx. ${SLOT_CAP})</small></div>
+      <div class="f"><label for="bg">Bagagem</label><select id="bg">${bagOptions(p.bag || 'nenhuma')}</select></div>
+      <div class="f full"><label for="nm">Nomes dos acompanhantes <small>(opcional)</small></label><input id="nm" value="${esc(p.nomes || '')}" placeholder="Ex.: Maria Santos, José Lima"></div>
+      <div class="f full"><label for="js">Justificativa</label><textarea id="js" placeholder="Motivo do deslocamento">${esc(p.just || '')}</textarea></div>
+      ${retornoHtml('grade')}
+    </form>
+    <div id="sfmsg"></div>
+    <div class="modal-acts"><button class="btn" id="cx">Cancelar</button><button class="btn green" id="ok">Enviar solicitação</button></div>`);
+  $('#cx').onclick = closeModal;
+  // Volta pela grade: de = destino da ida; para = unidade escolhida em "Voltar para".
+  const pax0 = () => parseInt($('#px').value, 10) || 1;
+  const bvSlot = () => { // bate-volta: 1º horário livre no mesmo dia após o tempo no destino
+    const [, d] = $('#tr').value.split('|');
+    const lim = at(data, addMin(hora, Number($('#rpe').value)));
+    return retornoSlots(data, hora, data, d, $('#rvo').value, pax0()).find((s) => !s.why && at(data, s.hora) >= lim);
+  };
+  const lerRet = () => { const [, d] = $('#tr').value.split('|'); return retornoSlots(data, hora, data, d, $('#rvo').value, pax0()); };
+  const syncRet = () => {
+    const m = modoRet();
+    showRet(m, false);
+    if (m === 'nao') return;
+    const [o, d] = $('#tr').value.split('|');
+    const prevV = $('#rvo').value;
+    const opts = [...Object.keys(SITES).filter((k) => k !== d), 'OUTRO'];
+    const vSel = opts.includes(prevV) ? prevV : o;
+    $('#rvo').innerHTML = opts.map((k) => `<option value="${k}" ${k === vSel ? 'selected' : ''}>${k === 'OUTRO' ? 'Outro (informar)' : esc(siteName(k))}</option>`).join('');
+    const volta = vSel;
+    const fora = volta === 'OUTRO'; // fora da grade: a volta vira táxi na cidade
+    $('#rvot').hidden = !fora;
+    $('#rth').hidden = fora; $('#rtht').hidden = !fora;
+    if (fora) {
+      const txt = $('#rvot').value.trim() || 'endereço informado';
+      const hTaxi = m === 'bv' ? addMin(hora, Number($('#rpe').value)) : $('#rtht').value;
+      $('#rtinfo').innerHTML = `Volta de <b>táxi na cidade</b>: ${esc(siteName(d))} → <b>${esc(txt)}</b> às <b>${esc(hTaxi || '--:--')}</b> (fora da grade).`;
+      return;
+    }
+    if (m === 'bv') {
+      const s = bvSlot();
+      $('#rtinfo').innerHTML = s ? `Volta <b>${esc(siteName(d))} → ${esc(siteName(volta))}</b> às <b>${s.hora}</b> — 1º horário da grade após ${fmtMin(Number($('#rpe').value))} no destino.`
+        : `<span class="bad-t">Nenhum horário da grade de ${esc(siteName(d))} para ${esc(siteName(volta))} neste dia depois de ${fmtMin(Number($('#rpe').value))}. Escolha “Retorno em outro horário”.</span>`;
+      return;
+    }
+    const ls = lerRet();
+    const prev = $('#rth').value;
+    const firstOk = (ls.find((s) => !s.why) || {}).hora;
+    // "Outro horário": fora da grade → volta de táxi na cidade, no horário que a pessoa informar
+    const sel = prev === 'OUTRO' || !firstOk ? 'OUTRO' : ls.some((x) => x.hora === prev && !x.why) ? prev : firstOk;
+    $('#rth').innerHTML = ls.map((s) => `<option value="${s.hora}" ${s.why ? 'disabled' : ''} ${s.hora === sel ? 'selected' : ''}>${s.hora} — ${esc(rotaTxt(s.paradas, true))}${s.why ? ` (${s.why})` : ` · ${capSlot(s.occ) - s.occ} vagas`}</option>`).join('')
+      + `<option value="OUTRO" ${sel === 'OUTRO' ? 'selected' : ''}>Outro horário (informar) — táxi</option>`;
+    const taxiH = sel === 'OUTRO';
+    $('#rtht').hidden = !taxiH;
+    $('#rtinfo').innerHTML = taxiH
+      ? `Volta de <b>táxi na cidade</b>: ${esc(siteName(d))} → <b>${esc(siteName(volta))}</b> às <b>${esc($('#rtht').value || '--:--')}</b> (fora dos horários da grade).`
+      : `Volta: <b>${esc(siteName(d))} → ${esc(siteName(volta))}</b>`;
+  };
+  document.querySelectorAll('input[name="rm"]').forEach((e) => { e.onchange = syncRet; });
+  ['#tr', '#px', '#rvo', '#rpe', '#rtht', '#rth'].forEach((s) => { $(s).onchange = syncRet; });
+  $('#rvot').oninput = syncRet;
+  $('#ok').onclick = () => {
+    const [origem, destino] = $('#tr').value.split('|');
+    const pax = parseInt($('#px').value, 10);
+    const form = { trecho: $('#tr').value, pax, bag: $('#bg').value, nomes: $('#nm').value.trim(), just: $('#js').value.trim() };
+    const msg = $('#sfmsg');
+    if (!Number.isInteger(pax) || pax < 1 || pax > SLOT_CAP) { msg.innerHTML = `<div class="msg-box bad">Informe entre 1 e ${SLOT_CAP} passageiros.</div>`; return; }
+    if (!form.just) { msg.innerHTML = '<div class="msg-box bad">Informe a justificativa.</div>'; return; }
+    if (at(data, hora) < minAllowedGrade()) { msg.innerHTML = '<div class="msg-box bad">Este horário não respeita a antecedência mínima de 1 hora / regra de expediente.</div>'; return; }
+    if (slotOcc(data, hora) + pax > SLOT_CAP) {
+      const alt = nextCompatibleSlot(data, hora, origem, destino, pax);
+      msg.innerHTML = `<div class="msg-box warn"><b>Sem vagas suficientes neste horário</b> (${slotOcc(data, hora)}/${SLOT_CAP} + ${pax}).
+        ${alt ? `Próximo horário compatível: <b>${esc(fmtDT(alt.data, alt.hora))}</b>.<div class="modal-acts"><button class="btn navy" id="alt">Solicitar em ${esc(fmtDT(alt.data, alt.hora))}</button></div>` : 'Nenhum horário compatível nos próximos dias — use a solicitação avulsa.'}</div>`;
+      if (alt) $('#alt').onclick = () => openSlot(alt.data, alt.hora, form);
+      return;
+    }
+    let ret = null;
+    const modo = modoRet();
+    if (modo !== 'nao') {
+      const volta = $('#rvo').value;
+      if (volta === 'OUTRO') {
+        const txt = $('#rvot').value.trim();
+        if (!txt) { msg.innerHTML = '<div class="msg-box bad">Informe o endereço/local de volta.</div>'; return; }
+        if (normLoc(txt) === destino) { msg.innerHTML = '<div class="msg-box bad">A volta precisa ser para um local diferente do destino da ida.</div>'; return; }
+        const espera = Number($('#rpe').value);
+        const hT = modo === 'bv' ? addMin(hora, espera) : $('#rtht').value;
+        if (!hT || at(data, hT) <= at(data, hora) || hT < hora) { msg.innerHTML = '<div class="msg-box bad">O horário de retorno precisa ser depois da ida, no mesmo dia.</div>'; return; }
+        ret = { data, hora: hT, volta: txt, taxi: true, bv: modo === 'bv' ? { espera, volta: txt } : null };
+      } else if (!SITES[volta] || volta === destino) { msg.innerHTML = '<div class="msg-box bad">Escolha para qual unidade voltar (diferente do destino da ida).</div>'; return; }
+      else if (modo === 'bv') {
+        const s = bvSlot();
+        if (!s) { msg.innerHTML = '<div class="msg-box bad">Não há horário de volta na grade para esse bate-volta. Escolha “Retorno em outro horário”.</div>'; return; }
+        ret = { data, hora: s.hora, volta, bv: { espera: Number($('#rpe').value), volta } };
+      } else {
+        const rh = $('#rth').value;
+        if (rh === 'OUTRO') {
+          const hT = $('#rtht').value;
+          if (!hT || hT <= hora) { msg.innerHTML = '<div class="msg-box bad">O horário de retorno precisa ser depois da ida, no mesmo dia.</div>'; return; }
+          ret = { data, hora: hT, volta, taxi: true };
+        } else {
+          const s = lerRet().find((x) => x.hora === rh);
+          if (!rh || !s) { msg.innerHTML = '<div class="msg-box bad">Escolha um horário de retorno disponível.</div>'; return; }
+          if (s.why) { msg.innerHTML = `<div class="msg-box bad">Retorno às ${esc(rh)} indisponível: ${esc(s.why)}.</div>`; return; }
+          ret = { data, hora: rh, volta };
+        }
+      }
+    }
+    const novo = (d, h, o, de) => ({
+      id: newReqId(), tipo: 'grade', nome: S.user.nome, email: S.user.email, cc: S.user.cc, data: d, hora: h, origem: o, destino: de, pax, bag: form.bag,
+      nomes: form.nomes, just: form.just, status: 'analise', veiculo: null, motorista: null, os: null, excecao: false, motivo: '', criado: nowStamp(),
+    });
+    const r = novo(data, hora, origem, destino);
+    S.reqs.push(r);
+    audit('Solicitação criada', r.id, '', `${TIPOS.grade} ${fmtDT(data, hora)} · ${pax} pax`);
+    if (ret) {
+      const r2 = novo(ret.data, ret.hora, destino, ret.volta);
+      Object.assign(r, { perna: 'ida', par: r2.id }); Object.assign(r2, { perna: 'volta', par: r.id });
+      if (ret.taxi) r2.tipo = 'cidade'; // volta para fora da grade = táxi na cidade
+      if (ret.bv) { r.bv = ret.bv; if (!ret.taxi) r2.bv = ret.bv; }
+      S.reqs.push(r2);
+      audit('Solicitação criada (retorno)', r2.id, '', `${TIPOS[r2.tipo]} ${fmtDT(ret.data, ret.hora)} · retorno de ${r.id}`);
+    }
+    save(); closeModal(); route();
+    toast(ret ? `${r.id} (ida) e ${r.par} (retorno) enviadas — aguardando análise.` : `${r.id} enviada — aguardando análise do Facilities.`);
+  };
+}
+
+function openAvulsa() {
+  const minDate = ymd(new Date());
+  openModal(`
+    <h3>Solicitação avulsa</h3>
+    <p class="sub">Táxi na cidade, intermunicipal ou moto táxi.</p>
+    <form class="form-grid">
+      <div class="f full"><label for="tp">Tipo</label><select id="tp">
+        <option value="cidade">Táxi na cidade (antecedência mín. 1 h)</option>
+        <option value="inter">Táxi intermunicipal (antecedência mín. 48 h)</option>
+        <option value="moto">Moto Táxi (antecedência a definir — DEC-14)</option></select></div>
+      <div class="f"><label for="dt">Data</label><input id="dt" type="date" min="${minDate}" value="${minDate}"></div>
+      <div class="f"><label for="hr" id="hrl">Horário de embarque</label><input id="hr" type="time" value="${pad((new Date().getHours() + 2) % 24)}:00"></div>
+      <div class="f c-carro"><label for="og">Origem</label><select id="og">${siteOptions('MED')}</select><input id="ogt" placeholder="Endereço / local de embarque" hidden style="margin-top:6px"></div>
+      <div class="f c-carro"><label for="ds">Destino</label><select id="ds">${siteOptions('OUTRO')}</select><input id="dst" placeholder="Endereço / local de destino" style="margin-top:6px"></div>
+      <div class="f c-carro"><label for="px">Passageiros</label><input id="px" type="number" min="1" max="7" value="1"></div>
+      <div class="f c-carro"><label for="bg">Bagagem</label><select id="bg">${bagOptions('nenhuma')}</select></div>
+      ${retornoHtml('avulsa')}
+      <div class="f c-moto" hidden><label for="mo">Retirar em</label><select id="mo">${locOptions('S1')}</select><input id="mot" placeholder="Endereço / local de retirada" hidden style="margin-top:6px"></div>
+      <div class="f c-moto" hidden><label for="md">Entregar em</label><select id="md">${locOptions('CD')}</select><input id="mdt" placeholder="Endereço / local de entrega" hidden style="margin-top:6px"></div>
+      <div class="f full c-moto" hidden><label for="mi">O que será enviado?</label><input id="mi" placeholder="Ex.: envelope com notas fiscais, caixa de amostras, documentos para assinatura"></div>
+      <div class="f c-moto" hidden><label for="mv">Quantidade de volumes</label><input id="mv" type="number" min="1" max="20" value="1"></div>
+      <div class="f c-moto" hidden><label for="mt2">Tamanho</label><select id="mt2">${Object.entries(ITEM_TAM).map(([k, t]) => `<option value="${k}">${t.l}</option>`).join('')}</select></div>
+      <div class="f full c-moto" hidden><label for="mr">Quem recebe no destino?</label><input id="mr" placeholder="Nome ou setor de quem recebe"></div>
+      <div class="f full"><label for="js">Justificativa</label><textarea id="js"></textarea></div>
+      <div class="f full" id="exc" hidden><label class="check"><input type="checkbox" id="exck"> <span>Solicitar como <b>exceção</b> ao prazo (requer autorização do Facilities — DEC-12)</span></label></div>
+    </form>
+    <div id="avmsg"></div>
+    <div class="modal-acts"><button class="btn" id="cx">Cancelar</button><button class="btn green" id="ok">Enviar solicitação</button></div>`);
+  const syncTipo = () => {
+    const moto = $('#tp').value === 'moto';
+    document.querySelectorAll('.c-moto').forEach((e) => { e.hidden = !moto; });
+    document.querySelectorAll('.c-carro').forEach((e) => { e.hidden = moto; });
+    $('#hrl').textContent = moto ? 'Horário de retirada' : 'Horário de embarque';
+    syncARet();
+  };
+  $('#rvo').innerHTML = siteOptions('MED');
+  let rvoTocado = false;
+  function syncARet() {
+    const m = modoRet(), moto = $('#tp').value === 'moto';
+    showRet(m, moto);
+    if (moto || m === 'nao') return;
+    if (!rvoTocado) $('#rvo').value = $('#og').value; // padrão: voltar para onde embarcou
+    $('#rvot').hidden = $('#rvo').value !== 'OUTRO';
+    const de = valLoc('#ds', '#dst') || 'destino', para = valLoc('#rvo', '#rvot') || '—';
+    const esp = Number($('#rpe').value);
+    $('#rtinfo').innerHTML = m === 'bv'
+      ? `O motorista aguarda até <b>${fmtMin(esp)}</b> em <b>${esc(siteName(de))}</b> e leva para <b>${esc(siteName(para))}</b>. Volta prevista por volta das <b>${esc(addMin($('#hr').value || '00:00', esp + DURACAO_MIN))}</b>.`
+      : `Volta: <b>${esc(siteName(de))} → ${esc(siteName(para))}</b>`;
+  }
+  document.querySelectorAll('input[name="rm"]').forEach((e) => { e.onchange = syncARet; });
+  $('#rvo').onchange = () => { rvoTocado = true; syncARet(); };
+  ['#rpe', '#hr', '#dt'].forEach((s) => { $(s).onchange = syncARet; });
+  ['#dst', '#rvot'].forEach((s) => { $(s).oninput = syncARet; });
+  const PARES = [['#mo', '#mot'], ['#md', '#mdt'], ['#og', '#ogt'], ['#ds', '#dst']];
+  const syncOutro = () => PARES.forEach(([s, t]) => { $(t).hidden = $(s).value !== 'OUTRO'; });
+  const valLoc = (s, t) => ($(s).value === 'OUTRO' ? $(t).value.trim() : $(s).value);
+  $('#tp').onchange = () => { syncTipo(); $('#exc').hidden = true; $('#avmsg').innerHTML = ''; };
+  PARES.forEach(([s]) => { $(s).onchange = () => { syncOutro(); syncARet(); }; });
+  $('#cx').onclick = closeModal;
+  $('#ok').onclick = () => {
+    const tipo = $('#tp').value, data = $('#dt').value, hora = $('#hr').value;
+    const just = $('#js').value.trim();
+    const msg = $('#avmsg');
+    const bad = (t) => { msg.innerHTML = `<div class="msg-box bad">${t}</div>`; };
+    let campos;
+    if (tipo === 'moto') {
+      const origem = valLoc('#mo', '#mot');
+      const destino = valLoc('#md', '#mdt');
+      const vol = parseInt($('#mv').value, 10), tam = $('#mt2').value;
+      const it = $('#mi').value.trim(), recebedor = $('#mr').value.trim();
+      if (!data || !hora || !origem || !destino || !it || !recebedor || !just) return bad('Preencha data, horário, retirada, entrega, o que será enviado, quem recebe e a justificativa.');
+      if (normLoc(origem) === normLoc(destino)) return bad('Retirada e entrega devem ser locais diferentes.');
+      if (!Number.isInteger(vol) || vol < 1 || vol > 20) return bad('Volumes: entre 1 e 20.');
+      if (ITEM_TAM[tam].p * vol > MOTO_CARGA) return bad(`Não cabe em uma moto (${ITEM_TAM[tam].p * vol} de ${MOTO_CARGA} pts de carga). Divida o envio ou solicite um táxi.`);
+      campos = { origem, destino, item: it, vol, tam, recebedor, pax: 0, bag: 'nenhuma' };
+    } else {
+      const origem = valLoc('#og', '#ogt');
+      const destino = valLoc('#ds', '#dst');
+      const pax = parseInt($('#px').value, 10);
+      if (!data || !hora || !origem || !destino || !just) return bad('Preencha data, horário, origem, destino e justificativa.');
+      if (normLoc(origem) === normLoc(destino)) return bad('Origem e destino devem ser locais diferentes.');
+      if (!Number.isInteger(pax) || pax < 1 || pax > 7) return bad('Passageiros: entre 1 e 7.');
+      campos = { origem, destino, pax, bag: $('#bg').value };
+    }
+    let ret = null;
+    const modo = tipo === 'moto' ? 'nao' : modoRet();
+    if (modo !== 'nao') {
+      const volta = valLoc('#rvo', '#rvot');
+      if (!volta) return bad('Informe para onde voltar.');
+      if (normLoc(volta) === normLoc(campos.destino)) return bad('A volta precisa ser para um local diferente do destino da ida.');
+      if (modo === 'bv') ret = { bv: { espera: Number($('#rpe').value), volta } };
+      else {
+        const rh = $('#rth').value;
+        if (!rh) return bad('Informe o horário do retorno.');
+        if (rh <= hora) return bad('O retorno precisa ser depois da ida, no mesmo dia.');
+        ret = { data, hora: rh, volta };
+      }
+    }
+    const diffMin = (at(data, hora) - new Date()) / 60000;
+    if (diffMin < 0) { msg.innerHTML = '<div class="msg-box bad">Data/horário no passado.</div>'; return; }
+    const need = ANTEC_MIN[tipo];
+    let excecao = false;
+    if (need != null && diffMin < need) {
+      if (!$('#exck').checked) {
+        $('#exc').hidden = false;
+        msg.innerHTML = `<div class="msg-box warn">Antecedência mínima para <b>${esc(TIPOS[tipo])}</b> é de ${need >= 60 ? need / 60 + ' h' : need + ' min'}. Faltam só ${Math.max(0, Math.floor(diffMin / 60))} h ${Math.max(0, Math.floor(diffMin % 60))} min. Escolha outro horário ou marque como exceção.</div>`;
+        return;
+      }
+      excecao = true;
+    }
+    const r = {
+      id: newReqId(), tipo, nome: S.user.nome, email: S.user.email, cc: S.user.cc, data, hora, ...campos,
+      just, status: 'analise', veiculo: null, motorista: null, os: null, excecao, motivo: '', criado: nowStamp(),
+    };
+    if (ret && ret.bv) { r.bv = ret.bv; ret = null; } // bate-volta avulso = uma corrida só (motorista aguarda)
+    S.reqs.push(r);
+    audit('Solicitação criada', r.id, '', `${TIPOS[tipo]} ${fmtDT(data, hora)}${excecao ? ' · EXCEÇÃO de prazo' : ''}`);
+    if (ret) {
+      const r2 = { ...r, id: newReqId(), data: ret.data, hora: ret.hora, origem: r.destino, destino: ret.volta, excecao: false, perna: 'volta', par: r.id };
+      Object.assign(r, { perna: 'ida', par: r2.id });
+      S.reqs.push(r2);
+      audit('Solicitação criada (retorno)', r2.id, '', `${TIPOS[tipo]} ${fmtDT(ret.data, ret.hora)} · retorno de ${r.id}`);
+    }
+    save(); closeModal(); route();
+    toast(ret ? `${r.id} (ida) e ${r.par} (retorno) enviadas — aguardando análise.` : `${r.id} enviada${r.bv ? ' (bate-volta)' : ''}${excecao ? ' como exceção' : ''} — aguardando análise.`);
+  };
+}
+
+function openDetalhe(id) {
+  const r = S.reqs.find((x) => x.id === id);
+  const v = veic(r.veiculo), m = mot(r.motorista);
+  const canCancel = S.user.role === 'colaborador' && r.status === 'analise';
+  const par = parDe(r);
+  openModal(`
+    <h3>${esc(r.id)} ${pill(r.status)}</h3>
+    <p class="sub">${esc(TIPOS[r.tipo])}${pernaTxt(r) ? ` · <b>${pernaTxt(r)}${r.bv && r.perna ? ' (bate-volta)' : ''}</b>` : ''}${r.excecao ? ' · <b>exceção de prazo</b>' : ''} · criada em ${esc(r.criado)}</p>
+    ${par ? `<div class="par-box">${r.perna === 'ida' ? 'Retorno' : 'Ida'}: <b>${esc(par.id)}</b> · ${esc(fmtDT(par.data, par.hora))} · ${esc(siteName(par.origem))} → ${esc(siteName(par.destino))} ${pill(par.status)}
+      <button class="btn sm" id="vpar">Ver</button></div>` : ''}
+    <div class="form-grid">
+      <div class="f"><label>Data/horário</label><div>${esc(fmtDT(r.data, r.hora))}</div></div>
+      <div class="f"><label>Trecho</label><div>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}</div></div>
+      ${r.tipo === 'moto' ? `
+      <div class="f full"><label>O que será enviado</label><div>${esc(r.item)} — ${esc(r.vol)} volume(s), ${esc(ITEM_TAM[r.tam].l)}</div></div>
+      <div class="f full"><label>Quem recebe</label><div>${esc(r.recebedor)}</div></div>` : `
+      <div class="f"><label>Passageiros</label><div>${esc(r.pax)}${r.nomes ? ` <small>(${esc(r.nomes)})</small>` : ''}</div></div>
+      <div class="f"><label>Bagagem</label><div>${esc(BAG[r.bag].l)}</div></div>`}
+      <div class="f"><label>Veículo</label><div>${v ? `${esc(v.nome)} · ${esc(v.placa)}` : '<small>A definir pelo Facilities</small>'}</div></div>
+      <div class="f"><label>Motorista</label><div>${m ? esc(m.nome) : '<small>A definir pelo Facilities</small>'}</div></div>
+      ${r.bv && !r.perna ? `<div class="f full"><label>Retorno</label><div>${esc(bvTxt(r))} · volta prevista ~${esc(addMin(r.hora, r.bv.espera + DURACAO_MIN))}</div></div>` : ''}
+      ${r.mail ? `<div class="f full"><label>Aviso por e-mail</label><div>✉ Último aviso enviado para ${esc(r.email)} em ${esc(r.mail)}</div></div>` : ''}
+      ${r.os ? `<div class="f full"><label>Ordem de serviço</label><div><b>${esc(r.os)}</b></div></div>` : ''}
+      <div class="f full"><label>Justificativa</label><div>${esc(r.just)}</div></div>
+      ${r.motivo ? `<div class="f full"><label>Motivo / observação do Facilities</label><div>${esc(r.motivo)}</div></div>` : ''}
+    </div>
+    <div class="modal-acts">${canCancel ? '<button class="btn red" id="cancel">Cancelar solicitação</button>' : ''}<button class="btn" id="cx">Fechar</button></div>`);
+  $('#cx').onclick = closeModal;
+  if (par) $('#vpar').onclick = () => openDetalhe(par.id);
+  if (canCancel) $('#cancel').onclick = () => {
+    const alvo = [r];
+    if (par && par.status === 'analise' && confirm(`Cancelar também ${r.perna === 'ida' ? 'o retorno' : 'a ida'} ${par.id}?`)) alvo.push(par);
+    alvo.forEach((x) => { x.status = 'cancelada'; audit('Cancelada pelo solicitante', x.id, 'Em análise', 'Cancelada'); });
+    save(); closeModal(); route(); toast(`${alvo.map((x) => x.id).join(' e ')} cancelada${alvo.length > 1 ? 's' : ''}.`);
+  };
+}
+
+function renderMinhas(page) {
+  const mine = S.reqs.filter((r) => r.email === S.user.email).sort((a, b) => at(b.data, b.hora) - at(a.data, a.hora));
+  shell(page, `
+    <div class="page-head"><div><h1>Minhas solicitações</h1><p>Acompanhe o status. Cancelamento disponível enquanto estiver em análise (política em definição — DEC-13).</p></div>
+      <button class="btn green" id="avulsa">+ Solicitação avulsa</button></div>
+    <div class="card table-wrap">${mine.length ? `<table><thead><tr><th>Nº</th><th>Tipo</th><th>Quando</th><th>Trecho</th><th>Passageiros / itens</th><th>Status</th><th></th></tr></thead><tbody>
+      ${mine.map((r) => `<tr><td><b>${esc(r.id)}</b>${r.os ? `<small>${esc(r.os)}</small>` : ''}</td><td><span class="tipo">${esc(TIPOS[r.tipo])}</span>${r.perna ? `<small>${pernaTxt(r)} · par ${esc(r.par)}</small>` : r.bv ? '<small>Bate-volta</small>' : ''}</td>
+        <td>${esc(fmtDT(r.data, r.hora))}</td><td>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}</td><td>${esc(resumo(r))}</td><td>${pill(r.status)}${r.mail ? `<small>✉ aviso enviado por e-mail</small>` : ""}</td>
+        <td><button class="btn sm" data-id="${esc(r.id)}">Detalhes</button></td></tr>`).join('')}</tbody></table>`
+    : '<div class="empty">Você ainda não fez solicitações. Vá até a <a href="#agenda">Agenda</a> e escolha um horário.</div>'}</div>`);
+  $('#avulsa').onclick = openAvulsa;
+  document.querySelectorAll('[data-id]').forEach((b) => { b.onclick = () => openDetalhe(b.dataset.id); });
+}
+
+// ---------------- Facilities ----------------
+function vehicleOptions(tipo, pax, bagPts, data, hora, ignoreIds, dur) {
+  const vs = VEICULOS.filter((v) => v.tipo === tipo);
+  const ok = (v) => v.cap >= pax && v.bag >= bagPts && !busy('veiculo', v.id, data, hora, ignoreIds, dur);
+  // padrão: o menor veículo que comporta — a Spin só é sugerida quando passa de 4 passageiros
+  const best = vs.filter(ok).sort((x, y) => x.cap - y.cap || x.bag - y.bag)[0];
+  return vs.map((v) => {
+    const fits = v.cap >= pax && v.bag >= bagPts;
+    const occ = busy('veiculo', v.id, data, hora, ignoreIds, dur);
+    const why = !fits ? (v.cap < pax ? ' — capacidade insuficiente' : ' — porta-malas insuficiente') : occ ? ' — já alocado neste horário' : '';
+    const cap = v.tipo === 'moto' ? `carga ${v.bag} pts` : `${v.cap} pax · bag ${v.bag}`;
+    return `<option value="${v.id}" ${!fits || occ ? 'disabled' : ''}${best && best.id === v.id ? ' selected' : ''}>${esc(v.nome)} (${cap})${v.tipo === 'moto' && !fits ? ' — carga insuficiente' : why}</option>`;
+  }).join('');
+}
+function driverOptions(tipo, data, hora, ignoreIds, dur) {
+  const list = S.motoristas.filter((m) => m.tipo === tipo && m.ativo);
+  if (!list.length) return '<option value="" disabled selected>Nenhum motorista ativo — cadastre em “Motoristas”</option>';
+  return list.map((m) => {
+    const occ = busy('motorista', m.id, data, hora, ignoreIds, dur);
+    return `<option value="${m.id}" ${occ ? 'disabled' : ''}>${esc(m.nome)}${occ ? ' — ocupado' : ''}</option>`;
+  }).join('');
+}
+
+function renderPainel(page) {
+  const pend = S.reqs.filter((r) => r.status === 'analise');
+  const today = ymd(new Date());
+  const confHoje = S.reqs.filter((r) => r.data === today && ['confirmada', 'andamento', 'concluida'].includes(r.status));
+  const gradeConf = S.reqs.filter((r) => r.tipo === 'grade' && r.status === 'confirmada' && r.veiculo);
+  const occAvg = gradeConf.length ? Math.round(gradeConf.reduce((s, r) => s + r.pax / veic(r.veiculo).cap, 0) / gradeConf.length * 100) : 0;
+  const aEnviar = viagens().filter((v) => v.st === 'enviar').length;
+
+  // agrupamento por horário da grade
+  const groups = {};
+  pend.filter((r) => r.tipo === 'grade').forEach((r) => { (groups[`${r.data} ${r.hora}`] ||= []).push(r); });
+  const groupKeys = Object.keys(groups).sort();
+  const groupHtml = groupKeys.map((k) => {
+    const rs = groups[k]; const [data, hora] = k.split(' ');
+    const pax = rs.reduce((s, r) => s + r.pax, 0);
+    const bagPts = rs.reduce((s, r) => s + BAG[r.bag].p, 0);
+    const ids = rs.map((r) => r.id);
+    const anyVeh = VEICULOS.some((v) => v.tipo === 'carro' && v.cap >= pax && v.bag >= bagPts && !busy('veiculo', v.id, data, hora, ids));
+    const setores = [...new Set(rs.map((r) => r.cc.split('–')[1]?.trim() || r.cc))];
+    return `<div class="group ${anyVeh ? 'ok' : 'bad'}" data-k="${esc(k)}">
+      <div class="group-h"><b>${esc(fmtDT(data, hora))}</b><span class="tipo">${rs.length > 1 ? `Sugestão de agrupamento: ${esc(setores.join(' + '))}` : 'Solicitação única'}</span></div>
+      <ul>${rs.map((r) => `<li><span><b>${esc(r.id)}</b> · ${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small>${r.perna ? ` <span class="tag">${pernaTxt(r)} · ${esc(r.par)}</span>` : ''}</span><span>${esc(SITE_SHORT[r.origem])}→${esc(SITE_SHORT[r.destino])} · ${r.pax} pax · ${esc(BAG[r.bag].l.split(' ')[0])}</span></li>`).join('')}</ul>
+      <div class="meter"><span>Total: <b>${pax} passageiros</b></span><span>Bagagem: <b>${bagPts} pts</b></span><span>Veículo: <b>${pax > CAP_PADRAO ? 'Spin (passou de ' + CAP_PADRAO + ')' : 'carro de ' + CAP_PADRAO + ' vagas'}</b></span></div>
+      ${anyVeh ? `<div class="assign"><select class="sv">${vehicleOptions('carro', pax, bagPts, data, hora, ids)}</select><select class="sd">${driverOptions('carro', data, hora, ids)}</select>
+        <button class="btn green sm ok-g">Confirmar ${rs.length > 1 ? 'grupo' : ''}</button><button class="btn sm red no-g">Recusar</button></div>`
+      : `<div class="alert">Nenhum veículo comporta ${pax} passageiros / ${bagPts} pts de bagagem. Separe as solicitações ou sugira o próximo horário.</div>
+         <div class="assign">${rs.map((r) => `<button class="btn sm mv" data-id="${esc(r.id)}">Mover ${esc(r.id)} p/ próximo horário</button>`).join('')}</div>`}
+    </div>`;
+  }).join('') || '<div class="empty">Nenhuma solicitação da grade pendente.</div>';
+
+  // Moto Táxi: envios com mesmo dia, mesma retirada e mesma entrega, dentro da janela, que cabem em uma moto
+  const clusters = motoClusters(pend);
+  const motoHtml = clusters.map((c, i) => {
+    const ids = c.rs.map((r) => r.id);
+    const horas = [...new Set(c.rs.map((r) => r.hora))].sort();
+    const saida = horas[horas.length - 1];
+    const varios = c.rs.length > 1;
+    return `<div class="group ok" data-m="${i}">
+      <div class="group-h"><b>${esc(fmtDay(at(c.data, '00:00')))} · ${esc(siteName(c.origem))} → ${esc(siteName(c.destino))}</b>
+        <span class="tipo">${varios ? `Sugestão: ${c.rs.length} envios em 1 viagem` : 'Envio único'}</span></div>
+      <ul>${c.rs.map((r) => `<li><span><b>${esc(r.id)}</b> · ${esc(r.hora)} · ${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small><br>
+          📦 ${esc(resumo(r))} → recebe: ${esc(r.recebedor)}${r.excecao ? ' · <b style="color:var(--red)">fora do prazo</b>' : ''}</span>
+          ${varios ? `<button class="btn sm red rx" data-id="${esc(r.id)}">Recusar este</button>` : ''}</li>`).join('')}</ul>
+      <div class="meter"><span>Carga: <b>${c.pts}/${MOTO_CARGA} pts</b></span>${varios ? `<span>Pedidos entre <b>${horas[0]}</b> e <b>${saida}</b></span>` : ''}</div>
+      <div class="assign">
+        <label class="f" style="display:flex;align-items:center;gap:6px;margin:0"><small>Saída</small><select class="sh">${horas.map((h) => `<option ${h === saida ? 'selected' : ''}>${h}</option>`).join('')}</select></label>
+        <select class="sv">${vehicleOptions('moto', 0, c.pts, c.data, saida, ids)}</select><select class="sd">${driverOptions('moto', c.data, saida, ids)}</select>
+        <button class="btn green sm ok-m">${varios ? 'Agrupar e gerar OS' : 'Aprovar e gerar OS'}</button><button class="btn sm red no-m">Recusar${varios ? ' todos' : ''}</button></div>
+    </div>`;
+  }).join('') || '<div class="empty">Nenhum envio de Moto Táxi pendente.</div>';
+
+  const av = pend.filter((r) => r.tipo !== 'grade' && r.tipo !== 'moto').sort((a, b) => at(a.data, a.hora) - at(b.data, b.hora));
+  const avHtml = av.map((r) => {
+    const t = r.tipo === 'moto' ? 'moto' : 'carro';
+    return `<div class="group" data-id="${esc(r.id)}">
+      <div class="group-h"><b>${esc(r.id)} · ${esc(TIPOS[r.tipo])}</b><span>${esc(fmtDT(r.data, r.hora))}</span></div>
+      <ul><li><span>${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small></span><span>${r.pax} pax · ${esc(BAG[r.bag].l.split(' ')[0])}</span></li>
+        <li><span>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}${r.perna ? ` <span class="tag">${pernaTxt(r)} · ${esc(r.par)}</span>` : ''}</span></li>
+        ${r.bv ? `<li><span><b>🔁 ${esc(bvTxt(r))}</b> — veículo e motorista ficam reservados ~${fmtMin(durOf(r))}</span></li>` : ''}<li><span><i>${esc(r.just)}</i></span></li></ul>
+      ${r.excecao ? '<div class="alert">⚠ Pedido fora do prazo mínimo — requer autorização excepcional.</div>' : ''}
+      <div class="assign"><select class="sv">${vehicleOptions(t, r.pax, BAG[r.bag].p, r.data, r.hora, [r.id], durOf(r))}</select><select class="sd">${driverOptions(t, r.data, r.hora, [r.id], durOf(r))}</select>
+        <button class="btn green sm ok-a">${r.tipo === 'moto' ? 'Aprovar e gerar OS' : 'Aprovar'}</button><button class="btn sm red no-a">Recusar</button></div>
+    </div>`;
+  }).join('') || '<div class="empty">Nenhuma solicitação avulsa pendente.</div>';
+
+  shell(page, `
+    <div class="page-head"><div><h1>Painel do Facilities</h1><p>Analise, agrupe e atribua veículo e motorista. A decisão final é sempre do Facilities.</p></div></div>
+    <div class="kpis">
+      <div class="kpi"><div class="v">${pend.length}</div><div class="l">Pendentes de análise</div></div>
+      <div class="kpi"><div class="v">${confHoje.length}</div><div class="l">Viagens hoje</div></div>
+      <div class="kpi"><div class="v">${occAvg}%</div><div class="l">Ocupação média (grade confirmada)</div></div>
+      <a class="kpi" href="#viagens" style="text-decoration:none"><div class="v">${aEnviar}</div><div class="l">Viagens a enviar no WhatsApp →</div></a>
+    </div>
+    <div class="grid-2">
+      <section class="card"><h2 class="section-t">Grade entre sites</h2><p class="section-s">Solicitações do mesmo horário agrupadas. Veículos incompatíveis (capacidade, bagagem ou já alocados) ficam bloqueados.</p>${groupHtml}</section>
+      <div>
+        <section class="card" style="margin-bottom:16px"><h2 class="section-t">Moto Táxi — envio de itens</h2><p class="section-s">Envios no mesmo dia, mesma retirada e mesma entrega, com até ${MOTO_TOL_MIN} min de diferença e que cabem em uma moto, aparecem juntos. A saída é o horário mais tarde do grupo, para todos os itens estarem prontos.</p>${motoHtml}</section>
+        <section class="card"><h2 class="section-t">Táxi avulso</h2><p class="section-s">Táxi na cidade e intermunicipal.</p>${avHtml}</section>
+      </div>
+    </div>`);
+
+  document.querySelectorAll('.group[data-m]').forEach((g) => {
+    const c = clusters[Number(g.dataset.m)];
+    const ids = c.rs.map((r) => r.id);
+    const refresh = () => {
+      const h = $('.sh', g).value;
+      $('.sv', g).innerHTML = vehicleOptions('moto', 0, c.pts, c.data, h, ids);
+      $('.sd', g).innerHTML = driverOptions('moto', c.data, h, ids);
+    };
+    $('.sh', g).onchange = refresh;
+    $('.ok-m', g).onclick = () => {
+      const h = $('.sh', g).value, v = $('.sv', g).value, d = $('.sd', g).value;
+      if (!v || !d || $('.sv', g).selectedOptions[0]?.disabled || $('.sd', g).selectedOptions[0]?.disabled) { toast('Selecione moto e motociclista disponíveis.'); return; }
+      if (busy('veiculo', v, c.data, h, ids) || busy('motorista', d, c.data, h, ids)) { toast('Conflito de agenda da moto/motociclista.'); return; }
+      const os = newOsId();
+      c.rs.forEach((r) => {
+        if (r.hora !== h) {
+          audit('Horário de retirada ajustado', r.id, r.hora, `${h} (agrupado em ${os})`);
+          r.motivo = `Retirada ajustada de ${r.hora} para ${h} para seguir junto com ${ids.filter((x) => x !== r.id).join(', ')}.`;
+          r.hora = h;
+        }
+        Object.assign(r, { status: 'confirmada', veiculo: v, motorista: d, os });
+        audit('Confirmada', r.id, 'Em análise', `${veic(v).nome} · ${mot(d).nome} · ${os}`);
+      });
+      audit('OS gerada', os, '', `${ids.join(' + ')} · ${mot(d).nome}`);
+      S.reqs.filter((x) => x.data === c.data && x.hora === h && x.veiculo === v && x.motorista === d).forEach((x) => { x.wpp = null; });
+      save(); route(); toast(`${os} gerada para ${ids.join(' + ')}. Envie ao motociclista em “Viagens”.`);
+    };
+    $('.no-m', g).onclick = () => recusar(c.rs);
+    g.querySelectorAll('.rx').forEach((b) => { b.onclick = () => recusar([S.reqs.find((x) => x.id === b.dataset.id)]); });
+  });
+
+  document.querySelectorAll('.group[data-k]').forEach((g) => {
+    const rs = groups[g.dataset.k];
+    const okb = $('.ok-g', g), nob = $('.no-g', g);
+    if (okb) okb.onclick = () => {
+      const v = $('.sv', g).value, d = $('.sd', g).value;
+      const [data, hora] = g.dataset.k.split(' ');
+      const ids = rs.map((r) => r.id);
+      if (!v || !d || $('.sv', g).selectedOptions[0]?.disabled || $('.sd', g).selectedOptions[0]?.disabled) { toast('Selecione veículo e motorista disponíveis.'); return; }
+      if (busy('veiculo', v, data, hora, ids) || busy('motorista', d, data, hora, ids)) { toast('Conflito de agenda de veículo/motorista.'); return; }
+      rs.forEach((r) => { r.status = 'confirmada'; r.veiculo = v; r.motorista = d; audit('Confirmada', r.id, 'Em análise', `${veic(v).nome} · ${mot(d).nome}${rs.length > 1 ? ` · grupo ${ids.join('+')}` : ''}`); });
+      // se já existia viagem enviada no mesmo carro/horário, ela muda: exige reenvio
+      S.reqs.filter((x) => x.data === data && x.hora === hora && x.veiculo === v && x.motorista === d).forEach((x) => { x.wpp = null; });
+      save(); route(); toast(`${ids.join(' + ')} confirmada(s) — ${veic(v).nome}. Envie ao motorista em “Viagens”.`);
+    };
+    if (nob) nob.onclick = () => recusar(rs);
+    g.querySelectorAll('.mv').forEach((b) => { b.onclick = () => mover(b.dataset.id); });
+  });
+  document.querySelectorAll('.group[data-id]').forEach((g) => {
+    const r = S.reqs.find((x) => x.id === g.dataset.id);
+    $('.ok-a', g).onclick = () => {
+      const v = $('.sv', g).value, d = $('.sd', g).value;
+      if (!v || !d || $('.sv', g).selectedOptions[0]?.disabled || $('.sd', g).selectedOptions[0]?.disabled) { toast('Selecione veículo e motorista disponíveis.'); return; }
+      r.status = 'confirmada'; r.veiculo = v; r.motorista = d;
+      if (r.tipo === 'moto') {
+        r.os = newOsId();
+        audit('OS gerada', r.os, '', `${r.id} · ${mot(d).nome}`);
+      }
+      audit('Confirmada', r.id, 'Em análise', `${veic(v).nome} · ${mot(d).nome}${r.excecao ? ' · exceção autorizada' : ''}`);
+      save(); route(); toast(`${r.id} aprovada${r.os ? ` — ${r.os}` : ''}. Envie ao motorista em “Viagens”.`);
+    };
+    $('.no-a', g).onclick = () => recusar([r]);
+  });
+}
+
+function motoClusters(pend) {
+  const ms = pend.filter((r) => r.tipo === 'moto').sort((a, b) => at(a.data, a.hora) - at(b.data, b.hora));
+  const out = [];
+  for (const r of ms) {
+    const c = out.find((x) => x.data === r.data && normLoc(x.origem) === normLoc(r.origem) && normLoc(x.destino) === normLoc(r.destino)
+      && (at(r.data, r.hora) - at(x.data, x.rs[0].hora)) / 60000 <= MOTO_TOL_MIN && x.pts + cargaPts(r) <= MOTO_CARGA);
+    if (c) { c.rs.push(r); c.pts += cargaPts(r); } else out.push({ data: r.data, origem: r.origem, destino: r.destino, rs: [r], pts: cargaPts(r) });
+  }
+  return out;
+}
+
+function recusar(rs) {
+  const motivo = prompt('Motivo da recusa (obrigatório):');
+  if (!motivo || !motivo.trim()) return;
+  rs.forEach((r) => { r.status = 'recusada'; r.motivo = motivo.trim(); audit('Recusada', r.id, 'Em análise', motivo.trim()); });
+  const n = emailStatus(rs, 'recusada', { motivo: motivo.trim() }).length;
+  save(); route(); toast(`${rs.map((r) => r.id).join(', ')} recusada(s) — e-mail enviado a ${n} colaborador${n > 1 ? 'es' : ''}.`);
+}
+function mover(id) {
+  const r = S.reqs.find((x) => x.id === id);
+  const alt = nextCompatibleSlot(r.data, r.hora, r.origem, r.destino, r.pax);
+  if (!alt) { toast('Nenhum horário compatível encontrado.'); return; }
+  if (!confirm(`Mover ${r.id} para ${fmtDT(alt.data, alt.hora)}? O colaborador será avisado e precisa dar ciência.`)) return;
+  const antes = fmtDT(r.data, r.hora);
+  r.data = alt.data; r.hora = alt.hora; r.status = 'reagendada'; r.motivo = `Reagendada de ${antes} por falta de capacidade — aguardando ciência do colaborador.`;
+  audit('Reagendada', r.id, antes, fmtDT(alt.data, alt.hora));
+  emailStatus([r], 'reagendada', { antes });
+  save(); route(); toast(`${r.id} reagendada para ${fmtDT(alt.data, alt.hora)} — colaborador avisado por e-mail.`);
+}
+
+function renderTodas(page) {
+  const f = renderTodas.f || (renderTodas.f = { st: '', tp: '', q: '' });
+  const rows = S.reqs.filter((r) => (!f.st || r.status === f.st) && (!f.tp || r.tipo === f.tp) &&
+    (!f.q || `${r.id} ${r.nome} ${r.cc} ${siteName(r.origem)} ${siteName(r.destino)} ${r.item || ''}`.toLowerCase().includes(f.q.toLowerCase())))
+    .sort((a, b) => at(a.data, a.hora) - at(b.data, b.hora));
+  shell(page, `
+    <div class="page-head"><div><h1>Solicitações</h1><p>${rows.length} registro(s) no filtro atual.</p></div><button class="btn navy" id="csv">Exportar CSV</button></div>
+    <div class="filters">
+      <select id="fst"><option value="">Todos os status</option>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${f.st === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <select id="ftp"><option value="">Todos os tipos</option>${Object.entries(TIPOS).map(([k, v]) => `<option value="${k}" ${f.tp === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <input id="fq" placeholder="Buscar nº, nome, centro de custo…" value="${esc(f.q)}">
+    </div>
+    <div class="card table-wrap">${rows.length ? `<table><thead><tr><th>Nº</th><th>Tipo</th><th>Quando</th><th>Solicitante</th><th>Trecho</th><th>Passageiros / itens</th><th>Veículo / motorista</th><th>Status</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr data-id="${esc(r.id)}" style="cursor:pointer"><td><b>${esc(r.id)}</b>${r.os ? `<small>${esc(r.os)}</small>` : ''}</td><td><span class="tipo">${esc(TIPOS[r.tipo])}</span>${r.perna ? `<small>${pernaTxt(r)} · par ${esc(r.par)}</small>` : r.bv ? '<small>Bate-volta</small>' : ''}</td>
+        <td>${esc(fmtDT(r.data, r.hora))}</td><td>${esc(r.nome)}<small>${esc(r.cc)}</small></td><td>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}</td>
+        <td>${esc(resumo(r))}</td><td>${r.veiculo ? `${esc(veic(r.veiculo).nome)}<small>${esc(mot(r.motorista).nome)}</small>` : '—'}</td><td>${pill(r.status)}${r.mail ? `<small>✉ aviso enviado por e-mail</small>` : ""}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="empty">Nenhum registro.</div>'}</div>`);
+  $('#fst').onchange = (e) => { f.st = e.target.value; route(); };
+  $('#ftp').onchange = (e) => { f.tp = e.target.value; route(); };
+  $('#fq').onchange = (e) => { f.q = e.target.value; route(); };
+  document.querySelectorAll('tr[data-id]').forEach((tr) => { tr.onclick = () => openDetalhe(tr.dataset.id); });
+  $('#csv').onclick = () => exportCsv(rows);
+}
+
+function exportCsv(rows) {
+  const head = ['numero', 'tipo', 'data', 'hora', 'solicitante', 'centro_custo', 'origem', 'destino', 'passageiros', 'bagagem', 'item', 'volumes', 'tamanho', 'recebedor', 'justificativa', 'veiculo', 'motorista', 'os', 'status', 'excecao'];
+  const q = (v) => { let s = String(v ?? ''); if (/^[=+\-@]/.test(s)) s = `'${s}`; return `"${s.replace(/"/g, '""')}"`; };
+  const lines = rows.map((r) => [r.id, TIPOS[r.tipo], fmtDate(r.data), r.hora, r.nome, r.cc, siteName(r.origem), siteName(r.destino),
+    r.tipo === 'moto' ? '' : r.pax, r.tipo === 'moto' ? '' : BAG[r.bag].l, r.item || '', r.vol || '', r.tam ? ITEM_TAM[r.tam].l : '', r.recebedor || '',
+    r.just, r.veiculo ? veic(r.veiculo).nome : '', r.motorista ? mot(r.motorista).nome : '', r.os || '', STATUS[r.status], r.excecao ? 'sim' : 'não'].map(q).join(';'));
+  const blob = new Blob(['﻿' + [head.join(';'), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `solicitacoes_${ymd(new Date())}.csv`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  audit('Exportação CSV', `${rows.length} registros`, '', 'filtros aplicados na tela');
+  save();
+  toast(`${rows.length} registro(s) exportado(s).`);
+}
+
+function renderHistorico(page) {
+  shell(page, `
+    <div class="page-head"><div><h1>Histórico / auditoria</h1><p>Acesso restrito a TI / Administração do sistema. Quem fez, quando, valor anterior e novo valor (RF-15).</p></div></div>
+    <div class="card table-wrap">${S.log.length ? `<table><thead><tr><th>Data/hora</th><th>Usuário</th><th>Ação</th><th>Referência</th><th>Antes</th><th>Depois</th></tr></thead><tbody>
+      ${S.log.map((l) => `<tr><td>${esc(l.t)}</td><td>${esc(l.user)}</td><td><b>${esc(l.acao)}</b></td><td>${esc(l.ref)}</td><td>${esc(l.antes)}</td><td>${esc(l.depois)}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="empty">Sem eventos ainda. Aprove, recuse ou crie solicitações para ver a trilha.</div>'}</div>`);
+}
+
+function renderCadastros(page) {
+  const tbl = (head, rows) => `<div class="table-wrap"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  shell(page, `
+    <div class="page-head"><div><h1>Cadastros e parâmetros</h1><p>Mantidos pela TI / Administração do sistema, sem alteração de código (RF-19). Na simulação, apenas consulta.</p></div></div>
+    <p class="section-s">Grade e rotas: tela <a href="#grade">Grade e rotas</a> (editável pelo Facilities e pela TI). Motoristas: tela <a href="#motoristas">Motoristas</a> (cadastrados pelo Facilities).</p>
+    <div class="grid-2">
+      <div>
+        <section class="card" style="margin-bottom:16px"><h2 class="section-t">Veículos</h2><p class="section-s">Capacidades a validar com a frota (DEC-08)</p>
+          ${tbl(['Veículo', 'Placa', 'Tipo', 'Passageiros', 'Bagagem (pts)'], VEICULOS.map((v) => [`<b>${esc(v.nome)}</b>`, esc(v.placa), v.tipo === 'moto' ? 'Moto' : 'Carro', v.cap, v.bag]))}</section>
+      </div>
+      <div>
+        <section class="card"><h2 class="section-t">Parâmetros</h2>
+          ${tbl(['Parâmetro', 'Valor'], [
+            ['Antecedência — entre sites / táxi na cidade', '1 h'], ['Antecedência — intermunicipal', '48 h'], ['Antecedência — moto táxi', '<small>a definir (DEC-14)</small>'],
+            ['Expediente do Facilities', `${EXPEDIENTE[0]}–${EXPEDIENTE[1]} <small>(DEC-02)</small>`], ['Fora do expediente', '2º horário da próxima grade'],
+            ['Intervalo mínimo entre viagens (veículo/motorista)', `${DURACAO_MIN} min`], ['Vagas por horário da grade', `${CAP_PADRAO} (carro) · acima disso Spin até ${SLOT_CAP}`],
+            ['Bagagem (pontos)', Object.values(BAG).map((b) => `${esc(b.l.split(' ')[0])} ${b.p}`).join(' · ')]])}</section>
+      </div>
+    </div>`);
+}
+
+// ---------------- Viagens (envio ao motorista via WhatsApp) ----------------
+const VG_LABEL = { enviar: ['A enviar', 'st-analise'], enviada: ['Enviada', 'st-reagendada'], concluida: ['Concluída', 'st-concluida'], naorealizada: ['Não realizada', 'st-recusada'] };
+function viagens() {
+  const map = {};
+  S.reqs.filter((r) => ['confirmada', 'andamento', 'concluida', 'naorealizada'].includes(r.status) && r.veiculo && r.motorista)
+    .forEach((r) => { (map[[r.data, r.hora, r.veiculo, r.motorista].join('|')] ||= []).push(r); });
+  return Object.entries(map).map(([k, rs]) => {
+    const st = rs.every((r) => r.status === 'concluida') ? 'concluida' : rs.every((r) => r.status === 'naorealizada') ? 'naorealizada'
+      : rs.every((r) => r.wpp) ? 'enviada' : 'enviar';
+    return { k, rs, data: rs[0].data, hora: rs[0].hora, veiculo: rs[0].veiculo, motorista: rs[0].motorista, tipo: rs[0].tipo, st };
+  }).sort((a, b) => at(a.data, a.hora) - at(b.data, b.hora));
+}
+const paxTxt = (r) => `${r.nome}${r.pax > 1 ? ` +${r.pax - 1}` : ''}`;
+function wppMsg(v) {
+  const ve = veic(v.veiculo);
+  const moto = v.tipo === 'moto';
+  const L = [`*Mobilab · Natulab — ${moto ? 'Serviço de Moto Táxi' : 'Viagem confirmada'}*`, '', `📅 ${fmtDT(v.data, v.hora)}`];
+  if (v.tipo === 'grade') {
+    const slot = slotOf(v.hora);
+    if (slot) L.push(`🛣️ Rota: ${rotaTxt(slot.paradas)}`);
+    L.push(`🚗 ${ve.nome} · ${ve.placa}`, '', '*Passageiros:*');
+    v.rs.forEach((r) => L.push(`• ${paxTxt(r)} — embarca em ${siteName(r.origem)}, desce em ${siteName(r.destino)}`));
+    L.push('', `Total: ${v.rs.reduce((s, r) => s + r.pax, 0)} passageiro(s)`);
+  } else if (moto) {
+    const oss = [...new Set(v.rs.map((r) => r.os).filter(Boolean))];
+    if (oss.length) L.push(`🧾 OS: ${oss.join(', ')}`);
+    L.push(`🏍️ ${ve.nome} · ${ve.placa}`);
+    const rotas = [...new Set(v.rs.map((r) => `${siteName(r.origem)} → ${siteName(r.destino)}`))];
+    if (rotas.length === 1) L.push(`📍 ${rotas[0]}`);
+    L.push('', `*Itens (${v.rs.length}):*`);
+    v.rs.forEach((r) => L.push(`• ${r.vol}× ${r.item} (${tamCurto(r.tam)}) — retirar com ${r.nome}${rotas.length > 1 ? ` em ${siteName(r.origem)}` : ''}; entregar a ${r.recebedor}${rotas.length > 1 ? ` em ${siteName(r.destino)}` : ''}`));
+  } else {
+    const r = v.rs[0];
+    L.push(`🚗 ${ve.nome} · ${ve.placa}`, `📍 Embarque: ${siteName(r.origem)}`, `🏁 Destino: ${siteName(r.destino)}`, `👥 ${paxTxt(r)}`, `📝 ${r.just}`);
+    if (r.bv) L.push(`🔁 *Bate-volta:* aguardar até ${fmtMin(r.bv.espera)} no destino e levar o passageiro para ${siteName(r.bv.volta)}`);
+  }
+  const bags = v.rs.filter((r) => r.bag !== 'nenhuma').map((r) => BAG[r.bag].l);
+  if (bags.length) L.push(`🧳 Bagagem: ${bags.join(', ')}`);
+  L.push('', `Ref.: ${v.rs.map((r) => r.id).join(', ')}`, 'Dúvidas: falar com o Facilities.');
+  return L.join('\n');
+}
+
+// ---------------- E-mail de confirmação ao colaborador (SIMULADO: no sistema real sai pelo e-mail corporativo) ----------------
+const caixa = () => (S.emails || (S.emails = []));
+function emailConfirmacao(v, reenvio) {
+  const ve = veic(v.veiculo), m = mot(v.motorista);
+  const porPessoa = {};
+  v.rs.forEach((r) => { (porPessoa[r.email] || (porPessoa[r.email] = [])).push(r); });
+  return Object.values(porPessoa).map((rs) => {
+    const r0 = rs[0], moto = r0.tipo === 'moto';
+    const L = [`Olá, ${r0.nome.split(' ')[0]}!`, '', moto ? 'Seu envio por Moto Táxi foi confirmado pelo Facilities.' : 'Sua viagem foi confirmada pelo Facilities.', '', `Data e horário: ${fmtDT(v.data, v.hora)}`];
+    rs.forEach((r) => {
+      L.push(moto ? `Retirada em ${siteName(r.origem)} → entrega em ${siteName(r.destino)} (${r.vol}× ${r.item}; recebe: ${r.recebedor})`
+        : `Trecho: ${siteName(r.origem)} → ${siteName(r.destino)} · ${r.pax} passageiro(s)`);
+      if (r.bv) L.push(bvTxt(r));
+      if (r.perna) L.push(`${pernaTxt(r)} — vinculada a ${r.par}`);
+      if (r.os) L.push(`OS: ${r.os}`);
+    });
+    if (v.tipo === 'grade') { const s = slotOf(v.hora); if (s) L.push(`Rota: ${rotaTxt(s.paradas)}`); }
+    L.push(`${moto ? 'Moto' : 'Veículo'}: ${ve.nome} · placa ${ve.placa}`, `${moto ? 'Motociclista' : 'Motorista'}: ${m.nome}`, '',
+      moto ? 'Deixe o item pronto e identificado no horário da retirada.' : 'Chegue ao ponto de embarque com pelo menos 5 minutos de antecedência.',
+      '', `Ref.: ${rs.map((r) => r.id).join(', ')}`, 'Mobilab · Facilities Natulab');
+    const em = {
+      id: `EM-${caixa().length + 1}`, para: r0.email, nome: r0.nome, refs: rs.map((r) => r.id), quando: nowStamp(), lida: false,
+      assunto: `${reenvio ? 'Atualização' : 'Confirmada'}: ${moto ? 'envio por Moto Táxi' : 'sua viagem'} — ${fmtDT(v.data, v.hora)}`, corpo: L.join('\n'),
+    };
+    caixa().push(em);
+    rs.forEach((r) => { r.mail = em.quando; });
+    audit('E-mail de confirmação ao colaborador', em.refs.join(', '), '', r0.email);
+    return em;
+  });
+}
+// Recusa / remarcação: o colaborador também é avisado por e-mail (um e-mail por pessoa).
+function emailStatus(rs, kind, info) {
+  const porPessoa = {};
+  rs.forEach((r) => { (porPessoa[r.email] || (porPessoa[r.email] = [])).push(r); });
+  return Object.values(porPessoa).map((grp) => {
+    const r0 = grp[0];
+    const recusa = kind === 'recusada';
+    const L = [`Olá, ${r0.nome.split(' ')[0]}!`, '', recusa ? 'Sua solicitação não pôde ser atendida pelo Facilities.' : 'Sua solicitação foi remarcada pelo Facilities.', ''];
+    grp.forEach((r) => {
+      L.push(`${r.id} — ${TIPOS[r.tipo]}: ${siteName(r.origem)} → ${siteName(r.destino)}`);
+      L.push(recusa ? `Data e horário pedidos: ${fmtDT(r.data, r.hora)}` : `Novo horário: ${fmtDT(r.data, r.hora)} (antes: ${info.antes})`);
+    });
+    L.push('', recusa ? `Motivo: ${info.motivo}` : 'Abra o Mobilab para dar ciência do novo horário. Se ele não servir, cancele e faça uma nova solicitação.',
+      recusa ? 'Se precisar, faça uma nova solicitação em outro horário ou fale com o Facilities.' : '', '', 'Mobilab · Facilities Natulab');
+    const em = {
+      id: `EM-${caixa().length + 1}`, para: r0.email, nome: r0.nome, refs: grp.map((r) => r.id), quando: nowStamp(), lida: false, kind,
+      assunto: recusa ? `Recusada: sua solicitação ${grp.map((r) => r.id).join(', ')}` : `Remarcada: ${grp[0].id} para ${fmtDT(grp[0].data, grp[0].hora)}`,
+      corpo: L.filter((x, i, a) => !(x === '' && a[i - 1] === '')).join('\n'),
+    };
+    caixa().push(em);
+    grp.forEach((r) => { r.mail = em.quando; });
+    audit(`E-mail de ${recusa ? 'recusa' : 'remarcação'} ao colaborador`, em.refs.join(', '), '', r0.email);
+    return em;
+  });
+}
+const minhasMsgs = () => caixa().filter((e) => e.para === S.user.email).slice().reverse();
+function openEmail(id) {
+  const e = caixa().find((x) => x.id === id);
+  if (!e) return;
+  if (!e.lida) { e.lida = true; save(); }
+  openModal(`
+    <div class="mail-h"><span class="si ${e.kind === 'recusada' ? 'red' : e.kind ? 'amber' : 'green'}">${ico('mail', 20)}</span><div><h3>${esc(e.assunto)}</h3>
+      <p class="sub">De: <b>Mobilab · Facilities</b> &lt;mobilab@natulab.com.br&gt; · Para: ${esc(e.para)} · ${esc(e.quando)}</p></div></div>
+    <div class="mail-body">${esc(e.corpo)}</div>
+    <p class="section-s" style="margin-top:10px">Simulação: no sistema real esta mensagem chega na caixa de e-mail corporativa do colaborador.</p>
+    <div class="modal-acts">${e.refs[0] && S.reqs.some((r) => r.id === e.refs[0] && r.email === S.user.email) ? `<button class="btn" id="vsol">Ver solicitação ${esc(e.refs[0])}</button>` : ''}<button class="btn green" id="cx">Fechar</button></div>`);
+  $('#cx').onclick = () => { closeModal(); route(); };
+  const vs = $('#vsol'); if (vs) vs.onclick = () => openDetalhe(e.refs[0]);
+}
+function openCaixa() {
+  const ms = minhasMsgs();
+  openModal(`
+    <h3>Mensagens do Facilities</h3>
+    <p class="sub">Cópia dos e-mails enviados a você: confirmação (viagem fechada com o motorista), recusa e remarcação.</p>
+    ${ms.length ? `<div class="mail-list">${ms.map((e) => `<button class="mail-row ${e.lida ? '' : 'nova'} k-${e.kind || 'ok'}" data-em="${esc(e.id)}"><i></i><span><b>${esc(e.assunto)}</b><small>${esc(e.quando)} · ${esc(e.refs.join(', '))}</small></span></button>`).join('')}</div>`
+      : '<div class="empty">Nenhuma confirmação recebida ainda.</div>'}
+    <div class="modal-acts"><button class="btn" id="cx">Fechar</button></div>`);
+  $('#cx').onclick = () => { closeModal(); route(); };
+  document.querySelectorAll('.mail-row').forEach((b) => { b.onclick = () => openEmail(b.dataset.em); });
+}
+
+function openWpp(v) {
+  const m = mot(v.motorista);
+  openModal(`
+    <h3>Enviar ao motorista</h3>
+    <p class="sub">Para <b>${esc(m.nome)}</b> · WhatsApp ${esc(fmtFone(m.fone))}</p>
+    <div class="f"><label for="wmsg">Mensagem <small>(pode ajustar antes de enviar)</small></label><textarea id="wmsg" style="min-height:260px;font-family:inherit">${esc(wppMsg(v))}</textarea></div>
+    <p class="section-s" style="margin-top:8px">Na simulação os números são fictícios. O WhatsApp abre com o texto pronto — o envio é feito por você.
+      Ao enviar, ${[...new Set(v.rs.map((r) => r.nome))].length > 1 ? `os colaboradores (${esc([...new Set(v.rs.map((r) => r.nome))].join(', '))}) recebem` : `<b>${esc(v.rs[0].nome)}</b> recebe`} a <b>confirmação por e-mail</b> e o aviso no painel.</p>
+    <div class="modal-acts">
+      <button class="btn" id="cx">Fechar</button>
+      <button class="btn" id="cp">Copiar texto</button>
+      <button class="btn" id="mk">Marcar como enviada</button>
+      <a class="btn green" id="wa" target="_blank" rel="noopener" href="#" style="text-decoration:none">Abrir WhatsApp</a>
+    </div>`);
+  const marcar = () => {
+    const ts = nowStamp();
+    const reenvio = v.rs.some((r) => r.wpp);
+    v.rs.forEach((r) => { r.wpp = ts; });
+    audit('Enviada ao motorista (WhatsApp)', v.rs.map((r) => r.id).join(', '), '', `${m.nome} · ${fmtFone(m.fone)}`);
+    const ems = emailConfirmacao(v, reenvio); // viagem fechada com o motorista → confirmação ao colaborador
+    save();
+    return ems.length;
+  };
+  const aviso = (n) => `E-mail de confirmação enviado a ${n} colaborador${n > 1 ? 'es' : ''}.`;
+  $('#cx').onclick = closeModal;
+  $('#cp').onclick = async () => { try { await navigator.clipboard.writeText($('#wmsg').value); toast('Texto copiado.'); } catch (e) { $('#wmsg').select(); toast('Selecione e copie com Ctrl+C.'); } };
+  $('#mk').onclick = () => { const n = marcar(); closeModal(); route(); toast(`Viagem marcada como enviada. ${aviso(n)}`); };
+  $('#wa').onclick = () => {
+    $('#wa').href = `https://wa.me/55${m.fone}?text=${encodeURIComponent($('#wmsg').value)}`;
+    const n = marcar(); setTimeout(() => { closeModal(); route(); toast(aviso(n)); }, 300);
+  };
+}
+
+function renderViagens(page) {
+  const f = renderViagens.f || (renderViagens.f = 'abertas');
+  const all = viagens();
+  const list = all.filter((v) => f === 'todas' || (f === 'abertas' ? ['enviar', 'enviada'].includes(v.st) : v.st === f));
+  const cont = (s) => all.filter((v) => v.st === s).length;
+  shell(page, `
+    <div class="page-head"><div><h1>Viagens</h1><p>Viagens fechadas. Envie ao motorista pelo WhatsApp e registre a conclusão — motoristas não acessam o sistema.</p></div>
+      <div class="filters" style="margin:0"><select id="vf">
+        <option value="abertas" ${f === 'abertas' ? 'selected' : ''}>Abertas (${cont('enviar') + cont('enviada')})</option>
+        <option value="enviar" ${f === 'enviar' ? 'selected' : ''}>A enviar (${cont('enviar')})</option>
+        <option value="enviada" ${f === 'enviada' ? 'selected' : ''}>Enviadas (${cont('enviada')})</option>
+        <option value="concluida" ${f === 'concluida' ? 'selected' : ''}>Concluídas (${cont('concluida')})</option>
+        <option value="naorealizada" ${f === 'naorealizada' ? 'selected' : ''}>Não realizadas (${cont('naorealizada')})</option>
+        <option value="todas" ${f === 'todas' ? 'selected' : ''}>Todas (${all.length})</option></select></div></div>
+    ${list.length ? list.map((v, i) => {
+      const m = mot(v.motorista), ve = veic(v.veiculo), [lbl, cls] = VG_LABEL[v.st];
+      const slot = v.tipo === 'grade' ? slotOf(v.hora) : null;
+      const aberta = ['enviar', 'enviada'].includes(v.st);
+      return `<div class="group ${v.st === 'enviar' ? 'bad' : 'ok'}" data-i="${i}">
+        <div class="group-h"><b>${esc(fmtDT(v.data, v.hora))} · ${esc(TIPOS[v.tipo])}</b><span class="pill ${cls}">${lbl}</span></div>
+        <div class="meter" style="margin-top:6px"><span>Motorista: <b>${esc(m.nome)}</b> · ${esc(fmtFone(m.fone))}</span><span>Veículo: <b>${esc(ve.nome)}</b> · ${esc(ve.placa)}</span>
+          ${slot ? `<span>Rota: <b>${esc(rotaTxt(slot.paradas, true))}</b></span>` : ''}</div>
+        <ul>${v.rs.map((r) => `<li><span><b>${esc(r.id)}</b>${r.os ? ` · ${esc(r.os)}` : ''} · ${esc(r.tipo === 'moto' ? `${r.nome}: ${resumo(r)}` : paxTxt(r))}</span><span>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}</span></li>`).join('')}</ul>
+        ${v.rs[0].wpp ? `<div class="okmsg">✓ Enviada pelo WhatsApp em ${esc(v.rs[0].wpp)}</div>` : '<div class="alert">Ainda não enviada ao motorista.</div>'}
+        ${v.rs.some((r) => r.mail) ? `<div class="okmsg">✉ Confirmação por e-mail enviada a ${esc([...new Set(v.rs.filter((r) => r.mail).map((r) => r.nome))].join(', '))}</div>`
+          : v.rs[0].wpp ? '' : '<div class="section-s" style="margin:6px 0 0">Ao enviar, o colaborador recebe a confirmação por e-mail.</div>'}
+        ${aberta ? `<div class="assign"><button class="btn green sm wpp">${v.st === 'enviada' ? 'Reenviar' : 'Enviar'} via WhatsApp</button>
+          <button class="btn sm fim">Concluir</button><button class="btn sm red nr">Não realizada</button></div>` : ''}
+      </div>`;
+    }).join('') : '<div class="card empty">Nenhuma viagem neste filtro. Confirme solicitações no <a href="#painel">Painel</a>.</div>'}`);
+  $('#vf').onchange = (e) => { renderViagens.f = e.target.value; route(); };
+  document.querySelectorAll('.group[data-i]').forEach((g) => {
+    const v = list[Number(g.dataset.i)];
+    const w = $('.wpp', g), fim = $('.fim', g), nr = $('.nr', g);
+    if (w) w.onclick = () => openWpp(v);
+    if (fim) fim.onclick = () => {
+      v.rs.forEach((r) => { audit('Concluída', r.id, STATUS[r.status], 'Concluída'); r.status = 'concluida'; });
+      save(); route(); toast('Viagem concluída.');
+    };
+    if (nr) nr.onclick = () => {
+      const mo = prompt('Motivo (viagem não realizada):');
+      if (!mo || !mo.trim()) return;
+      v.rs.forEach((r) => { audit('Não realizada', r.id, STATUS[r.status], mo.trim()); r.status = 'naorealizada'; r.motivo = mo.trim(); });
+      save(); route(); toast('Registrada como não realizada.');
+    };
+  });
+}
+
+// ---------------- Motoristas (cadastro pelo Facilities) ----------------
+const futurasAtivas = (pred) => S.reqs.filter((r) => ['analise', 'confirmada', 'reagendada'].includes(r.status) && r.data >= ymd(new Date()) && pred(r));
+
+function renderMotoristas(page) {
+  const list = [...S.motoristas].sort((a, b) => (b.ativo - a.ativo) || a.nome.localeCompare(b.nome));
+  shell(page, `
+    <div class="page-head"><div><h1>Motoristas</h1><p>Cadastro do Facilities. O WhatsApp é usado para enviar as viagens — motoristas não acessam o sistema.</p></div>
+      <button class="btn green" id="novo">+ Novo motorista</button></div>
+    <div class="card table-wrap"><table><thead><tr><th>Nome</th><th>Tipo</th><th>WhatsApp</th><th>Situação</th><th>Próximas viagens</th><th></th></tr></thead><tbody>
+      ${list.map((m) => `<tr><td><b>${esc(m.nome)}</b></td><td>${m.tipo === 'moto' ? 'Motociclista' : 'Motorista (carro)'}</td><td>${esc(fmtFone(m.fone))}</td>
+        <td>${m.ativo ? '<span class="pill st-confirmada">Ativo</span>' : '<span class="pill st-concluida">Inativo</span>'}</td>
+        <td>${futurasAtivas((r) => r.motorista === m.id).length}</td>
+        <td style="white-space:nowrap"><button class="btn sm ed" data-id="${esc(m.id)}">Editar</button> <button class="btn sm tg" data-id="${esc(m.id)}">${m.ativo ? 'Desativar' : 'Ativar'}</button></td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="section-s" style="margin-top:12px">Telefones são dados pessoais (LGPD): visíveis apenas para Facilities e TI.</p>`);
+  $('#novo').onclick = () => openMotorista();
+  document.querySelectorAll('.ed').forEach((b) => { b.onclick = () => openMotorista(b.dataset.id); });
+  document.querySelectorAll('.tg').forEach((b) => {
+    b.onclick = () => {
+      const m = mot(b.dataset.id);
+      if (m.ativo) {
+        const n = futurasAtivas((r) => r.motorista === m.id && r.status !== 'analise').length;
+        if (n) { toast(`${m.nome} tem ${n} viagem(ns) futura(s). Reatribua antes de desativar.`); return; }
+      }
+      m.ativo = !m.ativo;
+      audit(m.ativo ? 'Motorista ativado' : 'Motorista desativado', m.nome, m.ativo ? 'Inativo' : 'Ativo', m.ativo ? 'Ativo' : 'Inativo');
+      save(); route();
+    };
+  });
+}
+
+function openMotorista(id) {
+  const m = id ? mot(id) : { nome: '', tipo: 'carro', fone: '', ativo: true };
+  openModal(`
+    <h3>${id ? 'Editar motorista' : 'Novo motorista'}</h3>
+    <p class="sub">Dados usados para atribuir viagens e enviar pelo WhatsApp.</p>
+    <div class="form-grid">
+      <div class="f full"><label for="mn">Nome</label><input id="mn" value="${esc(m.nome)}"></div>
+      <div class="f"><label for="mt">Tipo</label><select id="mt"><option value="carro" ${m.tipo === 'carro' ? 'selected' : ''}>Motorista (carro)</option><option value="moto" ${m.tipo === 'moto' ? 'selected' : ''}>Motociclista</option></select></div>
+      <div class="f"><label for="mf">WhatsApp (com DDD)</label><input id="mf" inputmode="tel" placeholder="(75) 99999-0000" value="${esc(m.fone ? fmtFone(m.fone) : '')}"></div>
+    </div>
+    <div id="mmsg"></div>
+    <div class="modal-acts"><button class="btn" id="cx">Cancelar</button><button class="btn green" id="ok">Salvar</button></div>`);
+  $('#cx').onclick = closeModal;
+  $('#ok').onclick = () => {
+    const nome = $('#mn').value.trim(), tipo = $('#mt').value;
+    let fone = $('#mf').value.replace(/\D/g, '');
+    if (fone.length === 13 && fone.startsWith('55')) fone = fone.slice(2);
+    const msg = $('#mmsg');
+    if (!nome) { msg.innerHTML = '<div class="msg-box bad">Informe o nome.</div>'; return; }
+    if (fone.length < 10 || fone.length > 11) { msg.innerHTML = '<div class="msg-box bad">WhatsApp inválido: informe DDD + número (10 ou 11 dígitos).</div>'; return; }
+    const dup = S.motoristas.find((x) => x.fone === fone && x.id !== id);
+    if (dup) { msg.innerHTML = `<div class="msg-box bad">Este número já está cadastrado para ${esc(dup.nome)}.</div>`; return; }
+    if (id && tipo !== m.tipo && futurasAtivas((r) => r.motorista === id && r.status !== 'analise').length) {
+      msg.innerHTML = '<div class="msg-box bad">Há viagens futuras atribuídas — não é possível mudar o tipo agora.</div>'; return;
+    }
+    if (id) {
+      const antes = `${m.nome} · ${m.tipo} · ${fmtFone(m.fone)}`;
+      Object.assign(m, { nome, tipo, fone });
+      audit('Motorista alterado', m.id, antes, `${nome} · ${tipo} · ${fmtFone(fone)}`);
+    } else {
+      S.seq.mot += 1;
+      const novo = { id: `D${S.seq.mot}`, nome, tipo, fone, ativo: true };
+      S.motoristas.push(novo);
+      audit('Motorista cadastrado', novo.id, '', `${nome} · ${tipo} · ${fmtFone(fone)}`);
+    }
+    save(); closeModal(); route(); toast('Motorista salvo.');
+  };
+}
+
+// ---------------- Grade e rotas (Facilities e TI) ----------------
+function renderGrade(page) {
+  const list = [...S.grade].sort((a, b) => a.hora.localeCompare(b.hora));
+  shell(page, `
+    <div class="page-head"><div><h1>Grade e rotas</h1><p>Horários fixos entre os sites. Alterações valem imediatamente para a agenda dos colaboradores.</p></div>
+      <button class="btn green" id="novo">+ Novo horário</button></div>
+    <div class="card table-wrap"><table><thead><tr><th>Horário</th><th>Período</th><th>Origem</th><th>Parada</th><th>Destino</th><th>Situação</th><th>Solicitações futuras</th><th></th></tr></thead><tbody>
+      ${list.map((g) => {
+        const p = g.paradas, via = p.length === 3 ? siteName(p[1]) : '—';
+        return `<tr style="${g.ativo ? '' : 'opacity:.55'}"><td><b>${esc(g.hora)}</b></td><td>${periodo(g.hora)}</td><td>${esc(siteName(p[0]))}</td><td>${esc(via)}</td><td>${esc(siteName(p[p.length - 1]))}</td>
+          <td>${g.ativo ? '<span class="pill st-confirmada">Ativo</span>' : '<span class="pill st-concluida">Inativo</span>'}</td>
+          <td>${futurasAtivas((r) => r.tipo === 'grade' && r.hora === g.hora).length}</td>
+          <td style="white-space:nowrap"><button class="btn sm ed" data-id="${g.id}">Editar</button> <button class="btn sm tg" data-id="${g.id}">${g.ativo ? 'Desativar' : 'Ativar'}</button></td></tr>`;
+      }).join('')}
+    </tbody></table></div>
+    <p class="section-s" style="margin-top:12px">Dias de operação: segunda a sexta (DEC-01 em validação). Horários com solicitações futuras não podem ser alterados nem desativados — reagende-as antes.</p>`);
+  $('#novo').onclick = () => openGrade();
+  document.querySelectorAll('.ed').forEach((b) => { b.onclick = () => openGrade(b.dataset.id); });
+  document.querySelectorAll('.tg').forEach((b) => {
+    b.onclick = () => {
+      const g = S.grade.find((x) => x.id === b.dataset.id);
+      if (g.ativo) {
+        const n = futurasAtivas((r) => r.tipo === 'grade' && r.hora === g.hora).length;
+        if (n) { toast(`Há ${n} solicitação(ões) futura(s) às ${g.hora}. Reagende antes de desativar.`); return; }
+      } else if (S.grade.some((x) => x.ativo && x.hora === g.hora)) { toast(`Já existe um horário ativo às ${g.hora}.`); return; }
+      g.ativo = !g.ativo;
+      audit(g.ativo ? 'Horário ativado' : 'Horário desativado', `${g.hora} ${rotaTxt(g.paradas, true)}`, g.ativo ? 'Inativo' : 'Ativo', g.ativo ? 'Ativo' : 'Inativo');
+      save(); route();
+    };
+  });
+}
+
+function openGrade(id) {
+  const g = id ? S.grade.find((x) => x.id === id) : { hora: '', paradas: ['MED', 'CD', 'SUP'], ativo: true };
+  const p = g.paradas;
+  const opts = (sel, vazio) => `${vazio ? `<option value="">${vazio}</option>` : ''}${Object.entries(SITES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('')}`;
+  openModal(`
+    <h3>${id ? `Editar horário ${esc(g.hora)}` : 'Novo horário'}</h3>
+    <p class="sub">Defina o horário de saída e a rota.</p>
+    <div class="form-grid">
+      <div class="f full"><label for="gh">Horário de saída</label><input id="gh" type="time" value="${esc(g.hora)}"></div>
+      <div class="f"><label for="go">Origem</label><select id="go">${opts(p[0])}</select></div>
+      <div class="f"><label for="gd">Destino</label><select id="gd">${opts(p[p.length - 1])}</select></div>
+      <div class="f full"><label for="gv">Parada intermediária</label><select id="gv">${opts(p.length === 3 ? p[1] : '', 'Sem parada (direto)')}</select></div>
+    </div>
+    <div id="gmsg"></div>
+    <div class="modal-acts"><button class="btn" id="cx">Cancelar</button><button class="btn green" id="ok">Salvar</button></div>`);
+  $('#cx').onclick = closeModal;
+  $('#ok').onclick = () => {
+    const hora = $('#gh').value, o = $('#go').value, d = $('#gd').value, v = $('#gv').value;
+    const msg = $('#gmsg');
+    const bad = (t) => { msg.innerHTML = `<div class="msg-box bad">${t}</div>`; };
+    if (!/^\d{2}:\d{2}$/.test(hora)) return bad('Informe o horário.');
+    if (o === d) return bad('Origem e destino devem ser diferentes.');
+    if (v && (v === o || v === d)) return bad('A parada intermediária deve ser diferente da origem e do destino.');
+    if (S.grade.some((x) => x.ativo && x.hora === hora && x.id !== id)) return bad(`Já existe um horário ativo às ${hora}.`);
+    const paradas = v ? [o, v, d] : [o, d];
+    if (id) {
+      const mudou = hora !== g.hora || paradas.join() !== g.paradas.join();
+      const n = futurasAtivas((r) => r.tipo === 'grade' && r.hora === g.hora).length;
+      if (mudou && n) return bad(`Há ${n} solicitação(ões) futura(s) neste horário. Reagende-as antes de alterar.`);
+      const antes = `${g.hora} ${rotaTxt(g.paradas, true)}`;
+      Object.assign(g, { hora, paradas });
+      audit('Horário alterado', g.id, antes, `${hora} ${rotaTxt(paradas, true)}`);
+    } else {
+      S.seq.grade += 1;
+      const novo = { id: `G${S.seq.grade}`, hora, paradas, ativo: true };
+      S.grade.push(novo);
+      audit('Horário criado', novo.id, '', `${hora} ${rotaTxt(paradas, true)}`);
+    }
+    save(); closeModal(); route(); toast('Grade atualizada.');
+  };
+}
+
+// ---------------- Boot ----------------
+S = load() || seed();
+route();
