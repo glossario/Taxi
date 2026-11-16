@@ -507,3 +507,29 @@ td small + small { margin-top: 2px; }
 .btn-out:hover { border-color: #b9c6a3; }
 .btn-link { border: 0; background: none; color: var(--red); font-weight: 800; padding: 9px 10px; }
 .btn-link:hover { text-decoration: underline; }
+/* Visão geral: cabeçalho da caixa clicável + tela expandida */
+button.vp-h { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; font: inherit; }
+button.vp-h:hover { background: #fafcf7; }
+button.vp-h:hover .vp-x { color: var(--c); opacity: 1; }
+button.vp-h:focus-visible { outline: 3px solid rgba(74, 143, 34, .35); outline-offset: -3px; }
+.vp-x { color: var(--muted); opacity: .6; display: grid; place-items: center; margin-left: 4px; }
+.vx-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin: 4px 0 14px; }
+.vx-head h1 { margin: 4px 0 2px; font-size: 28px; font-weight: 900; color: var(--navy-ink); display: flex; align-items: center; gap: 10px; }
+.vx-head p { margin: 0; color: var(--muted); }
+.vx-n { font-size: 15px; background: var(--navy-ink); color: #fff; border-radius: 999px; padding: 2px 10px; }
+.vx-back { display: inline-flex; align-items: center; gap: 6px; align-self: center; }
+.vx-tools { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.vx-tabs { flex-wrap: wrap; margin-bottom: 12px; background: #fff; border: 1px solid var(--line); padding: 4px; }
+.vx-card { padding: 4px 8px; }
+.vx-t td { vertical-align: middle; }
+.vx-t td small { display: block; color: var(--muted); font-size: 11.5px; }
+.vx-r { cursor: pointer; }
+.vx-r:hover td { background: #fafcf7; }
+.vx-r[hidden] { display: none; }
+.vx-obs { font-size: 13px; max-width: 340px; }
+.vx-obs.ok { color: var(--green-dark); } .vx-obs.bad { color: var(--red); } .vx-obs.warn { color: #5b3fa3; }
+.vx-a { white-space: nowrap; text-align: right; }
+.vx-a .btn { margin-left: 4px; }
+.vx-t .sid, .vx-t td:first-child b, .vx-t td:nth-child(2) b { white-space: nowrap; }
+.vx-tools { flex-wrap: nowrap; }
+@media (max-width: 760px) { .vx-tools { flex-wrap: wrap; margin-left: 0; } }

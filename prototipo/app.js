@@ -208,7 +208,10 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = fal
 function openModal(html) { const m = $('#modal'); $('.modal-card', m).innerHTML = html; m.hidden = false; }
 function closeModal() { $('#modal').hidden = true; }
 $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if ($('#modal').hidden && UI.vx && route.page === 'visao') { UI.vx = null; route(); } else closeModal();
+});
 document.addEventListener('click', (e) => { const m = $('#menu'); if (m && !m.hidden && !e.target.closest('.user-wrap')) m.hidden = true; });
 const pill = (st) => `<span class="pill st-${esc(st)}">${esc(STATUS[st] || st)}</span>`;
 const brand = `<a class="brand" href="#"><span class="w">NATU<span>LAB</span></span><span class="s">FARMACÊUTICA</span></a>`;
@@ -219,6 +222,7 @@ function route() {
   const home = { colaborador: 'agenda', facilities: 'visao', ti: 'visao' }[S.user.role];
   const allowed = NAV[S.user.role].map(([k]) => k);
   const page = allowed.includes(h) ? h : home;
+  if (page !== 'visao') UI.vx = null; // sair da tela expandida ao trocar de página
   route.page = page;
   ({ visao: renderVisao, agenda: renderAgenda, minhas: renderMinhas, painel: renderPainel, viagens: renderViagens, solicitacoes: renderTodas, motoristas: renderMotoristas,
     grade: renderGrade, historico: renderHistorico, cadastros: renderCadastros })[page](page);
@@ -252,6 +256,7 @@ const ICO = {
   moto: '<circle cx="5.5" cy="16.5" r="3"/><circle cx="18.5" cy="16.5" r="3"/><path d="M5.5 16.5l4-6h5l4 6M12 10.5l-1-3h-2M15 7.5h3"/>',
   send: '<path d="M21 3L10 14"/><path d="M21 3l-7 18-4-7-7-4z"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  expand: '<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
   bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
 };
@@ -1611,63 +1616,118 @@ function renderVisao(page) {
   const ini = ymd(base), fim = ymd(addDays(base, 6));
   const vivos = ['gestor', 'analise', 'confirmada', 'reagendada', 'andamento'];
   const byDH = (a, b) => at(a.data, a.hora) - at(b.data, b.hora);
-  const agoraIds = new Set();
-  const agoraL = S.reqs.filter((r) => r.status === 'andamento' || (r.status === 'confirmada' && r.data === hoje && at(r.data, r.hora) <= now && now < new Date(at(r.data, r.hora).getTime() + durOf(r) * 60000))).sort(byDH);
-  agoraL.forEach((r) => agoraIds.add(r.id));
-  const hojeL = S.reqs.filter((r) => r.data === hoje && !agoraIds.has(r.id) && [...vivos, 'concluida'].includes(r.status)).sort(byDH);
-  const amanhaL = S.reqs.filter((r) => r.data === amanha && vivos.includes(r.status)).sort(byDH);
-  const semanaL = S.reqs.filter((r) => r.data >= ini && r.data <= fim && vivos.includes(r.status)).sort(byDH);
-  const aprovL = S.reqs.filter((r) => r.status === 'gestor').sort(byDH);
-  const retL = S.reqs.filter((r) => r.aprov).sort((a, b) => (b.aprov.ts || 0) - (a.aprov.ts || 0));
-  const cancL = S.reqs.filter((r) => ['cancelada', 'recusada', 'naorealizada'].includes(r.status) && r.data >= ini).sort((a, b) => byDH(b, a));
+  const emCurso = (r) => r.status === 'andamento' || (r.status === 'confirmada' && r.data === hoje && at(r.data, r.hora) <= now && now < new Date(at(r.data, r.hora).getTime() + durOf(r) * 60000));
+  const agoraL = S.reqs.filter(emCurso).sort(byDH);
+  const CATS = {
+    agora: { tit: 'Acontecendo agora', sub: 'viagens em curso', ic: 'route', cls: 'v-agora', ls: agoraL, o: { agora: true }, vazio: 'Nenhuma viagem em andamento agora.' },
+    hoje: { tit: 'Hoje', sub: fmtDate(hoje), ic: 'clock', cls: 'v-hoje', ls: S.reqs.filter((r) => r.data === hoje && !emCurso(r) && [...vivos, 'concluida'].includes(r.status)).sort(byDH), o: {}, vazio: 'Sem mais viagens hoje.' },
+    amanha: { tit: 'Amanhã', sub: fmtDate(amanha), ic: 'cal', cls: 'v-amanha', ls: S.reqs.filter((r) => r.data === amanha && vivos.includes(r.status)).sort(byDH), o: {}, vazio: 'Nada programado para amanhã.' },
+    semana: { tit: 'Esta semana', sub: `${fmtDate(ini).slice(0, 5)} a ${fmtDate(fim).slice(0, 5)}`, ic: 'cal', cls: 'v-semana', ls: S.reqs.filter((r) => r.data >= ini && r.data <= fim && vivos.includes(r.status)).sort(byDH), o: { porDia: true }, vazio: 'Nada programado nesta semana.' },
+    aprov: { tit: 'Em aprovação', sub: 'aguardando o gestor imediato', ic: 'users', cls: 'v-aprov', ls: S.reqs.filter((r) => r.status === 'gestor').sort(byDH), o: { dia: true }, vazio: 'Nenhum pedido aguardando gestor.' },
+    ret: { tit: 'Retornos de aprovação', sub: 'respostas dos gestores', ic: 'mail', cls: 'v-ret', ls: S.reqs.filter((r) => r.aprov).sort((a, b) => (b.aprov.ts || 0) - (a.aprov.ts || 0)), o: { dia: true, ret: true }, vazio: 'Nenhuma resposta ainda.' },
+    canc: { tit: 'Canceladas e recusadas', sub: 'desta semana em diante', ic: 'x', cls: 'v-canc', ls: S.reqs.filter((r) => ['cancelada', 'recusada', 'naorealizada'].includes(r.status) && r.data >= ini).sort((a, b) => byDH(b, a)), o: { dia: true, canc: true }, vazio: 'Nenhum cancelamento.' },
+  };
   const diaTxt = (ds) => (ds === hoje ? 'Hoje' : ds === amanha ? 'Amanhã' : `${DIAS[at(ds, '12:00').getDay()].slice(0, 3)} ${fmtDate(ds).slice(0, 5)}`);
   const destTxt = (r) => (r.tipo === 'moto' ? `${siteName(r.origem)} → ${siteName(r.destino)} · ${r.vol}× ${r.item}` : `${siteName(r.origem)} → ${siteName(r.destino)}`);
+  const simBtns = (r) => `<button class="btn sm g-ok" data-id="${esc(r.id)}" title="Simula a resposta do gestor">Simular: aprovou</button><button class="btn sm red g-no" data-id="${esc(r.id)}">Simular: reprovou</button>`;
+  // Texto de situação complementar (gestor, retorno de aprovação, motivo, veículo)
+  const extraTxt = (r, o) => {
+    const v = veic(r.veiculo), m = mot(r.motorista);
+    if (o.agora || emCurso(r)) return { c: 'ok', h: `🚗 ${esc(v ? v.nome : '')}${m ? ` · ${esc(m.nome)}` : ''} · até ~${esc(addMin(r.hora, durOf(r)))}` };
+    if (r.status === 'gestor') return { c: 'warn', h: `Gestor: <b>${esc(r.gestor.nome)}</b>${r.aprovPedido ? ` · pedido em ${esc(r.aprovPedido.slice(0, 17))}` : ''}${r.excecao ? ' · fora do prazo' : ''}` };
+    if (o.ret && r.aprov) return { c: r.aprov.ok ? 'ok' : 'bad', h: `${r.aprov.ok ? '✓ Aprovado' : '✕ Reprovado'} por <b>${esc(r.aprov.por)}</b> · ${esc(r.aprov.quando.slice(0, 17))}${r.aprov.motivo ? ` — ${esc(r.aprov.motivo)}` : ''}` };
+    if (['cancelada', 'recusada', 'naorealizada'].includes(r.status)) return { c: 'bad', h: esc(r.motivo || '') };
+    if (v) return { c: '', h: `${esc(v.nome)}${m ? ` · ${esc(m.nome)}` : ''}${r.wpp ? ' · ✓ WhatsApp' : ' · a enviar'}${r.mail ? ' · ✉ e-mail' : ''}` };
+    if (r.aprov && r.aprov.ok) return { c: 'ok', h: `✓ Aprovado por ${esc(r.aprov.por)} · aguardando análise do Facilities` };
+    return { c: '', h: r.status === 'analise' ? 'Aguardando análise do Facilities' : '' };
+  };
 
   const item = (r, o = {}) => {
-    const v = veic(r.veiculo), m = mot(r.motorista);
-    let extra = '';
-    if (o.agora) extra = `<small class="vi-x ok">🚗 ${esc(v ? v.nome : '')}${m ? ` · ${esc(m.nome)}` : ''} · até ~${esc(addMin(r.hora, durOf(r)))}</small>`;
-    else if (r.status === 'gestor') extra = `<small class="vi-x warn">Gestor: <b>${esc(r.gestor.nome)}</b>${r.aprovPedido ? ` · pedido em ${esc(r.aprovPedido.slice(0, 17))}` : ''}${r.excecao ? ' · fora do prazo' : ''}</small>
-        <span class="vi-acts"><button class="btn sm g-ok" data-id="${esc(r.id)}" title="Simula a resposta do gestor">Simular: aprovou</button><button class="btn sm red g-no" data-id="${esc(r.id)}">Simular: reprovou</button></span>`;
-    else if (o.ret) extra = `<small class="vi-x ${r.aprov.ok ? 'ok' : 'bad'}">${r.aprov.ok ? '✓ Aprovado' : '✕ Reprovado'} por <b>${esc(r.aprov.por)}</b> · ${esc(r.aprov.quando.slice(0, 17))}${r.aprov.motivo ? ` — ${esc(r.aprov.motivo)}` : ''}${r.aprov.ok && r.status === 'analise' ? ' · <a href="#painel">analisar no Painel →</a>' : ''}</small>`;
-    else if (o.canc) extra = r.motivo ? `<small class="vi-x bad">${esc(r.motivo)}</small>` : '';
-    else if (v) extra = `<small class="vi-x">${esc(v.nome)}${m ? ` · ${esc(m.nome)}` : ''}${r.wpp ? ' · ✓ WhatsApp' : ' · a enviar'}</small>`;
+    const x = extraTxt(r, o);
     return `<div class="vi" data-id="${esc(r.id)}" tabindex="0" role="button">
       <span class="vi-t">${o.dia ? `<small>${esc(diaTxt(r.data))}</small>` : ''}${esc(r.hora)}</span>
       <span class="vi-b"><span class="vi-l"><b>${esc(r.nome)}</b><span class="tp tp-${r.tipo}">${TIPO_CURTO[r.tipo]}</span>${r.perna ? `<span class="tp">${pernaTxt(r)}</span>` : r.bv ? '<span class="tp">Bate-volta</span>' : ''}</span>
-        <small>${esc(r.id)} · ${esc(destTxt(r))}${r.tipo !== 'moto' && r.pax ? ` · ${r.pax} pax` : ''}</small>${extra}</span>
+        <small>${esc(r.id)} · ${esc(destTxt(r))}${r.tipo !== 'moto' && r.pax ? ` · ${r.pax} pax` : ''}</small>
+        ${x.h ? `<small class="vi-x ${x.c}">${x.h}${o.ret && r.aprov && r.aprov.ok && r.status === 'analise' ? ' · <a href="#painel">analisar no Painel →</a>' : ''}</small>` : ''}
+        ${r.status === 'gestor' ? `<span class="vi-acts">${simBtns(r)}</span>` : ''}</span>
       <span class="vi-s">${o.agora ? '<span class="pill st-andamento">Em andamento</span>' : pill(r.status)}</span></div>`;
   };
-  const lista = (ls, o, vazio) => (ls.length ? ls.map((r) => item(r, o)).join('') : `<div class="vp-empty">${vazio}</div>`);
-  const porDia = (ls) => {
-    if (!ls.length) return '<div class="vp-empty">Nada programado nesta semana.</div>';
+  const corpo = (k) => {
+    const c = CATS[k];
+    if (!c.ls.length) return `<div class="vp-empty">${c.vazio}</div>`;
+    if (!c.o.porDia) return c.ls.map((r) => item(r, c.o)).join('');
     let out = '', dia = '';
-    ls.forEach((r) => { if (r.data !== dia) { dia = r.data; out += `<div class="vp-day">${esc(diaTxt(dia))} <small>${fmtDate(dia)}</small></div>`; } out += item(r); });
+    c.ls.forEach((r) => { if (r.data !== dia) { dia = r.data; out += `<div class="vp-day">${esc(diaTxt(dia))} <small>${fmtDate(dia)}</small></div>`; } out += item(r); });
     return out;
   };
-  const painel = (cls, ic, tit, sub, n, body) => `<section class="vp ${cls}"><div class="vp-h"><span class="vp-i">${ico(ic, 18)}</span><span><b>${tit}</b><small>${sub}</small></span><span class="n">${n}</span></div><div class="vp-b">${body}</div></section>`;
+  const painel = (k) => {
+    const c = CATS[k];
+    return `<section class="vp ${c.cls}"><button class="vp-h" data-x="${k}" title="Expandir ${esc(c.tit)}" aria-label="Expandir ${esc(c.tit)}">
+      <span class="vp-i">${ico(c.ic, 18)}</span><span><b>${c.tit}</b><small>${c.sub}</small></span><span class="n">${c.ls.length}</span><span class="vp-x">${ico('expand', 16)}</span></button>
+      <div class="vp-b">${corpo(k)}</div></section>`;
+  };
 
-  shell(page, `
+  // ---------- Tela expandida: todas as solicitações da caixa escolhida ----------
+  const expandida = (k) => {
+    const c = CATS[k];
+    const q = (UI.vq || '').toLowerCase();
+    const linhas = c.ls.filter((r) => !q || `${r.id} ${r.nome} ${r.cc} ${siteName(r.origem)} ${siteName(r.destino)} ${r.item || ''} ${(r.gestor || {}).nome || ''} ${STATUS[r.status]}`.toLowerCase().includes(q));
+    const row = (r) => {
+      const x = extraTxt(r, c.o);
+      return `<tr class="vx-r" data-id="${esc(r.id)}" tabindex="0">
+        <td><b>${esc(diaTxt(r.data))}</b><small>${fmtDate(r.data)}</small></td><td><b>${esc(r.hora)}</b></td>
+        <td><b class="sid">${esc(r.id)}</b>${r.par ? `<small>${pernaTxt(r)} · ${esc(r.par)}</small>` : r.bv ? '<small>Bate-volta</small>' : ''}</td>
+        <td>${esc(r.nome)}<small>${esc(r.cc)}</small></td>
+        <td><span class="tp tp-${r.tipo}">${TIPO_CURTO[r.tipo]}</span>${r.excecao ? '<small>fora do prazo</small>' : ''}</td>
+        <td>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}<small>${esc(r.tipo === 'moto' ? `${r.vol}× ${r.item} · recebe: ${r.recebedor}` : `${r.pax} pax${r.bag !== 'nenhuma' ? ` · ${BAG[r.bag].l.split(' ')[0].toLowerCase()}` : ''}`)}</small></td>
+        <td>${r.gestor ? `${esc(r.gestor.nome)}<small>${r.aprov ? (r.aprov.ok ? '✓ aprovou' : '✕ reprovou') + ` · ${esc(r.aprov.quando.slice(0, 17))}` : 'aguardando'}</small>` : '<small>—</small>'}</td>
+        <td>${k === 'agora' ? '<span class="pill st-andamento">Em andamento</span>' : pill(r.status)}</td>
+        <td class="vx-obs ${x.c}">${x.h || '<small>—</small>'}</td>
+        <td class="vx-a">${r.status === 'gestor' ? simBtns(r) : ''}<button class="btn sm vx-open" data-id="${esc(r.id)}">Abrir</button></td></tr>`;
+    };
+    return `
+      <div class="vx-head">
+        <button class="btn vx-back" id="vxback">${ico('left', 16)} Visão geral</button>
+        <div><span class="eyebrow">Visão geral › ${esc(c.tit)}</span><h1>${esc(c.tit)} <span class="vx-n">${c.ls.length}</span></h1><p>${esc(c.sub)}</p></div>
+        <div class="vx-tools">
+          <label class="search">${ico('search', 16)}<input id="vxq" placeholder="Buscar nº, pessoa, setor, destino, gestor…" value="${esc(UI.vq || '')}" aria-label="Buscar"></label>
+          <button class="btn" id="vxcsv">Exportar CSV</button>
+        </div>
+      </div>
+      <div class="seg vx-tabs">${Object.entries(CATS).map(([kk, cc]) => `<button class="seg-b${kk === k ? ' on' : ''}" data-x="${kk}">${cc.tit} (${cc.ls.length})</button>`).join('')}</div>
+      <div class="card vx-card"><div class="table-wrap"><table class="vx-t">
+        <thead><tr><th>Dia</th><th>Hora</th><th>Nº</th><th>Solicitante</th><th>Tipo</th><th>Trecho</th><th>Gestor (AD)</th><th>Situação</th><th>Detalhe</th><th></th></tr></thead>
+        <tbody>${linhas.length ? linhas.map(row).join('') : `<tr><td colspan="10" class="empty">${q ? 'Nada encontrado para a busca.' : c.vazio}</td></tr>`}</tbody></table></div></div>`;
+  };
+
+  const k = UI.vx && CATS[UI.vx] ? UI.vx : null;
+  shell(page, k ? expandida(k) : `
     <div class="vg-head">
       <div><span class="eyebrow">Facilities · tudo em uma tela</span><h1>Visão geral</h1></div>
       <div class="vg-meta"><span>${esc(DIAS[now.getDay()])}, ${fmtDate(hoje)} · ${pad(now.getHours())}:${pad(now.getMinutes())}</span>
-        <span class="lbl">Aprovações: gestor imediato do solicitante, conforme o AD (simulado)</span>
+        <span class="lbl">Clique no título de uma caixa para ver tudo · aprovações vêm do gestor imediato (AD simulado)</span>
         <a class="btn sm" href="#painel">Abrir Painel de análise</a></div>
     </div>
-    <div class="vgrid">
-      ${painel('v-agora', 'route', 'Acontecendo agora', 'viagens em curso', agoraL.length, lista(agoraL, { agora: true }, 'Nenhuma viagem em andamento agora.'))}
-      ${painel('v-hoje', 'clock', 'Hoje', fmtDate(hoje), hojeL.length, lista(hojeL, {}, 'Sem mais viagens hoje.'))}
-      ${painel('v-amanha', 'cal', 'Amanhã', fmtDate(amanha), amanhaL.length, lista(amanhaL, {}, 'Nada programado para amanhã.'))}
-      ${painel('v-semana', 'cal', 'Esta semana', `${fmtDate(ini).slice(0, 5)} a ${fmtDate(fim).slice(0, 5)}`, semanaL.length, porDia(semanaL))}
-      ${painel('v-aprov', 'users', 'Em aprovação', 'aguardando o gestor imediato', aprovL.length, lista(aprovL, { dia: true }, 'Nenhum pedido aguardando gestor.'))}
-      ${painel('v-ret', 'mail', 'Retornos de aprovação', 'respostas dos gestores', retL.length, lista(retL, { dia: true, ret: true }, 'Nenhuma resposta ainda.'))}
-      ${painel('v-canc', 'x', 'Canceladas e recusadas', 'desta semana em diante', cancL.length, lista(cancL, { dia: true, canc: true }, 'Nenhum cancelamento.'))}
-    </div>`);
+    <div class="vgrid">${['agora', 'hoje', 'amanha', 'semana', 'aprov', 'ret', 'canc'].map(painel).join('')}</div>`);
 
+  // ---------- eventos ----------
+  document.querySelectorAll('[data-x]').forEach((b) => { b.onclick = () => { UI.vx = b.dataset.x; UI.vq = ''; route(); window.scrollTo && window.scrollTo(0, 0); }; });
   document.querySelectorAll('.vi').forEach((el) => {
     el.onclick = (e) => { if (e.target.closest('button, a')) return; openDetalhe(el.dataset.id); };
     el.onkeydown = (e) => { if (e.key === 'Enter') openDetalhe(el.dataset.id); };
   });
+  document.querySelectorAll('.vx-r').forEach((el) => {
+    el.onclick = (e) => { if (e.target.closest('button, a')) return; openDetalhe(el.dataset.id); };
+    el.onkeydown = (e) => { if (e.key === 'Enter') openDetalhe(el.dataset.id); };
+  });
+  document.querySelectorAll('.vx-open').forEach((b) => { b.onclick = () => openDetalhe(b.dataset.id); });
+  const back = $('#vxback'); if (back) back.onclick = () => { UI.vx = null; UI.vq = ''; route(); };
+  const vq = $('#vxq');
+  if (vq) vq.oninput = () => { // filtra as linhas na hora, sem redesenhar
+    const q = vq.value.trim().toLowerCase(); UI.vq = q;
+    document.querySelectorAll('.vx-r').forEach((tr) => { tr.hidden = !!q && !tr.textContent.toLowerCase().includes(q); });
+  };
+  const csv = $('#vxcsv'); if (csv && k) csv.onclick = () => exportCsv(CATS[k].ls);
   document.querySelectorAll('.g-ok').forEach((b) => { b.onclick = () => { const r = S.reqs.find((x) => x.id === b.dataset.id); decisaoGestor(r, true); route(); toast(`${r.id} aprovada por ${r.gestor.nome} — foi para a análise do Facilities.`); }; });
   document.querySelectorAll('.g-no').forEach((b) => {
     b.onclick = () => {
