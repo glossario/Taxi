@@ -34,10 +34,20 @@ const MOTO_CARGA = 4;     // pontos de carga por moto
 const MOTO_TOL_MIN = 60;  // janela para agrupar envios no mesmo trajeto (tolerância em validação — DEC-05)
 const ANTEC_MIN = { grade: 60, cidade: 60, inter: 48 * 60, moto: null };
 const STATUS = {
+  gestor: 'Aguardando gestor',
   analise: 'Em análise', confirmada: 'Confirmada', recusada: 'Recusada', reagendada: 'Reagendada',
   andamento: 'Em andamento', concluida: 'Concluída', cancelada: 'Cancelada', naorealizada: 'Não realizada',
 };
-const ATIVOS = ['analise', 'confirmada', 'reagendada', 'andamento'];
+const ATIVOS = ['gestor', 'analise', 'confirmada', 'reagendada', 'andamento'];
+// Diretório corporativo (AD) — SIMULADO. No sistema real, nome, e-mail, centro de custo e GESTOR IMEDIATO vêm do AD.
+const AD_GESTORES = {
+  1000: ['Marina Torres', 'marina.torres'], 2010: ['Paula Nunes', 'paula.nunes'], 3020: ['Ricardo Alves', 'ricardo.alves'],
+  4010: ['Fernanda Lopes', 'fernanda.lopes'], 4030: ['Sérgio Dantas', 'sergio.dantas'], 5030: ['Tatiane Moura', 'tatiane.moura'],
+  6010: ['Otávio Lins', 'otavio.lins'], 7010: ['Beatriz Sales', 'beatriz.sales'], 8010: ['Henrique Paiva', 'henrique.paiva'],
+};
+const gestorDe = (cc) => { const g = AD_GESTORES[String(cc || '').slice(0, 4)] || ['Gestor imediato', 'gestor']; return { nome: g[0], email: `${g[1]}@natulab.com.br` }; };
+// Quais pedidos dependem do gestor imediato (regra a validar com o dono): intermunicipal e pedidos fora do prazo (exceção).
+const precisaGestor = (r) => r.tipo === 'inter' || !!r.excecao;
 const VEICULOS = [
   { id: 'V1', nome: 'Chevrolet Spin', placa: 'RFA-1A23', tipo: 'carro', cap: 7, bag: 6 },
   { id: 'V2', nome: 'Onix Sedan', placa: 'RFB-2B34', tipo: 'carro', cap: 4, bag: 4 },
@@ -86,7 +96,7 @@ const fmtFone = (d) => (d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-$
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 
 // ---------------- Estado ----------------
-const KEY = 'mobilab-sim-v4';
+const KEY = 'mobilab-sim-v5';
 let S;
 function load() { try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* sem storage: segue em memória */ } }
@@ -110,9 +120,21 @@ function seed() {
     r({ id: 'SOL-1052', tipo: 'moto', nome: 'Lucas Martins', email: 'lucas.martins@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: d1, hora: '10:30', origem: 'S1', destino: 'CD', ...item('Caixa pequena de amostras de retenção', 1, 'pequeno', 'Laboratório CQ – CD'), just: 'Transferência de amostras', status: 'analise' }),
   ];
   reqs.find((x) => x.id === 'SOL-1047').wpp = nowStamp();
+  // Exemplos para a Visão geral: aprovação do gestor, retornos, cancelada e uma viagem acontecendo agora.
+  const hoje = ymd(new Date()), agora = new Date(Date.now() - 20 * 60000);
+  const hAgora = `${pad(agora.getHours())}:${pad(agora.getMinutes())}`;
+  const g = (cc) => ({ gestor: gestorDe(cc), aprovPedido: nowStamp() });
+  Object.assign(reqs.find((x) => x.id === 'SOL-1048'), { status: 'gestor', ...g('1000 – Diretoria') });
+  reqs.push(
+    r({ id: 'SOL-1053', tipo: 'inter', nome: 'Mariana Lopes', email: 'mariana.lopes@natulab.com.br', cc: '6010 – Comercial', data: d2, hora: '07:00', origem: 'MED', destino: 'Feira de Santana – Cliente Farmavida', pax: 1, bag: 'pequena', just: 'Visita técnica a cliente', status: 'analise', ...g('6010'), aprov: { ok: true, quando: nowStamp(), ts: Date.now() - 50 * 60000, por: 'Otávio Lins', motivo: '' } }),
+    r({ id: 'SOL-1054', tipo: 'cidade', nome: 'Nelson Prado', email: 'nelson.prado@natulab.com.br', cc: '5030 – Logística', data: d1, hora: '07:30', origem: 'CD', destino: 'Centro – Despachante', pax: 1, bag: 'nenhuma', just: 'Documentação de veículo', status: 'recusada', excecao: true, ...g('5030'), aprov: { ok: false, quando: nowStamp(), ts: Date.now() - 90 * 60000, por: 'Tatiane Moura', motivo: 'Pode ser resolvido por e-mail' }, motivo: 'Reprovada pelo gestor Tatiane Moura: Pode ser resolvido por e-mail' }),
+    r({ id: 'SOL-1055', tipo: 'grade', nome: 'Olívia Santos', email: 'olivia.santos@natulab.com.br', cc: '2010 – Recursos Humanos', data: d1, hora: '09:30', origem: 'SUP', destino: 'MED', pax: 1, bag: 'nenhuma', just: 'Entrevista', status: 'cancelada', motivo: 'Cancelada pelo solicitante' }),
+    r({ id: 'SOL-1056', tipo: 'cidade', nome: 'Pedro Araújo', email: 'pedro.araujo@natulab.com.br', cc: '4030 – Suprimentos', data: hoje, hora: hAgora, origem: 'MED', destino: 'Centro – Fornecedor de embalagens', pax: 1, bag: 'nenhuma', just: 'Aprovação de amostra de embalagem', status: 'confirmada', veiculo: 'V2', motorista: 'D2', wpp: nowStamp() }),
+    r({ id: 'SOL-1057', tipo: 'cidade', nome: 'Quésia Lima', email: 'quesia.lima@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: d1, hora: '08:15', origem: 'MED', destino: 'Laboratório Central – Salvador', pax: 1, bag: 'pequena', just: 'Entrega urgente de laudo', status: 'gestor', excecao: true, ...g('3020') }),
+  );
   return {
     user: null, reqs, motoristas: SEED_MOTORISTAS.map((m) => ({ ...m })), grade: SEED_GRADE.map((g) => ({ ...g, paradas: [...g.paradas] })),
-    log: [], seq: { req: 1052, os: 122, mot: 4, grade: SEED_GRADE.length }, week: 0,
+    log: [], seq: { req: 1057, os: 122, mot: 4, grade: SEED_GRADE.length }, week: 0,
   };
 }
 
@@ -194,17 +216,18 @@ const brand = `<a class="brand" href="#"><span class="w">NATU<span>LAB</span></s
 function route() {
   const h = location.hash.replace('#', '') || '';
   if (!S.user) return renderLogin();
-  const home = { colaborador: 'agenda', facilities: 'painel', ti: 'painel' }[S.user.role];
+  const home = { colaborador: 'agenda', facilities: 'visao', ti: 'visao' }[S.user.role];
   const allowed = NAV[S.user.role].map(([k]) => k);
   const page = allowed.includes(h) ? h : home;
-  ({ agenda: renderAgenda, minhas: renderMinhas, painel: renderPainel, viagens: renderViagens, solicitacoes: renderTodas, motoristas: renderMotoristas,
+  route.page = page;
+  ({ visao: renderVisao, agenda: renderAgenda, minhas: renderMinhas, painel: renderPainel, viagens: renderViagens, solicitacoes: renderTodas, motoristas: renderMotoristas,
     grade: renderGrade, historico: renderHistorico, cadastros: renderCadastros })[page](page);
 }
 window.addEventListener('hashchange', route);
 
 // Perfis → telas. TI / Administração do sistema tem acesso a tudo.
 const NAV_COLAB = [['agenda', 'Agenda'], ['minhas', 'Minhas solicitações']];
-const NAV_FAC = [['painel', 'Painel'], ['viagens', 'Viagens'], ['solicitacoes', 'Solicitações'], ['motoristas', 'Motoristas'], ['grade', 'Grade e rotas']];
+const NAV_FAC = [['visao', 'Visão geral'], ['painel', 'Painel'], ['viagens', 'Viagens'], ['solicitacoes', 'Solicitações'], ['motoristas', 'Motoristas'], ['grade', 'Grade e rotas']];
 const NAV = {
   colaborador: NAV_COLAB,
   facilities: NAV_FAC,
@@ -732,6 +755,7 @@ function openAvulsa() {
       <div class="f c-moto" hidden><label for="mt2">Tamanho</label><select id="mt2">${Object.entries(ITEM_TAM).map(([k, t]) => `<option value="${k}">${t.l}</option>`).join('')}</select></div>
       <div class="f full c-moto" hidden><label for="mr">Quem recebe no destino?</label><input id="mr" placeholder="Nome ou setor de quem recebe"></div>
       <div class="f full"><label for="js">Justificativa</label><textarea id="js"></textarea></div>
+      <div class="f full" id="gnote" hidden><div class="msg-box warn" style="margin:0">Este pedido precisa da <b>aprovação do seu gestor imediato</b> (${esc(gestorDe(S.user.cc).nome)}, conforme o AD) antes de ir para o Facilities.</div></div>
       <div class="f full" id="exc" hidden><label class="check"><input type="checkbox" id="exck"> <span>Solicitar como <b>exceção</b> ao prazo (requer autorização do Facilities — DEC-12)</span></label></div>
     </form>
     <div id="avmsg"></div>
@@ -741,6 +765,7 @@ function openAvulsa() {
     document.querySelectorAll('.c-moto').forEach((e) => { e.hidden = !moto; });
     document.querySelectorAll('.c-carro').forEach((e) => { e.hidden = moto; });
     $('#hrl').textContent = moto ? 'Horário de retirada' : 'Horário de embarque';
+    $('#gnote').hidden = $('#tp').value !== 'inter';
     syncARet();
   };
   $('#rvo').innerHTML = siteOptions('MED');
@@ -823,7 +848,9 @@ function openAvulsa() {
       just, status: 'analise', veiculo: null, motorista: null, os: null, excecao, motivo: '', criado: nowStamp(),
     };
     if (ret && ret.bv) { r.bv = ret.bv; ret = null; } // bate-volta avulso = uma corrida só (motorista aguarda)
+    if (precisaGestor(r)) Object.assign(r, { status: 'gestor', gestor: gestorDe(r.cc), aprovPedido: nowStamp() });
     S.reqs.push(r);
+    if (r.gestor) pedirAprovacao(r);
     audit('Solicitação criada', r.id, '', `${TIPOS[tipo]} ${fmtDT(data, hora)}${excecao ? ' · EXCEÇÃO de prazo' : ''}`);
     if (ret) {
       const r2 = { ...r, id: newReqId(), data: ret.data, hora: ret.hora, origem: r.destino, destino: ret.volta, excecao: false, perna: 'volta', par: r.id };
@@ -832,14 +859,15 @@ function openAvulsa() {
       audit('Solicitação criada (retorno)', r2.id, '', `${TIPOS[tipo]} ${fmtDT(ret.data, ret.hora)} · retorno de ${r.id}`);
     }
     save(); closeModal(); route();
-    toast(ret ? `${r.id} (ida) e ${r.par} (retorno) enviadas — aguardando análise.` : `${r.id} enviada${r.bv ? ' (bate-volta)' : ''}${excecao ? ' como exceção' : ''} — aguardando análise.`);
+    toast(r.gestor ? `${r.id} enviada para aprovação do seu gestor (${r.gestor.nome}).`
+      : ret ? `${r.id} (ida) e ${r.par} (retorno) enviadas — aguardando análise.` : `${r.id} enviada${r.bv ? ' (bate-volta)' : ''}${excecao ? ' como exceção' : ''} — aguardando análise.`);
   };
 }
 
 function openDetalhe(id) {
   const r = S.reqs.find((x) => x.id === id);
   const v = veic(r.veiculo), m = mot(r.motorista);
-  const canCancel = S.user.role === 'colaborador' && r.status === 'analise';
+  const canCancel = S.user.role === 'colaborador' && ['analise', 'gestor'].includes(r.status);
   const par = parDe(r);
   openModal(`
     <h3>${esc(r.id)} ${pill(r.status)}</h3>
@@ -857,6 +885,7 @@ function openDetalhe(id) {
       <div class="f"><label>Veículo</label><div>${v ? `${esc(v.nome)} · ${esc(v.placa)}` : '<small>A definir pelo Facilities</small>'}</div></div>
       <div class="f"><label>Motorista</label><div>${m ? esc(m.nome) : '<small>A definir pelo Facilities</small>'}</div></div>
       ${r.bv && !r.perna ? `<div class="f full"><label>Retorno</label><div>${esc(bvTxt(r))} · volta prevista ~${esc(addMin(r.hora, r.bv.espera + DURACAO_MIN))}</div></div>` : ''}
+      ${r.gestor ? `<div class="f full"><label>Aprovação do gestor imediato (AD)</label><div>${esc(r.gestor.nome)} · ${r.aprov ? (r.aprov.ok ? `✓ aprovada em ${esc(r.aprov.quando)}` : `✕ reprovada em ${esc(r.aprov.quando)}${r.aprov.motivo ? ` — ${esc(r.aprov.motivo)}` : ''}`) : 'aguardando resposta'}</div></div>` : ''}
       ${r.mail ? `<div class="f full"><label>Aviso por e-mail</label><div>✉ Último aviso enviado para ${esc(r.email)} em ${esc(r.mail)}</div></div>` : ''}
       ${r.os ? `<div class="f full"><label>Ordem de serviço</label><div><b>${esc(r.os)}</b></div></div>` : ''}
       <div class="f full"><label>Justificativa</label><div>${esc(r.just)}</div></div>
@@ -867,8 +896,8 @@ function openDetalhe(id) {
   if (par) $('#vpar').onclick = () => openDetalhe(par.id);
   if (canCancel) $('#cancel').onclick = () => {
     const alvo = [r];
-    if (par && par.status === 'analise' && confirm(`Cancelar também ${r.perna === 'ida' ? 'o retorno' : 'a ida'} ${par.id}?`)) alvo.push(par);
-    alvo.forEach((x) => { x.status = 'cancelada'; audit('Cancelada pelo solicitante', x.id, 'Em análise', 'Cancelada'); });
+    if (par && ['analise', 'gestor'].includes(par.status) && confirm(`Cancelar também ${r.perna === 'ida' ? 'o retorno' : 'a ida'} ${par.id}?`)) alvo.push(par);
+    alvo.forEach((x) => { audit('Cancelada pelo solicitante', x.id, STATUS[x.status], 'Cancelada'); x.status = 'cancelada'; x.motivo = 'Cancelada pelo solicitante'; });
     save(); closeModal(); route(); toast(`${alvo.map((x) => x.id).join(' e ')} cancelada${alvo.length > 1 ? 's' : ''}.`);
   };
 }
@@ -1358,7 +1387,7 @@ function renderViagens(page) {
 }
 
 // ---------------- Motoristas (cadastro pelo Facilities) ----------------
-const futurasAtivas = (pred) => S.reqs.filter((r) => ['analise', 'confirmada', 'reagendada'].includes(r.status) && r.data >= ymd(new Date()) && pred(r));
+const futurasAtivas = (pred) => S.reqs.filter((r) => ['gestor', 'analise', 'confirmada', 'reagendada'].includes(r.status) && r.data >= ymd(new Date()) && pred(r));
 
 function renderMotoristas(page) {
   const list = [...S.motoristas].sort((a, b) => (b.ativo - a.ativo) || a.nome.localeCompare(b.nome));
@@ -1500,6 +1529,105 @@ function openGrade(id) {
     save(); closeModal(); route(); toast('Grade atualizada.');
   };
 }
+
+// ---------------- Aprovação do gestor imediato (vem do AD) ----------------
+function pedirAprovacao(r) {
+  const L = [`Olá, ${r.gestor.nome.split(' ')[0]}!`, '', `${r.nome} (${r.cc}) solicitou um transporte que precisa da sua aprovação:`, '',
+    `${r.id} — ${TIPOS[r.tipo]}${r.excecao ? ' (fora do prazo mínimo)' : ''}`, `Data e horário: ${fmtDT(r.data, r.hora)}`,
+    `Trecho: ${siteName(r.origem)} → ${siteName(r.destino)} · ${r.pax} passageiro(s)`, `Justificativa: ${r.just}`, '',
+    'Responda pelo botão Aprovar / Reprovar do e-mail (no sistema real).', '', 'Mobilab · Facilities Natulab'];
+  caixa().push({ id: `EM-${caixa().length + 1}`, para: r.gestor.email, nome: r.gestor.nome, refs: [r.id], quando: nowStamp(), lida: false, kind: 'aprovacao',
+    assunto: `Aprovação pendente: ${r.id} de ${r.nome}`, corpo: L.join('\n') });
+  audit('Enviada ao gestor para aprovação', r.id, '', `${r.gestor.nome} <${r.gestor.email}>`);
+}
+function decisaoGestor(r, ok, motivo) {
+  const rs = [r, parDe(r)].filter((x) => x && x.status === 'gestor');
+  const quando = nowStamp(), ts = Date.now();
+  rs.forEach((x) => {
+    x.aprov = { ok, quando, ts, por: x.gestor.nome, motivo: motivo || '' };
+    if (ok) { x.status = 'analise'; audit('Aprovada pelo gestor', x.id, 'Aguardando gestor', x.gestor.nome); }
+    else { x.status = 'recusada'; x.motivo = `Reprovada pelo gestor ${x.gestor.nome}${motivo ? `: ${motivo}` : ''}`; audit('Reprovada pelo gestor', x.id, 'Aguardando gestor', x.motivo); }
+  });
+  if (!ok) emailStatus(rs, 'recusada', { motivo: rs[0].motivo });
+  save();
+}
+
+const TIPO_CURTO = { grade: 'Grade', cidade: 'Táxi', inter: 'Intermunicipal', moto: 'Moto' };
+function renderVisao(page) {
+  const now = new Date(), hoje = ymd(now), amanha = ymd(addDays(now, 1));
+  const base = isWeekday(now) ? mondayOf(now) : mondayOf(addDays(now, 2)); // fim de semana: mostra a próxima semana útil
+  const ini = ymd(base), fim = ymd(addDays(base, 6));
+  const vivos = ['gestor', 'analise', 'confirmada', 'reagendada', 'andamento'];
+  const byDH = (a, b) => at(a.data, a.hora) - at(b.data, b.hora);
+  const agoraIds = new Set();
+  const agoraL = S.reqs.filter((r) => r.status === 'andamento' || (r.status === 'confirmada' && r.data === hoje && at(r.data, r.hora) <= now && now < new Date(at(r.data, r.hora).getTime() + durOf(r) * 60000))).sort(byDH);
+  agoraL.forEach((r) => agoraIds.add(r.id));
+  const hojeL = S.reqs.filter((r) => r.data === hoje && !agoraIds.has(r.id) && [...vivos, 'concluida'].includes(r.status)).sort(byDH);
+  const amanhaL = S.reqs.filter((r) => r.data === amanha && vivos.includes(r.status)).sort(byDH);
+  const semanaL = S.reqs.filter((r) => r.data >= ini && r.data <= fim && vivos.includes(r.status)).sort(byDH);
+  const aprovL = S.reqs.filter((r) => r.status === 'gestor').sort(byDH);
+  const retL = S.reqs.filter((r) => r.aprov).sort((a, b) => (b.aprov.ts || 0) - (a.aprov.ts || 0));
+  const cancL = S.reqs.filter((r) => ['cancelada', 'recusada', 'naorealizada'].includes(r.status) && r.data >= ini).sort((a, b) => byDH(b, a));
+  const diaTxt = (ds) => (ds === hoje ? 'Hoje' : ds === amanha ? 'Amanhã' : `${DIAS[at(ds, '12:00').getDay()].slice(0, 3)} ${fmtDate(ds).slice(0, 5)}`);
+  const destTxt = (r) => (r.tipo === 'moto' ? `${siteName(r.origem)} → ${siteName(r.destino)} · ${r.vol}× ${r.item}` : `${siteName(r.origem)} → ${siteName(r.destino)}`);
+
+  const item = (r, o = {}) => {
+    const v = veic(r.veiculo), m = mot(r.motorista);
+    let extra = '';
+    if (o.agora) extra = `<small class="vi-x ok">🚗 ${esc(v ? v.nome : '')}${m ? ` · ${esc(m.nome)}` : ''} · até ~${esc(addMin(r.hora, durOf(r)))}</small>`;
+    else if (r.status === 'gestor') extra = `<small class="vi-x warn">Gestor: <b>${esc(r.gestor.nome)}</b>${r.aprovPedido ? ` · pedido em ${esc(r.aprovPedido.slice(0, 17))}` : ''}${r.excecao ? ' · fora do prazo' : ''}</small>
+        <span class="vi-acts"><button class="btn sm g-ok" data-id="${esc(r.id)}" title="Simula a resposta do gestor">Simular: aprovou</button><button class="btn sm red g-no" data-id="${esc(r.id)}">Simular: reprovou</button></span>`;
+    else if (o.ret) extra = `<small class="vi-x ${r.aprov.ok ? 'ok' : 'bad'}">${r.aprov.ok ? '✓ Aprovado' : '✕ Reprovado'} por <b>${esc(r.aprov.por)}</b> · ${esc(r.aprov.quando.slice(0, 17))}${r.aprov.motivo ? ` — ${esc(r.aprov.motivo)}` : ''}${r.aprov.ok && r.status === 'analise' ? ' · <a href="#painel">analisar no Painel →</a>' : ''}</small>`;
+    else if (o.canc) extra = r.motivo ? `<small class="vi-x bad">${esc(r.motivo)}</small>` : '';
+    else if (v) extra = `<small class="vi-x">${esc(v.nome)}${m ? ` · ${esc(m.nome)}` : ''}${r.wpp ? ' · ✓ WhatsApp' : ' · a enviar'}</small>`;
+    return `<div class="vi" data-id="${esc(r.id)}" tabindex="0" role="button">
+      <span class="vi-t">${o.dia ? `<small>${esc(diaTxt(r.data))}</small>` : ''}${esc(r.hora)}</span>
+      <span class="vi-b"><span class="vi-l"><b>${esc(r.nome)}</b><span class="tp tp-${r.tipo}">${TIPO_CURTO[r.tipo]}</span>${r.perna ? `<span class="tp">${pernaTxt(r)}</span>` : r.bv ? '<span class="tp">Bate-volta</span>' : ''}</span>
+        <small>${esc(r.id)} · ${esc(destTxt(r))}${r.tipo !== 'moto' && r.pax ? ` · ${r.pax} pax` : ''}</small>${extra}</span>
+      <span class="vi-s">${o.agora ? '<span class="pill st-andamento">Em andamento</span>' : pill(r.status)}</span></div>`;
+  };
+  const lista = (ls, o, vazio) => (ls.length ? ls.map((r) => item(r, o)).join('') : `<div class="vp-empty">${vazio}</div>`);
+  const porDia = (ls) => {
+    if (!ls.length) return '<div class="vp-empty">Nada programado nesta semana.</div>';
+    let out = '', dia = '';
+    ls.forEach((r) => { if (r.data !== dia) { dia = r.data; out += `<div class="vp-day">${esc(diaTxt(dia))} <small>${fmtDate(dia)}</small></div>`; } out += item(r); });
+    return out;
+  };
+  const painel = (cls, ic, tit, sub, n, body) => `<section class="vp ${cls}"><div class="vp-h"><span class="vp-i">${ico(ic, 18)}</span><span><b>${tit}</b><small>${sub}</small></span><span class="n">${n}</span></div><div class="vp-b">${body}</div></section>`;
+
+  shell(page, `
+    <div class="vg-head">
+      <div><span class="eyebrow">Facilities · tudo em uma tela</span><h1>Visão geral</h1></div>
+      <div class="vg-meta"><span>${esc(DIAS[now.getDay()])}, ${fmtDate(hoje)} · ${pad(now.getHours())}:${pad(now.getMinutes())}</span>
+        <span class="lbl">Aprovações: gestor imediato do solicitante, conforme o AD (simulado)</span>
+        <a class="btn sm" href="#painel">Abrir Painel de análise</a></div>
+    </div>
+    <div class="vgrid">
+      ${painel('v-agora', 'route', 'Acontecendo agora', 'viagens em curso', agoraL.length, lista(agoraL, { agora: true }, 'Nenhuma viagem em andamento agora.'))}
+      ${painel('v-hoje', 'clock', 'Hoje', fmtDate(hoje), hojeL.length, lista(hojeL, {}, 'Sem mais viagens hoje.'))}
+      ${painel('v-amanha', 'cal', 'Amanhã', fmtDate(amanha), amanhaL.length, lista(amanhaL, {}, 'Nada programado para amanhã.'))}
+      ${painel('v-semana', 'cal', 'Esta semana', `${fmtDate(ini).slice(0, 5)} a ${fmtDate(fim).slice(0, 5)}`, semanaL.length, porDia(semanaL))}
+      ${painel('v-aprov', 'users', 'Em aprovação', 'aguardando o gestor imediato', aprovL.length, lista(aprovL, { dia: true }, 'Nenhum pedido aguardando gestor.'))}
+      ${painel('v-ret', 'mail', 'Retornos de aprovação', 'respostas dos gestores', retL.length, lista(retL, { dia: true, ret: true }, 'Nenhuma resposta ainda.'))}
+      ${painel('v-canc', 'x', 'Canceladas e recusadas', 'desta semana em diante', cancL.length, lista(cancL, { dia: true, canc: true }, 'Nenhum cancelamento.'))}
+    </div>`);
+
+  document.querySelectorAll('.vi').forEach((el) => {
+    el.onclick = (e) => { if (e.target.closest('button, a')) return; openDetalhe(el.dataset.id); };
+    el.onkeydown = (e) => { if (e.key === 'Enter') openDetalhe(el.dataset.id); };
+  });
+  document.querySelectorAll('.g-ok').forEach((b) => { b.onclick = () => { const r = S.reqs.find((x) => x.id === b.dataset.id); decisaoGestor(r, true); route(); toast(`${r.id} aprovada por ${r.gestor.nome} — foi para a análise do Facilities.`); }; });
+  document.querySelectorAll('.g-no').forEach((b) => {
+    b.onclick = () => {
+      const r = S.reqs.find((x) => x.id === b.dataset.id);
+      const mo = prompt(`Motivo da reprovação de ${r.gestor.nome} (opcional):`);
+      if (mo === null) return;
+      decisaoGestor(r, false, mo.trim()); route(); toast(`${r.id} reprovada pelo gestor — colaborador avisado por e-mail.`);
+    };
+  });
+}
+// Visão geral se atualiza sozinha a cada minuto (se nenhuma janela estiver aberta).
+if (typeof setInterval === 'function') setInterval(() => { if (S && S.user && route.page === 'visao' && $('#modal').hidden) route(); }, 60000);
 
 // ---------------- Boot ----------------
 S = load() || seed();

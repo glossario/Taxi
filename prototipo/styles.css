@@ -413,3 +413,44 @@ td small + small { margin-top: 2px; }
 .si.red { background: var(--red-soft); color: var(--red); }
 .mail-row.nova.k-recusada i { background: var(--red); }
 .mail-row.nova.k-reagendada i { background: #e08a00; }
+/* ---------- Visão geral do Facilities (tudo em uma tela) ---------- */
+.st-gestor { background: #efe9fb; color: #5b3fa3; }
+.vg-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.vg-head h1 { margin: 4px 0 0; font-size: 26px; font-weight: 900; color: var(--navy-ink); }
+.vg-meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-weight: 700; color: var(--navy-ink); font-size: 14px; }
+.vg-meta .lbl { font-weight: 600; font-size: 12px; }
+.vgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 12px; height: calc(100vh - 178px); min-height: 420px; }
+.vp { background: #fff; border: 1px solid var(--line); border-top: 4px solid var(--c, var(--line)); border-radius: 14px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.vp.v-agora { --c: #4a8f22; } .vp.v-hoje { --c: #1b3a7a; } .vp.v-amanha { --c: #2d6fd1; } .vp.v-semana { --c: #8a94a6; grid-column: 4; grid-row: 1 / span 2; }
+.vp.v-aprov { --c: #7b5cc4; } .vp.v-ret { --c: #0f8a7e; } .vp.v-canc { --c: #c0392b; }
+.vp-h { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.vp-i { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 12%, #fff); flex: none; }
+.vp-h b { display: block; font-size: 14px; color: var(--navy-ink); }
+.vp-h small { display: block; font-size: 11.5px; color: var(--muted); }
+.vp-h .n { margin-left: auto; font-size: 26px; font-weight: 900; color: var(--c); }
+.vp-b { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.vp-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 18px 8px; }
+.vp-day { font-size: 11px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; color: #4b5563; padding: 6px 4px 0; }
+.vp-day small { font-weight: 600; color: var(--muted); letter-spacing: 0; }
+.vi { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 8px; align-items: start; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; cursor: pointer; background: #fff; }
+.vi:hover { border-color: #b9dca0; background: #fafcf7; }
+.vi:focus-visible { outline: 3px solid rgba(74, 143, 34, .35); }
+.vi-t { font-weight: 900; color: var(--navy-ink); font-size: 14px; line-height: 1.1; }
+.vi-t small { display: block; font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; }
+.vi-b { min-width: 0; }
+.vi-l { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.vi-l b { font-size: 13px; color: var(--ink); }
+.vi-b > small { display: block; font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vi-x { display: block; font-size: 11.5px; margin-top: 2px; color: #4b5563; }
+.vi-x.ok { color: var(--green-dark); } .vi-x.bad { color: var(--red); } .vi-x.warn { color: #5b3fa3; }
+.vi-acts { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.vi-acts .btn { padding: 3px 8px; font-size: 11.5px; }
+.vi-s .pill { font-size: 10.5px; padding: 2px 8px; }
+.tp { font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 5px; background: var(--grey-soft); color: #4b5563; }
+.tp-grade { background: #e3f4d6; color: var(--green-dark); } .tp-cidade { background: #dfe7f7; color: var(--navy); }
+.tp-inter { background: #efe9fb; color: #5b3fa3; } .tp-moto { background: var(--amber-soft); color: #9a5f00; }
+@media (max-width: 1200px) {
+  .vgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; height: auto; }
+  .vp { max-height: 440px; } .vp.v-semana { grid-column: auto; grid-row: auto; }
+}
+@media (max-width: 640px) { .vgrid { grid-template-columns: 1fr; } }
