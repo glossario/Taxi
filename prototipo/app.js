@@ -23,8 +23,10 @@ const BAG = {
   grande: { l: 'Grande (mala/caixa)', p: 3 },
 };
 const TIPOS = { grade: 'Entre sites', cidade: 'Táxi na cidade', inter: 'Táxi intermunicipal', moto: 'Moto Táxi (envio de itens)' };
-// Moto Táxi = envio de ITENS (não leva pessoas). Locais informados pelo dono — confirmar equivalência com os sites da grade.
-const LOCAIS_MOTO = { S1: 'Site 1', CD: 'CD', LIFE: 'Life' };
+// Moto Táxi = envio de ITENS (não leva pessoas). Site 1 = Natulab Medicamentos e Life = Natulab Suplementos (confirmado):
+// um cadastro só de locais; os apelidos continuam reconhecidos.
+const SITE_APELIDO = { MED: 'Site 1', SUP: 'Life' };
+const ALIAS_LOC = { S1: 'MED', LIFE: 'SUP', 'site 1': 'MED', site1: 'MED', life: 'SUP', cd: 'CD' };
 const ITEM_TAM = {
   pequeno: { l: 'Pequeno (envelope, caixinha)', p: 1 },
   medio: { l: 'Médio (caixa até ~40 cm)', p: 2 },
@@ -46,8 +48,8 @@ const AD_GESTORES = {
   6010: ['Otávio Lins', 'otavio.lins'], 7010: ['Beatriz Sales', 'beatriz.sales'], 8010: ['Henrique Paiva', 'henrique.paiva'],
 };
 const gestorDe = (cc) => { const g = AD_GESTORES[String(cc || '').slice(0, 4)] || ['Gestor imediato', 'gestor']; return { nome: g[0], email: `${g[1]}@natulab.com.br` }; };
-// Quais pedidos dependem do gestor imediato (regra a validar com o dono): intermunicipal e pedidos fora do prazo (exceção).
-const precisaGestor = (r) => r.tipo === 'inter' || !!r.excecao;
+// Aprovação do gestor imediato: somente táxi intermunicipal (decisão do dono, 16/11).
+const precisaGestor = (r) => r.tipo === 'inter';
 const VEICULOS = [
   { id: 'V1', nome: 'Chevrolet Spin', placa: 'RFA-1A23', tipo: 'carro', cap: 7, bag: 6 },
   { id: 'V2', nome: 'Onix Sedan', placa: 'RFB-2B34', tipo: 'carro', cap: 4, bag: 4 },
@@ -78,13 +80,15 @@ const fmtDT = (s, h) => `${fmtDay(at(s, h))} ${h}`;
 const nowStamp = () => new Date().toLocaleString('pt-BR');
 const mondayOf = (d) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); const dow = x.getDay() || 7; return addDays(x, 1 - dow); };
 const workday = (offset) => { let d = new Date(); d = new Date(d.getFullYear(), d.getMonth(), d.getDate()); while (!isWeekday(d)) d = addDays(d, 1); let n = offset; while (n > 0) { d = addDays(d, 1); if (isWeekday(d)) n--; } return ymd(d); };
-const siteName = (code) => SITES[code] || LOCAIS_MOTO[code] || code;
+const siteName = (code) => SITES[ALIAS_LOC[code] || code] || code;
 // Normaliza local para comparar/agrupar: código cadastrado ou texto livre que coincide com um nome cadastrado → código.
 const normLoc = (v) => {
   const s = String(v).trim();
-  if (SITES[s] || LOCAIS_MOTO[s]) return s;
+  if (SITES[s]) return s;
+  if (ALIAS_LOC[s]) return ALIAS_LOC[s];
   const t = s.toLowerCase().replace(/\s+/g, ' ');
-  const hit = [...Object.entries(LOCAIS_MOTO), ...Object.entries(SITES)].find(([, n]) => n.toLowerCase() === t);
+  if (ALIAS_LOC[t]) return ALIAS_LOC[t];
+  const hit = Object.entries(SITES).find(([k, n]) => n.toLowerCase() === t || (SITE_APELIDO[k] || '').toLowerCase() === t);
   return hit ? hit[0] : t;
 };
 const tamCurto = (t) => ITEM_TAM[t].l.split(' ')[0].toLowerCase();
@@ -96,7 +100,7 @@ const fmtFone = (d) => (d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-$
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 
 // ---------------- Estado ----------------
-const KEY = 'mobilab-sim-v5';
+const KEY = 'mobilab-sim-v6';
 let S;
 function load() { try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* sem storage: segue em memória */ } }
@@ -112,12 +116,12 @@ function seed() {
     r({ id: 'SOL-1044', tipo: 'grade', nome: 'Diego Rocha', email: 'diego.rocha@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: d1, hora: '13:45', origem: 'CD', destino: 'SUP', pax: 3, bag: 'pequena', just: 'Coleta de amostras', status: 'analise' }),
     r({ id: 'SOL-1045', tipo: 'grade', nome: 'Helena Costa', email: 'helena.costa@natulab.com.br', cc: '2010 – Recursos Humanos', data: d0, hora: '15:00', origem: 'MED', destino: 'SUP', pax: 3, bag: 'nenhuma', just: 'Treinamento de integração', status: 'confirmada', veiculo: 'V1', motorista: 'D1' }),
     r({ id: 'SOL-1046', tipo: 'cidade', nome: 'Elisa Prado', email: 'elisa.prado@natulab.com.br', cc: '6010 – Comercial', data: d2, hora: '10:00', origem: 'MED', destino: 'Centro – Cartório de Notas', pax: 1, bag: 'nenhuma', just: 'Reconhecimento de firma em contrato', status: 'analise' }),
-    r({ id: 'SOL-1047', tipo: 'moto', nome: 'Felipe Andrade', email: 'felipe.andrade@natulab.com.br', cc: '4030 – Suprimentos', data: d0, hora: '14:30', origem: 'S1', destino: 'Correios – Agência Centro', ...item('Documentos fiscais', 1, 'pequeno', 'Balcão dos Correios'), just: 'Postagem de documentos fiscais', status: 'confirmada', veiculo: 'M1', motorista: 'D3', os: 'OS-2026-000121' }),
+    r({ id: 'SOL-1047', tipo: 'moto', nome: 'Felipe Andrade', email: 'felipe.andrade@natulab.com.br', cc: '4030 – Suprimentos', data: d0, hora: '14:30', origem: 'MED', destino: 'Correios – Agência Centro', ...item('Documentos fiscais', 1, 'pequeno', 'Balcão dos Correios'), just: 'Postagem de documentos fiscais', status: 'confirmada', veiculo: 'M1', motorista: 'D3', os: 'OS-2026-000121' }),
     r({ id: 'SOL-1048', tipo: 'inter', nome: 'Gustavo Reis', email: 'gustavo.reis@natulab.com.br', cc: '1000 – Diretoria', data: d3, hora: '06:00', origem: 'MED', destino: 'Aeroporto de Salvador', pax: 2, bag: 'grande', just: 'Viagem para auditoria de fornecedor', status: 'analise' }),
-    r({ id: 'SOL-1049', tipo: 'moto', nome: 'Ivo Pereira', email: 'ivo.pereira@natulab.com.br', cc: '7010 – Pesquisa e Desenvolvimento', data: d1, hora: '09:00', origem: 'LIFE', destino: 'Laboratório parceiro – Centro', ...item('Amostras para análise externa', 1, 'medio', 'Recepção do laboratório'), just: 'Análise externa de lote', status: 'analise' }),
-    r({ id: 'SOL-1050', tipo: 'moto', nome: 'Jéssica Alves', email: 'jessica.alves@natulab.com.br', cc: '8010 – Financeiro', data: d1, hora: '13:30', origem: 'S1', destino: 'Agência bancária – Centro', ...item('Documentos bancários', 1, 'pequeno', 'Gerente PJ'), just: 'Entrega de documentos bancários', status: 'confirmada', veiculo: 'M1', motorista: 'D3', os: 'OS-2026-000122' }),
-    r({ id: 'SOL-1051', tipo: 'moto', nome: 'Kátia Ramos', email: 'katia.ramos@natulab.com.br', cc: '4030 – Suprimentos', data: d1, hora: '10:00', origem: 'S1', destino: 'CD', ...item('Envelope com notas fiscais', 1, 'pequeno', 'Recebimento do CD'), just: 'Conferência de entrada de mercadoria', status: 'analise' }),
-    r({ id: 'SOL-1052', tipo: 'moto', nome: 'Lucas Martins', email: 'lucas.martins@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: d1, hora: '10:30', origem: 'S1', destino: 'CD', ...item('Caixa pequena de amostras de retenção', 1, 'pequeno', 'Laboratório CQ – CD'), just: 'Transferência de amostras', status: 'analise' }),
+    r({ id: 'SOL-1049', tipo: 'moto', nome: 'Ivo Pereira', email: 'ivo.pereira@natulab.com.br', cc: '7010 – Pesquisa e Desenvolvimento', data: d1, hora: '09:00', origem: 'SUP', destino: 'Laboratório parceiro – Centro', ...item('Amostras para análise externa', 1, 'medio', 'Recepção do laboratório'), just: 'Análise externa de lote', status: 'analise' }),
+    r({ id: 'SOL-1050', tipo: 'moto', nome: 'Jéssica Alves', email: 'jessica.alves@natulab.com.br', cc: '8010 – Financeiro', data: d1, hora: '13:30', origem: 'MED', destino: 'Agência bancária – Centro', ...item('Documentos bancários', 1, 'pequeno', 'Gerente PJ'), just: 'Entrega de documentos bancários', status: 'confirmada', veiculo: 'M1', motorista: 'D3', os: 'OS-2026-000122' }),
+    r({ id: 'SOL-1051', tipo: 'moto', nome: 'Kátia Ramos', email: 'katia.ramos@natulab.com.br', cc: '4030 – Suprimentos', data: d1, hora: '10:00', origem: 'MED', destino: 'CD', ...item('Envelope com notas fiscais', 1, 'pequeno', 'Recebimento do CD'), just: 'Conferência de entrada de mercadoria', status: 'analise' }),
+    r({ id: 'SOL-1052', tipo: 'moto', nome: 'Lucas Martins', email: 'lucas.martins@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: d1, hora: '10:30', origem: 'MED', destino: 'CD', ...item('Caixa pequena de amostras de retenção', 1, 'pequeno', 'Laboratório CQ – CD'), just: 'Transferência de amostras', status: 'analise' }),
   ];
   reqs.find((x) => x.id === 'SOL-1047').wpp = nowStamp();
   // Exemplos para a Visão geral: aprovação do gestor, retornos, cancelada e uma viagem acontecendo agora.
@@ -127,10 +131,10 @@ function seed() {
   Object.assign(reqs.find((x) => x.id === 'SOL-1048'), { status: 'gestor', ...g('1000 – Diretoria') });
   reqs.push(
     r({ id: 'SOL-1053', tipo: 'inter', nome: 'Mariana Lopes', email: 'mariana.lopes@natulab.com.br', cc: '6010 – Comercial', data: d2, hora: '07:00', origem: 'MED', destino: 'Feira de Santana – Cliente Farmavida', pax: 1, bag: 'pequena', just: 'Visita técnica a cliente', status: 'analise', ...g('6010'), aprov: { ok: true, quando: nowStamp(), ts: Date.now() - 50 * 60000, por: 'Otávio Lins', motivo: '' } }),
-    r({ id: 'SOL-1054', tipo: 'cidade', nome: 'Nelson Prado', email: 'nelson.prado@natulab.com.br', cc: '5030 – Logística', data: d1, hora: '07:30', origem: 'CD', destino: 'Centro – Despachante', pax: 1, bag: 'nenhuma', just: 'Documentação de veículo', status: 'recusada', excecao: true, ...g('5030'), aprov: { ok: false, quando: nowStamp(), ts: Date.now() - 90 * 60000, por: 'Tatiane Moura', motivo: 'Pode ser resolvido por e-mail' }, motivo: 'Reprovada pelo gestor Tatiane Moura: Pode ser resolvido por e-mail' }),
+    r({ id: 'SOL-1054', tipo: 'inter', nome: 'Nelson Prado', email: 'nelson.prado@natulab.com.br', cc: '5030 – Logística', data: d1, hora: '07:30', origem: 'CD', destino: 'Alagoinhas – Despachante', pax: 1, bag: 'nenhuma', just: 'Documentação de veículo', status: 'recusada', ...g('5030'), aprov: { ok: false, quando: nowStamp(), ts: Date.now() - 90 * 60000, por: 'Tatiane Moura', motivo: 'Pode ser resolvido por e-mail' }, motivo: 'Reprovada pelo gestor Tatiane Moura: Pode ser resolvido por e-mail' }),
     r({ id: 'SOL-1055', tipo: 'grade', nome: 'Olívia Santos', email: 'olivia.santos@natulab.com.br', cc: '2010 – Recursos Humanos', data: d1, hora: '09:30', origem: 'SUP', destino: 'MED', pax: 1, bag: 'nenhuma', just: 'Entrevista', status: 'cancelada', motivo: 'Cancelada pelo solicitante' }),
     r({ id: 'SOL-1056', tipo: 'cidade', nome: 'Pedro Araújo', email: 'pedro.araujo@natulab.com.br', cc: '4030 – Suprimentos', data: hoje, hora: hAgora, origem: 'MED', destino: 'Centro – Fornecedor de embalagens', pax: 1, bag: 'nenhuma', just: 'Aprovação de amostra de embalagem', status: 'confirmada', veiculo: 'V2', motorista: 'D2', wpp: nowStamp() }),
-    r({ id: 'SOL-1057', tipo: 'cidade', nome: 'Quésia Lima', email: 'quesia.lima@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: d1, hora: '08:15', origem: 'MED', destino: 'Laboratório Central – Salvador', pax: 1, bag: 'pequena', just: 'Entrega urgente de laudo', status: 'gestor', excecao: true, ...g('3020') }),
+    r({ id: 'SOL-1057', tipo: 'inter', nome: 'Quésia Lima', email: 'quesia.lima@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: d1, hora: '08:15', origem: 'MED', destino: 'Laboratório Central – Salvador', pax: 1, bag: 'pequena', just: 'Entrega urgente de laudo', status: 'gestor', ...g('3020') }),
   );
   return {
     user: null, reqs, motoristas: SEED_MOTORISTAS.map((m) => ({ ...m })), grade: SEED_GRADE.map((g) => ({ ...g, paradas: [...g.paradas] })),
@@ -169,6 +173,8 @@ function slotOcc(data, hora, ignoreId) {
   return S.reqs.filter((r) => r.tipo === 'grade' && r.data === data && r.hora === hora && ATIVOS.includes(r.status) && r.id !== ignoreId)
     .reduce((s, r) => s + Number(r.pax), 0);
 }
+// Chegada prevista de um horário da grade = saída seguinte (a saída de um site significa que o carro já chegou lá).
+const chegadaDe = (hora) => { const g = grade().find((x) => x.hora > hora); return g ? g.hora : null; };
 const grade = () => S.grade.filter((g) => g.ativo).sort((a, b) => a.hora.localeCompare(b.hora));
 const slotOf = (hora) => S.grade.find((g) => g.ativo && g.hora === hora);
 const periodo = (h) => (h < '12:00' ? 'Manhã' : h < '18:00' ? 'Tarde' : 'Noite');
@@ -269,6 +275,9 @@ function openAjuda() {
     <ul class="help-list">
       <li><b>Grade entre sites:</b> escolha um horário na Agenda e solicite com pelo menos <b>1 hora</b> de antecedência.</li>
       <li><b>Fora do expediente</b> (${EXPEDIENTE[0]}–${EXPEDIENTE[1]}, seg–sex): a solicitação vai para o <b>2º horário</b> do próximo dia útil.</li>
+      <li><b>Horário da grade = saída.</b> A saída seguinte de um site indica que o carro já chegou lá (é a chegada prevista).</li>
+      <li><b>Embarque:</b> chegue ao ponto com pelo menos <b>5 minutos</b> de antecedência.</li>
+      <li><b>Intermunicipal:</b> precisa da aprovação do <b>gestor imediato</b> (do AD) antes de ir para o Facilities.</li>
       <li><b>Capacidade:</b> cada horário tem <b>${CAP_PADRAO} vagas</b> (carro). Se passar de ${CAP_PADRAO} passageiros, a viagem vai de <b>Spin</b> (até ${SLOT_CAP}). Ocupação conta solicitações em análise e confirmadas.</li>
       <li><b>Táxi na cidade:</b> 1 h de antecedência · <b>Intermunicipal:</b> 48 h · <b>Moto Táxi:</b> envio de itens (prazo a definir).</li>
       <li>Toda solicitação passa pela análise do <b>Facilities</b>; você acompanha o status em “Minhas solicitações”.</li>
@@ -426,7 +435,7 @@ function painelSlot(sel, min, mine) {
   const m = mot((conf.find((r) => r.motorista) || {}).motorista);
   const p = slot.paradas;
   const stops = p.map((c, i) => `<li class="${i === 0 ? 'ini' : i === p.length - 1 ? 'fim' : 'mid'}">
-      <small>${i === 0 ? 'Saída' : i === p.length - 1 ? 'Destino' : 'Parada'}</small><b>${esc(siteName(c))}</b>${i === 0 ? `<span>${esc(sel.h)}</span>` : ''}</li>`).join('');
+      <small>${i === 0 ? 'Saída' : i === p.length - 1 ? 'Destino' : 'Parada'}</small><b>${esc(siteName(c))}</b>${i === 0 ? `<span>${esc(sel.h)}</span>` : i === p.length - 1 && chegadaDe(sel.h) ? `<span>chega até ${esc(chegadaDe(sel.h))}</span>` : ''}</li>`).join('');
   let acao;
   if (inf.my) acao = `<button class="btn-cta" id="go" data-act="ver">Ver minha solicitação</button>`;
   else if (inf.cls === 'indisp') acao = `<button class="btn-cta" disabled>Fora do prazo de solicitação</button><p class="cta-note">Antecedência mínima de 1 h ou regra de expediente.</p>`;
@@ -562,7 +571,7 @@ function trechoOptions(rt, sel) {
   return out.join('');
 }
 const siteOptions = (sel) => Object.entries(SITES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('') + `<option value="OUTRO" ${sel === 'OUTRO' ? 'selected' : ''}>Outro (informar)</option>`;
-const locOptions = (sel) => Object.entries(LOCAIS_MOTO).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('') + '<option value="OUTRO">Outro (informar)</option>';
+const locOptions = (sel) => Object.entries(SITES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}${SITE_APELIDO[k] ? ` (${SITE_APELIDO[k]})` : ''}</option>`).join('') + '<option value="OUTRO">Outro (informar)</option>';
 const bagOptions = (sel) => Object.entries(BAG).map(([k, b]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${b.l}</option>`).join('');
 
 // Retorno da grade: horários posteriores à ida cuja rota cobre o trecho da volta (de → para).
@@ -587,7 +596,7 @@ function retornoHtml(kind) {
   return `
       <div class="f full ret-box ${g ? '' : 'c-carro'}"><span class="ret-l">Retorno</span><div class="ret-opts">
         ${op('nao', 'Sem retorno', 'Somente ida', true)}
-        ${op('bv', 'Bate-volta', g ? 'Volta no 1º horário da grade após o tempo no destino' : 'O motorista aguarda e traz de volta', false)}
+        ${op('bv', 'Bate-volta', g ? 'Volta no 1º horário da grade após o tempo no destino (contado da chegada)' : 'O motorista aguarda e traz de volta', false)}
         ${op('outro', 'Retorno em outro horário', g ? 'Escolha o horário de volta (mesmo dia)' : 'Nova corrida mais tarde, no mesmo dia', false)}
       </div></div>
       <div class="f r-bv" hidden><label for="rpe">Tempo no destino</label><select id="rpe">${ESPERAS.map((m) => `<option value="${m}" ${m === 60 ? 'selected' : ''}>até ${fmtMin(m)}</option>`).join('')}</select></div>
@@ -631,7 +640,7 @@ function openSlot(data, hora, preset) {
   const pax0 = () => parseInt($('#px').value, 10) || 1;
   const bvSlot = () => { // bate-volta: 1º horário livre no mesmo dia após o tempo no destino
     const [, d] = $('#tr').value.split('|');
-    const lim = at(data, addMin(hora, Number($('#rpe').value)));
+    const lim = at(data, addMin(chegadaDe(hora) || hora, Number($('#rpe').value))); // conta a partir da chegada
     return retornoSlots(data, hora, data, d, $('#rvo').value, pax0()).find((s) => !s.why && at(data, s.hora) >= lim);
   };
   const lerRet = () => { const [, d] = $('#tr').value.split('|'); return retornoSlots(data, hora, data, d, $('#rvo').value, pax0()); };
@@ -650,13 +659,13 @@ function openSlot(data, hora, preset) {
     $('#rth').hidden = fora; $('#rtht').hidden = !fora;
     if (fora) {
       const txt = $('#rvot').value.trim() || 'endereço informado';
-      const hTaxi = m === 'bv' ? addMin(hora, Number($('#rpe').value)) : $('#rtht').value;
+      const hTaxi = m === 'bv' ? addMin(chegadaDe(hora) || hora, Number($('#rpe').value)) : $('#rtht').value;
       $('#rtinfo').innerHTML = `Volta de <b>táxi na cidade</b>: ${esc(siteName(d))} → <b>${esc(txt)}</b> às <b>${esc(hTaxi || '--:--')}</b> (fora da grade).`;
       return;
     }
     if (m === 'bv') {
       const s = bvSlot();
-      $('#rtinfo').innerHTML = s ? `Volta <b>${esc(siteName(d))} → ${esc(siteName(volta))}</b> às <b>${s.hora}</b> — 1º horário da grade após ${fmtMin(Number($('#rpe').value))} no destino.`
+      $('#rtinfo').innerHTML = s ? `Volta <b>${esc(siteName(d))} → ${esc(siteName(volta))}</b> às <b>${s.hora}</b> — 1º horário da grade após ${fmtMin(Number($('#rpe').value))} no destino (chegada prevista até ${esc(chegadaDe(hora) || hora)}).`
         : `<span class="bad-t">Nenhum horário da grade de ${esc(siteName(d))} para ${esc(siteName(volta))} neste dia depois de ${fmtMin(Number($('#rpe').value))}. Escolha “Retorno em outro horário”.</span>`;
       return;
     }
@@ -700,7 +709,7 @@ function openSlot(data, hora, preset) {
         if (!txt) { msg.innerHTML = '<div class="msg-box bad">Informe o endereço/local de volta.</div>'; return; }
         if (normLoc(txt) === destino) { msg.innerHTML = '<div class="msg-box bad">A volta precisa ser para um local diferente do destino da ida.</div>'; return; }
         const espera = Number($('#rpe').value);
-        const hT = modo === 'bv' ? addMin(hora, espera) : $('#rtht').value;
+        const hT = modo === 'bv' ? addMin(chegadaDe(hora) || hora, espera) : $('#rtht').value;
         if (!hT || at(data, hT) <= at(data, hora) || hT < hora) { msg.innerHTML = '<div class="msg-box bad">O horário de retorno precisa ser depois da ida, no mesmo dia.</div>'; return; }
         ret = { data, hora: hT, volta: txt, taxi: true, bv: modo === 'bv' ? { espera, volta: txt } : null };
       } else if (!SITES[volta] || volta === destino) { msg.innerHTML = '<div class="msg-box bad">Escolha para qual unidade voltar (diferente do destino da ida).</div>'; return; }
@@ -759,7 +768,7 @@ function openAvulsa() {
       <div class="f c-carro"><label for="px">Passageiros</label><input id="px" type="number" min="1" max="7" value="1"></div>
       <div class="f c-carro"><label for="bg">Bagagem</label><select id="bg">${bagOptions('nenhuma')}</select></div>
       ${retornoHtml('avulsa')}
-      <div class="f c-moto" hidden><label for="mo">Retirar em</label><select id="mo">${locOptions('S1')}</select><input id="mot" placeholder="Endereço / local de retirada" hidden style="margin-top:6px"></div>
+      <div class="f c-moto" hidden><label for="mo">Retirar em</label><select id="mo">${locOptions('MED')}</select><input id="mot" placeholder="Endereço / local de retirada" hidden style="margin-top:6px"></div>
       <div class="f c-moto" hidden><label for="md">Entregar em</label><select id="md">${locOptions('CD')}</select><input id="mdt" placeholder="Endereço / local de entrega" hidden style="margin-top:6px"></div>
       <div class="f full c-moto" hidden><label for="mi">O que será enviado?</label><input id="mi" placeholder="Ex.: envelope com notas fiscais, caixa de amostras, documentos para assinatura"></div>
       <div class="f c-moto" hidden><label for="mv">Quantidade de volumes</label><input id="mv" type="number" min="1" max="20" value="1"></div>
