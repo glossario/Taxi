@@ -247,6 +247,12 @@ const ICO = {
   pin: '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>', plus: '<path d="M12 5v14M5 12h14"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5l8.5 6 8.5-6"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.4 4.2-6.5 8-6.5s7 2.1 8 6.5"/>',
+  car: '<path d="M5 16V11l2-5h10l2 5v5"/><path d="M3 16h18v3H3z"/><circle cx="7.5" cy="16" r="1.5"/><circle cx="16.5" cy="16" r="1.5"/><path d="M5 11h14"/>',
+  moto: '<circle cx="5.5" cy="16.5" r="3"/><circle cx="18.5" cy="16.5" r="3"/><path d="M5.5 16.5l4-6h5l4 6M12 10.5l-1-3h-2M15 7.5h3"/>',
+  send: '<path d="M21 3L10 14"/><path d="M21 3l-7 18-4-7-7-4z"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
   bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
 };
 const ico = (n, s = 18) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO[n]}</svg>`;
@@ -1341,35 +1347,81 @@ function openWpp(v) {
 function renderViagens(page) {
   const f = renderViagens.f || (renderViagens.f = 'abertas');
   const all = viagens();
-  const list = all.filter((v) => f === 'todas' || (f === 'abertas' ? ['enviar', 'enviada'].includes(v.st) : v.st === f));
   const cont = (s) => all.filter((v) => v.st === s).length;
+  const nAbertas = cont('enviar') + cont('enviada');
+  const TABS = [['abertas', 'Abertas', nAbertas], ['enviar', 'A enviar', cont('enviar')], ['enviada', 'Enviadas', cont('enviada')],
+    ['concluida', 'Concluídas', cont('concluida')], ['naorealizada', 'Não realizadas', cont('naorealizada')]];
+  const list = all.filter((v) => (f === 'abertas' ? ['enviar', 'enviada'].includes(v.st) : v.st === f));
+  const MES3 = (ds) => MESES[at(ds, '12:00').getMonth()].slice(0, 3);
+  const VST = { enviar: ['A enviar', 'vst-enviar'], enviada: ['Enviada', 'vst-enviada'], concluida: ['Concluída', 'vst-concluida'], naorealizada: ['Não realizada', 'vst-nao'] };
+
+  const trajeto = (v) => {
+    if (v.tipo === 'grade') { const s = slotOf(v.hora); if (s) return [siteName(s.paradas[0]), s.paradas.slice(1).map((c) => siteName(c)).join(' → ')]; }
+    const os = [...new Set(v.rs.map((r) => siteName(r.origem)))], ds = [...new Set(v.rs.map((r) => siteName(r.destino)))];
+    return [os.join(', '), `→ ${ds.join(', ')}`];
+  };
+  const linhaSol = (r) => `<li><b class="sid">${esc(r.id)}</b><span class="dotsep">•</span><span>${esc(r.nome)}</span>
+      ${r.tipo === 'moto' ? `<small>${r.os ? `${esc(r.os)} · ` : ''}${esc(`${r.vol}× ${r.item}`)} → ${esc(r.recebedor)}</small>`
+        : `<small>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))} · ${r.pax} pax${r.bag !== 'nenhuma' ? ` · bagagem ${esc(BAG[r.bag].l.split(' ')[0].toLowerCase())}` : ''}${r.perna ? ` · ${pernaTxt(r)}` : r.bv ? ' · bate-volta' : ''}</small>`}</li>`;
+
+  const card = (v, i) => {
+    const m = mot(v.motorista), ve = veic(v.veiculo), [lbl, cls] = VST[v.st];
+    const d = at(v.data, v.hora), aberta = ['enviar', 'enviada'].includes(v.st);
+    const [t1, t2] = trajeto(v);
+    const busca = [v.rs.map((r) => `${r.id} ${r.nome} ${r.os || ''} ${siteName(r.origem)} ${siteName(r.destino)}`).join(' '), m.nome, ve.nome, ve.placa, TIPOS[v.tipo]].join(' ').toLowerCase();
+    const mails = [...new Set(v.rs.filter((r) => r.mail).map((r) => r.nome))];
+    return `<article class="vc ${cls}" data-i="${i}" data-q="${esc(busca)}">
+      <header class="vc-h">
+        <div class="vc-date"><small>${DIAS[d.getDay()].slice(0, 3)}</small><b>${pad(d.getDate())}</b></div>
+        <div class="vc-tt"><span>${DIAS[d.getDay()].slice(0, 3)}, ${d.getDate()} ${MES3(v.data)} <i>•</i> ${esc(v.hora)}</span><h3>${esc(TIPOS[v.tipo].replace(' (envio de itens)', ''))}</h3></div>
+        <span class="vst ${cls}"><i></i>${lbl}</span>
+      </header>
+      <div class="vc-grid">
+        <div class="vc-f">${ico('user', 18)}<div><small>${v.tipo === 'moto' ? 'Motociclista' : 'Motorista'}</small><b>${esc(m.nome)}</b><span>${esc(fmtFone(m.fone))}</span></div></div>
+        <div class="vc-f">${ico(v.tipo === 'moto' ? 'moto' : 'car', 18)}<div><small>Veículo</small><b>${esc(ve.nome)}</b><span>${esc(ve.placa)}</span></div></div>
+        <div class="vc-f">${ico('route', 18)}<div><small>Trajeto</small><b>${esc(t1)}</b><span>${esc(t2)}</span></div></div>
+      </div>
+      <footer class="vc-ft">
+        <div class="vc-sols"><ul>${v.rs.map(linhaSol).join('')}</ul>
+          ${v.rs[0].wpp ? `<p class="ok">${ico('check', 14)} Enviada pelo WhatsApp em ${esc(v.rs[0].wpp)}</p>` : `<p class="warn">${ico('clock', 14)} Ainda não enviada ao motorista — ao enviar, o colaborador recebe a confirmação por e-mail.</p>`}
+          ${mails.length ? `<p class="ok">${ico('mail', 14)} Confirmação por e-mail enviada a ${esc(mails.join(', '))}</p>` : ''}
+          ${v.rs.some((r) => r.motivo && v.st === 'naorealizada') ? `<p class="bad">${esc(v.rs[0].motivo)}</p>` : ''}</div>
+        ${aberta ? `<div class="vc-acts">
+          <button class="btn-send wpp">${ico('send', 16)} ${v.st === 'enviada' ? 'Reenviar' : 'Enviar'}</button>
+          <button class="btn-out fim">${ico('check', 16)} Concluir</button>
+          <button class="btn-link nr">Não realizada</button></div>` : ''}
+      </footer>
+    </article>`;
+  };
+
   shell(page, `
-    <div class="page-head"><div><h1>Viagens</h1><p>Viagens fechadas. Envie ao motorista pelo WhatsApp e registre a conclusão — motoristas não acessam o sistema.</p></div>
-      <div class="filters" style="margin:0"><select id="vf">
-        <option value="abertas" ${f === 'abertas' ? 'selected' : ''}>Abertas (${cont('enviar') + cont('enviada')})</option>
-        <option value="enviar" ${f === 'enviar' ? 'selected' : ''}>A enviar (${cont('enviar')})</option>
-        <option value="enviada" ${f === 'enviada' ? 'selected' : ''}>Enviadas (${cont('enviada')})</option>
-        <option value="concluida" ${f === 'concluida' ? 'selected' : ''}>Concluídas (${cont('concluida')})</option>
-        <option value="naorealizada" ${f === 'naorealizada' ? 'selected' : ''}>Não realizadas (${cont('naorealizada')})</option>
-        <option value="todas" ${f === 'todas' ? 'selected' : ''}>Todas (${all.length})</option></select></div></div>
-    ${list.length ? list.map((v, i) => {
-      const m = mot(v.motorista), ve = veic(v.veiculo), [lbl, cls] = VG_LABEL[v.st];
-      const slot = v.tipo === 'grade' ? slotOf(v.hora) : null;
-      const aberta = ['enviar', 'enviada'].includes(v.st);
-      return `<div class="group ${v.st === 'enviar' ? 'bad' : 'ok'}" data-i="${i}">
-        <div class="group-h"><b>${esc(fmtDT(v.data, v.hora))} · ${esc(TIPOS[v.tipo])}</b><span class="pill ${cls}">${lbl}</span></div>
-        <div class="meter" style="margin-top:6px"><span>Motorista: <b>${esc(m.nome)}</b> · ${esc(fmtFone(m.fone))}</span><span>Veículo: <b>${esc(ve.nome)}</b> · ${esc(ve.placa)}</span>
-          ${slot ? `<span>Rota: <b>${esc(rotaTxt(slot.paradas, true))}</b></span>` : ''}</div>
-        <ul>${v.rs.map((r) => `<li><span><b>${esc(r.id)}</b>${r.os ? ` · ${esc(r.os)}` : ''} · ${esc(r.tipo === 'moto' ? `${r.nome}: ${resumo(r)}` : paxTxt(r))}</span><span>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}</span></li>`).join('')}</ul>
-        ${v.rs[0].wpp ? `<div class="okmsg">✓ Enviada pelo WhatsApp em ${esc(v.rs[0].wpp)}</div>` : '<div class="alert">Ainda não enviada ao motorista.</div>'}
-        ${v.rs.some((r) => r.mail) ? `<div class="okmsg">✉ Confirmação por e-mail enviada a ${esc([...new Set(v.rs.filter((r) => r.mail).map((r) => r.nome))].join(', '))}</div>`
-          : v.rs[0].wpp ? '' : '<div class="section-s" style="margin:6px 0 0">Ao enviar, o colaborador recebe a confirmação por e-mail.</div>'}
-        ${aberta ? `<div class="assign"><button class="btn green sm wpp">${v.st === 'enviada' ? 'Reenviar' : 'Enviar'} via WhatsApp</button>
-          <button class="btn sm fim">Concluir</button><button class="btn sm red nr">Não realizada</button></div>` : ''}
-      </div>`;
-    }).join('') : '<div class="card empty">Nenhuma viagem neste filtro. Confirme solicitações no <a href="#painel">Painel</a>.</div>'}`);
-  $('#vf').onchange = (e) => { renderViagens.f = e.target.value; route(); };
-  document.querySelectorAll('.group[data-i]').forEach((g) => {
+    <div class="pg-head">
+      <div><nav class="crumb"><span>Operação</span>${ico('right', 12)}<b>Viagens</b></nav>
+        <h1>Viagens</h1><p>Acompanhe os deslocamentos, envie as informações aos motoristas e registre cada conclusão.</p></div>
+      <div class="mini-kpis">
+        <div class="mk warn"><small>A enviar</small><b>${cont('enviar')}</b></div>
+        <div class="mk"><small>Em aberto</small><b>${nAbertas}</b></div>
+        <div class="mk"><small>Enviadas</small><b>${cont('enviada')}</b></div>
+      </div>
+    </div>
+    <div class="toolbar vtools">
+      <div class="seg">${TABS.map(([k, l, n]) => `<button class="seg-b${f === k ? ' on' : ''}" data-f="${k}">${l} (${n})</button>`).join('')}</div>
+      <label class="search">${ico('search', 16)}<input id="vq" placeholder="Buscar viagem, pessoa, motorista, placa…" value="${esc(renderViagens.q || '')}" aria-label="Buscar viagem"></label>
+    </div>
+    <div class="vlist">${list.length ? list.map(card).join('') : '<div class="card empty">Nenhuma viagem neste filtro. Confirme solicitações no <a href="#painel">Painel</a>.</div>'}
+      <div class="card empty" id="vnone" hidden>Nenhuma viagem encontrada para a busca.</div></div>`);
+
+  document.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => { renderViagens.f = b.dataset.f; route(); }; });
+  const filtra = () => {
+    const q = ($('#vq').value || '').trim().toLowerCase();
+    renderViagens.q = q;
+    let n = 0;
+    document.querySelectorAll('.vc').forEach((c) => { const ok = !q || c.dataset.q.includes(q); c.hidden = !ok; if (ok) n++; });
+    if (list.length) $('#vnone').hidden = n > 0;
+  };
+  $('#vq').oninput = filtra;
+  filtra();
+  document.querySelectorAll('.vc').forEach((g) => {
     const v = list[Number(g.dataset.i)];
     const w = $('.wpp', g), fim = $('.fim', g), nr = $('.nr', g);
     if (w) w.onclick = () => openWpp(v);
