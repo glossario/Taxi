@@ -1388,9 +1388,11 @@ function renderViagens(page) {
     const os = [...new Set(v.rs.map((r) => siteName(r.origem)))], ds = [...new Set(v.rs.map((r) => siteName(r.destino)))];
     return [os.join(', '), `→ ${ds.join(', ')}`];
   };
-  const linhaSol = (r) => `<li><b class="sid">${esc(r.id)}</b><span class="dotsep">•</span><span>${esc(r.nome)}</span>
+  const linhaSol = (r, v) => `<li class="${r.faltou ? 'faltou' : ''}"><b class="sid">${esc(r.id)}</b><span class="dotsep">•</span><span>${esc(r.nome)}</span>
       ${r.tipo === 'moto' ? `<small>${r.os ? `${esc(r.os)} · ` : ''}${esc(`${r.vol}× ${r.item}`)} → ${esc(r.recebedor)}</small>`
-        : `<small>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))} · ${r.pax} pax${r.bag !== 'nenhuma' ? ` · bagagem ${esc(BAG[r.bag].l.split(' ')[0].toLowerCase())}` : ''}${r.perna ? ` · ${pernaTxt(r)}` : r.bv ? ' · bate-volta' : ''}</small>`}</li>`;
+        : `<small>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))} · ${r.pax} pax${r.bag !== 'nenhuma' ? ` · bagagem ${esc(BAG[r.bag].l.split(' ')[0].toLowerCase())}` : ''}${r.perna ? ` · ${pernaTxt(r)}` : r.bv ? ' · bate-volta' : ''}</small>`}
+      ${r.faltou ? '<span class="tag-falta">Não compareceu — fora da divisão</span>' : ''}
+      ${r.tipo !== 'moto' && v.st !== 'naorealizada' ? `<button class="btn-mini falta" data-id="${esc(r.id)}">${r.faltou ? 'Desfazer: compareceu' : 'Não compareceu'}</button>` : ''}</li>`;
 
   const card = (v, i) => {
     const m = mot(v.motorista), ve = veic(v.veiculo), [lbl, cls] = VST[v.st];
@@ -1413,10 +1415,10 @@ function renderViagens(page) {
       <div class="vc-cost">
         <label class="vc-val"><small>Valor da corrida</small><span class="money">R$ <input class="vval" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.manual ? rt.total : ''}" placeholder="${rt.padrao != null ? rt.padrao.toFixed(2) : 'informe'}" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Valor da corrida"></span>
           <em>${rt.manual ? `informado pela Noemia${rt.padrao != null ? ` · tabela ${brl(rt.padrao)}` : ''}` : rt.padrao != null ? 'pela tabela de valores' : 'sem valor na tabela — informe'}</em></label>
-        <div class="vc-rat"><small>Divisão por setor</small>${rt.total != null ? `<div class="chips">${rateioChips(rt)}</div>${rt.legs.length > 1 ? `<span class="legs">${rt.legs.map((l) => `${esc(siteName(l.de))} → ${esc(siteName(l.para))}: ${brl(l.valor)} (${l.ccs.map(setorCurto).map(esc).join(' + ')})`).join(' · ')}</span>` : ''}` : '<span class="warn-t">Aguardando o valor</span>'}</div>
+        <div class="vc-rat"><small>Divisão por setor</small>${rt.ninguem ? '<span class="warn-t">Ninguém compareceu — sem cobrança</span>' : rt.total != null ? `<div class="chips">${rateioChips(rt)}</div>${rt.legs.length > 1 ? `<span class="legs">${rt.legs.map((l) => `${esc(siteName(l.de))} → ${esc(siteName(l.para))}: ${brl(l.valor)} (${l.ccs.map(setorCurto).map(esc).join(' + ')})`).join(' · ')}</span>` : ''}` : '<span class="warn-t">Aguardando o valor</span>'}</div>
       </div>
       <footer class="vc-ft">
-        <div class="vc-sols"><ul>${v.rs.map(linhaSol).join('')}</ul>
+        <div class="vc-sols"><ul>${v.rs.map((r) => linhaSol(r, v)).join('')}</ul>
           ${v.rs[0].wpp ? `<p class="ok">${ico('check', 14)} Enviada pelo WhatsApp em ${esc(v.rs[0].wpp)}</p>` : `<p class="warn">${ico('clock', 14)} Ainda não enviada ao motorista — ao enviar, o colaborador recebe a confirmação por e-mail.</p>`}
           ${mails.length ? `<p class="ok">${ico('mail', 14)} Confirmação por e-mail enviada a ${esc(mails.join(', '))}</p>` : ''}
           ${v.rs.some((r) => r.motivo && v.st === 'naorealizada') ? `<p class="bad">${esc(v.rs[0].motivo)}</p>` : ''}</div>
@@ -1459,6 +1461,14 @@ function renderViagens(page) {
     const v = list[Number(g.dataset.i)];
     const w = $('.wpp', g), fim = $('.fim', g), nr = $('.nr', g);
     if (w) w.onclick = () => openWpp(v);
+    g.querySelectorAll('.falta').forEach((b) => {
+      b.onclick = () => {
+        const r = v.rs.find((x) => x.id === b.dataset.id);
+        r.faltou = !r.faltou;
+        audit(r.faltou ? 'Não compareceu' : 'Comparecimento restaurado', r.id, '', `${r.nome} (${setorCurto(r.cc)}) ${r.faltou ? 'fora' : 'de volta'} da divisão do valor`);
+        save(); route(); toast(r.faltou ? `${r.nome} marcado como ausente — o valor fica com quem foi.` : `${r.nome} voltou para a divisão.`);
+      };
+    });
     const vi = $('.vval', g);
     if (vi) vi.onchange = () => {
       const raw = String(vi.value).trim().replace(',', '.');
@@ -1651,27 +1661,30 @@ function tarifa(a, b, modal) {
 // Se a Noemia digitar outro valor para a corrida, os trechos são ajustados na mesma proporção.
 function ratear(v) {
   const modal = v.tipo === 'moto' ? 'moto' : 'carro';
+  // Quem não compareceu não entra na divisão: a viagem fica só com os setores que foram.
+  const rs = v.rs.filter((r) => !r.faltou);
+  if (!rs.length) return { total: 0, padrao: 0, manual: false, partes: {}, legs: [], modal, ninguem: true };
   const legs = [];
   if (v.tipo === 'grade') {
     const slot = slotOf(v.hora);
-    const p = slot ? slot.paradas : [v.rs[0].origem, v.rs[0].destino];
+    const p = slot ? slot.paradas : [rs[0].origem, rs[0].destino];
     for (let k = 0; k < p.length - 1; k++) {
-      const ccs = [...new Set(v.rs.filter((r) => p.indexOf(r.origem) <= k && p.indexOf(r.destino) > k).map((r) => r.cc))];
+      const ccs = [...new Set(rs.filter((r) => p.indexOf(r.origem) <= k && p.indexOf(r.destino) > k).map((r) => r.cc))];
       if (!ccs.length) continue;
       const a = tarifa(p[0], p[k], modal), b = tarifa(p[0], p[k + 1], modal);
       legs.push({ de: p[k], para: p[k + 1], custo: a == null || b == null ? null : Math.max(0, b - a), ccs });
     }
   } else if (v.tipo === 'moto') {
-    const r0 = v.rs[0];
-    legs.push({ de: r0.origem, para: r0.destino, custo: tarifa(r0.origem, r0.destino, 'moto'), ccs: [...new Set(v.rs.map((r) => r.cc))] });
+    const r0 = rs[0];
+    legs.push({ de: r0.origem, para: r0.destino, custo: tarifa(r0.origem, r0.destino, 'moto'), ccs: [...new Set(rs.map((r) => r.cc))] });
   } else {
-    v.rs.forEach((r) => {
+    rs.forEach((r) => {
       let c = tarifa(r.origem, r.destino, 'carro');
       if (r.bv && c != null) { const c2 = tarifa(r.destino, r.bv.volta, 'carro'); c = c2 == null ? null : c + c2; }
       legs.push({ de: r.origem, para: r.bv ? r.bv.volta : r.destino, custo: c, ccs: [r.cc] });
     });
   }
-  if (!legs.length) legs.push({ de: v.rs[0].origem, para: v.rs[0].destino, custo: null, ccs: [...new Set(v.rs.map((r) => r.cc))] });
+  if (!legs.length) legs.push({ de: rs[0].origem, para: rs[0].destino, custo: null, ccs: [...new Set(rs.map((r) => r.cc))] });
   const padrao = legs.every((l) => l.custo != null) ? legs.reduce((t, l) => t + l.custo, 0) : null;
   const vm = (S.valores || {})[v.k];
   const manual = vm !== undefined && vm !== null;
@@ -1702,7 +1715,7 @@ function renderCustos(page) {
   const tabs = `<div class="seg">${[['relatorio', 'Relatório do mês'], ['tarifas', 'Valores das rotas']].map(([k, l]) => `<button class="seg-b${aba === k ? ' on' : ''}" data-aba="${k}">${l}</button>`).join('')}</div>`;
   let body = '';
   if (aba === 'relatorio') {
-    const vs = viagens().filter((v) => v.data.slice(0, 7) === mes && (v.st === 'concluida' || (prev && ['enviar', 'enviada'].includes(v.st))));
+    const vs = viagens().filter((v) => v.data.slice(0, 7) === mes && (v.st === 'concluida' || (prev && ['enviar', 'enviada'].includes(v.st))) && v.rs.some((r) => !r.faltou)); // ninguém foi = sem cobrança
     const porSetor = {};
     let total = 0;
     const semValor = [];
@@ -1773,6 +1786,8 @@ function renderCustos(page) {
         <section class="card"><h2 class="section-t">Como o valor é dividido</h2>
           <ul class="help-list">
             <li>Cada viagem é dividida <b>igualmente entre os setores</b> que estão no carro (não por pessoa).</li>
+            <li>Quem <b>não compareceu</b> sai da divisão: a viagem fica só com os setores que foram. Viagem não realizada não é cobrada.</li>
+            <li>Bate-volta: pela tabela é ida + volta; se houver espera cobrada, a Noemia informa o valor da corrida.</li>
             <li>Na grade, a conta é <b>por trecho</b>: o valor até cada parada é contado a partir da saída da rota. Quem desce antes não paga o resto do caminho.</li>
             <li>Se a Noemia informar outro valor para a corrida, os trechos são ajustados na mesma proporção.</li>
             <li>Táxi avulso: o setor do solicitante paga sozinho. Moto agrupada: dividida entre os setores dos envios.</li>

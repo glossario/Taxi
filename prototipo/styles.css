@@ -574,3 +574,7 @@ button.vp-h:focus-visible { outline: 3px solid rgba(74, 143, 34, .35); outline-o
 .ex-box p { margin: 6px 0; color: var(--muted); }
 .ex-box ul { margin: 6px 0 10px; padding-left: 18px; }
 @media (max-width: 760px) { .cost-row summary { grid-template-columns: 1fr auto; } .cs-q, .cs-bar { display: none; } }
+.vc-sols li.faltou > b, .vc-sols li.faltou > span:not(.tag-falta), .vc-sols li.faltou > small { opacity: .55; text-decoration: line-through; }
+.tag-falta { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 800; color: var(--red); background: var(--red-soft); border-radius: 6px; padding: 1px 8px; }
+.btn-mini { margin-left: 8px; border: 1px solid var(--line); background: #fff; border-radius: 7px; padding: 2px 8px; font-size: 11.5px; font-weight: 700; color: #4b5563; }
+.btn-mini:hover { border-color: #e9b4ad; color: var(--red); }
