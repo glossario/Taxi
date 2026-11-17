@@ -592,3 +592,11 @@ button.vp-h:focus-visible { outline: 3px solid rgba(74, 143, 34, .35); outline-o
 .vc-cost { grid-template-columns: minmax(280px, 420px) 1fr; }
 .gv span { display: block; font-size: 13px; color: var(--muted); white-space: nowrap; }
 .gv b { color: var(--navy-ink); }
+/* Outros destinos (valores fixos fora das unidades) */
+.tar-o { margin-top: 14px; }
+.tar-t { table-layout: fixed; width: 100%; }
+.tar-t th:nth-child(n+2), .tar-t td:nth-child(n+2) { width: 130px; }
+.tar-t td input { width: 100%; box-sizing: border-box; }
+.tar-new select, .tar-new #tnd { width: 100%; box-sizing: border-box; margin: 2px 0; }
+.fixo.sem b { color: var(--warn, #b45309); }
+.fixo.sem a { font-weight: 600; }

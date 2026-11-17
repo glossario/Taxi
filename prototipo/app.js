@@ -66,7 +66,9 @@ const SEED_MOTORISTAS = [
 ];
 // Valores das rotas (cadastrados pela Noemia em Grade e rotas → Valores das rotas). Valores de EXEMPLO.
 // Chave = par de locais (sem sentido). Táxi e moto têm valores próprios.
-const SEED_TARIFAS = { 'CD|MED': { carro: 50, moto: 15 }, 'MED|SUP': { carro: 75, moto: 20 }, 'CD|SUP': { carro: 30, moto: 15 } };
+// Destinos fora das unidades também ficam aqui (chave = unidade | destino em minúsculas), com o nome para exibir.
+const SEED_TARIFAS = { 'CD|MED': { carro: 50, moto: 15 }, 'MED|SUP': { carro: 75, moto: 20 }, 'CD|SUP': { carro: 30, moto: 15 },
+  'MED|centro – cartório de notas': { carro: 38, moto: null, nome: 'Centro – Cartório de Notas' } };
 const DURACAO_MIN = 60; // intervalo mínimo entre viagens do mesmo veículo/motorista (RF-14)
 
 // ---------------- Utilidades ----------------
@@ -103,7 +105,7 @@ const fmtFone = (d) => (d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-$
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 
 // ---------------- Estado ----------------
-const KEY = 'mobilab-sim-v7';
+const KEY = 'mobilab-sim-v8';
 let S;
 function load() { try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* sem storage: segue em memória */ } }
@@ -152,7 +154,7 @@ function seed() {
   return {
     user: null, reqs, motoristas: SEED_MOTORISTAS.map((m) => ({ ...m })), grade: SEED_GRADE.map((g) => ({ ...g, paradas: [...g.paradas] })),
     log: [], seq: { req: 1062, os: 122, mot: 4, grade: SEED_GRADE.length }, week: 0,
-    tarifas: JSON.parse(JSON.stringify(SEED_TARIFAS)), valores: { [`${dias(3)}|10:00|V3|D2`]: 38 },
+    tarifas: JSON.parse(JSON.stringify(SEED_TARIFAS)),
   };
 }
 
@@ -1418,7 +1420,7 @@ function renderViagens(page) {
         <div class="vc-val">
           <small>Valor da corrida</small>
           ${rt.padrao != null ? `<div class="fixo"><b>${brl(rt.padrao)}</b><em>valor fixo da rota</em></div>`
-            : `<span class="money">R$ <input class="vval" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.manual ? rt.base : ''}" placeholder="informe" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Valor da corrida"></span><em>destino fora das rotas cadastradas — informe o valor</em>`}
+            : `<div class="fixo sem"><b>Sem valor</b><em>destino sem valor cadastrado — cadastre em <a href="#grade">Grade e rotas</a></em></div>`}
           <small class="mt">Acréscimo <span class="opt">(espera, pedágio…)</span></small>
           <div class="acr-row"><span class="money sm">R$ <input class="vacr" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.acrescimo || ''}" placeholder="0,00" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Acréscimo"></span>
             <input class="vmot" placeholder="Motivo do acréscimo" value="${esc(rt.motivoAcr)}" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Motivo do acréscimo"></div>
@@ -1493,20 +1495,6 @@ function renderViagens(page) {
     };
     if (va) va.onchange = salvaAcr;
     if (vmo) vmo.onchange = salvaAcr;
-    const vi = $('.vval', g);
-    if (vi) vi.onchange = () => {
-      const raw = String(vi.value).trim().replace(',', '.');
-      S.valores = S.valores || {};
-      const antes = S.valores[v.k];
-      if (raw === '') delete S.valores[v.k];
-      else {
-        const n = Number(raw);
-        if (!Number.isFinite(n) || n < 0) { toast('Valor inválido.'); return; }
-        S.valores[v.k] = Math.round(n * 100) / 100;
-      }
-      audit('Valor da corrida', v.rs.map((r) => r.id).join(', '), antes == null ? 'tabela' : brl(antes), raw === '' ? 'tabela' : brl(S.valores[v.k]));
-      save(); route(); toast('Valor da corrida atualizado.');
-    };
     if (fim) fim.onclick = () => {
       v.rs.forEach((r) => { audit('Concluída', r.id, STATUS[r.status], 'Concluída'); r.status = 'concluida'; });
       save(); route(); toast('Viagem concluída.');
@@ -1681,7 +1669,8 @@ const tabTarifas = () => S.tarifas || (S.tarifas = JSON.parse(JSON.stringify(SEE
 function tarifa(a, b, modal) {
   a = normLoc(a); b = normLoc(b);
   if (a === b) return 0;
-  if (!SITES[a] || !SITES[b]) return null; // endereço fora das unidades: a Noemia informa o valor
+  if (!SITES[a] && !SITES[b]) return null; // entre dois endereços fora das unidades: sem valor fixo
+  // unidade ↔ destino fora das unidades: vale o valor cadastrado em Grade e rotas → Outros destinos
   const t = tabTarifas()[parKey(a, b)];
   const v = t ? t[modal] : null;
   return v === null || v === undefined || v === '' ? null : Number(v);
@@ -1691,8 +1680,8 @@ function tarifa(a, b, modal) {
 // Cada trecho é dividido IGUALMENTE entre os SETORES que estão no carro naquele trecho.
 // Ex.: Site 1→CD = 50 e Site 1→Life = 75. TI desce no CD e Garantia vai até a Life:
 //      trecho Site 1→CD (50) = 25 TI + 25 Garantia; trecho CD→Life (75−50 = 25) = Garantia sozinha → Garantia 50, TI 25.
-// O valor da rota é FIXO (tabela). Acréscimos (espera, pedágio…) são lançados pela Noemia na viagem e divididos
-// na mesma proporção dos trechos. Só destino fora das rotas cadastradas tem o valor informado na viagem.
+// O valor da rota é FIXO e só é cadastrado em Grade e rotas (inclusive destinos fora das unidades).
+// Acréscimos (espera, pedágio…) são lançados pela Noemia na viagem e divididos na mesma proporção dos trechos.
 function ratear(v) {
   const modal = v.tipo === 'moto' ? 'moto' : 'carro';
   // Quem não compareceu não entra na divisão: a viagem fica só com os setores que foram.
@@ -1720,17 +1709,15 @@ function ratear(v) {
   }
   if (!legs.length) legs.push({ de: rs[0].origem, para: rs[0].destino, custo: null, ccs: [...new Set(rs.map((r) => r.cc))] });
   const padrao = legs.every((l) => l.custo != null) ? legs.reduce((t, l) => t + l.custo, 0) : null;
-  const vm = (S.valores || {})[v.k];
-  const informado = padrao == null && vm !== undefined && vm !== null; // só quando não há valor fixo
-  const base = padrao != null ? padrao : informado ? Number(vm) : null;
+  const base = padrao; // valor sempre FIXO, vindo de Grade e rotas (a viagem não edita o valor)
   const ex = (S.extras || {})[v.k] || {};
   const acrescimo = Number(ex.valor) > 0 ? Number(ex.valor) : 0;
   const total = base == null ? null : base + acrescimo;
-  const manual = informado;
+  const manual = false;
   const partes = {};
   if (total != null) {
     const cents = Math.round(total * 100);
-    const base = padrao ? legs.map((l) => l.custo) : legs.map(() => 1); // sem tabela: divide igual entre os trechos
+    const base = padrao ? legs.map((l) => l.custo) : legs.map(() => 1); // rota de valor zero: divide igual entre os trechos
     const soma = base.reduce((a, b) => a + b, 0) || 1;
     // Parte exata de cada setor (em centavos) e arredondamento pelo maior resto: a soma sempre bate com o total.
     const exato = {};
@@ -1783,7 +1770,7 @@ function renderCustos(page) {
         <div class="mk"><small>Setores</small><b>${setores.length}</b></div>
         <div class="mk ${semValor.length ? 'warn' : ''}"><small>Sem valor</small><b>${semValor.length}</b></div>
       </div>
-      ${semValor.length ? `<div class="banner warn">${ico('info', 18)}<div><b>${semValor.length} viagem(ns) sem valor</b> — destino fora das unidades ou rota sem valor na tabela. Informe o valor em <a href="#viagens">Viagens</a>: ${semValor.map((v) => esc(v.rs.map((r) => r.id).join('+'))).join(', ')}.</div></div>` : ''}
+      ${semValor.length ? `<div class="banner warn">${ico('info', 18)}<div><b>${semValor.length} viagem(ns) sem valor</b> — rota sem valor cadastrado. Cadastre o valor em <a href="#grade">Grade e rotas</a>: ${semValor.map((v) => esc(v.rs.map((r) => r.id).join('+'))).join(', ')}.</div></div>` : ''}
       <div class="card cost-card">
         <h2 class="section-t">Quanto cada setor deve — ${esc(MESES[Number(mm) - 1])} de ${esc(ano)}</h2>
         <p class="section-s">${prev ? 'Concluídas + previsão das viagens em aberto.' : 'Somente viagens concluídas.'} Clique no setor para ver as viagens.</p>
@@ -1796,7 +1783,7 @@ function renderCustos(page) {
               <td>${rt.legs.map((l) => `${esc(siteName(l.de))} → ${esc(siteName(l.para))}${l.valor != null ? ` <small>${brl(l.valor)} · ${l.ccs.map(setorCurto).map(esc).join(' + ')}</small>` : ''}`).join('<br>')}</td>
               <td>${esc(v.rs.filter((r) => r.cc === cc).map((r) => `${r.id} ${r.nome}`).join(', '))}</td>
               <td><div class="chips">${rateioChips(rt)}</div></td>
-              <td>${brl(rt.total)} <small>${rt.manual ? 'informado' : 'fixo'}${rt.acrescimo ? ` + acréscimo ${brl(rt.acrescimo)}${rt.motivoAcr ? ` (${esc(rt.motivoAcr)})` : ''}` : ''}</small></td><td><b>${brl(val)}</b></td></tr>`).join('')}
+              <td>${brl(rt.total)} <small>${'fixo'}${rt.acrescimo ? ` + acréscimo ${brl(rt.acrescimo)}${rt.motivoAcr ? ` (${esc(rt.motivoAcr)})` : ''}` : ''}</small></td><td><b>${brl(val)}</b></td></tr>`).join('')}
             </tbody></table></details>`).join('')}
           <div class="cost-total"><span>Total</span><b>${brl(total)}</b></div></div>`
           : '<div class="empty">Nenhuma viagem com valor neste mês.</div>'}
@@ -1818,17 +1805,38 @@ function valoresRotasHtml() {
     for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) pares.push([ks[i], ks[j]]);
     const nome = (k) => `${siteName(k)}${SITE_APELIDO[k] ? ` (${SITE_APELIDO[k]})` : ''}`;
     const t = tabTarifas();
+    // Outros destinos: os já cadastrados + os que aparecem em viagens e ainda não têm valor (pendentes).
+    const outros = {};
+    Object.entries(t).forEach(([k, v]) => { const [x, y] = k.split('|'); if (SITES[x] && SITES[y]) return; const u = SITES[x] ? x : y; outros[k] = { u, nome: v.nome || (u === x ? y : x), pend: false }; });
+    viagens().filter((v) => v.st !== 'naorealizada').forEach((v) => v.rs.forEach((r) => {
+      [[r.origem, r.destino], ...(r.bv ? [[r.destino, r.bv.volta]] : [])].forEach(([o, d]) => {
+        const no = normLoc(o), nd = normLoc(d);
+        if (!SITES[no] === !SITES[nd]) return; // só unidade ↔ fora
+        const u = SITES[no] ? no : nd, fora = SITES[no] ? d : o, k = parKey(u, normLoc(fora));
+        if (!outros[k]) outros[k] = { u, nome: String(fora).trim(), pend: true };
+      });
+    }));
+    const outrosOrd = Object.entries(outros).sort((x, y) => (y[1].pend - x[1].pend) || x[1].nome.localeCompare(y[1].nome));
+    const nPend = outrosOrd.filter(([k]) => { const v = t[k]; return !v || v.carro == null; }).length;
+    const linha = (k, rotulo, v, extra = '') => `<tr data-k="${esc(k)}" ${extra}><td>${rotulo}</td>
+            <td><input class="tv" data-m="carro" type="number" min="0" step="0.01" inputmode="decimal" value="${v.carro ?? ''}" aria-label="Valor táxi"></td>
+            <td><input class="tv" data-m="moto" type="number" min="0" step="0.01" inputmode="decimal" value="${v.moto ?? ''}" aria-label="Valor moto"></td></tr>`;
     // Exemplo ao vivo com a tabela atual
     const ex = ratear({ tipo: 'grade', hora: (grade().find((g) => g.paradas[0] === 'MED' && g.paradas[g.paradas.length - 1] === 'SUP') || {}).hora, k: '__exemplo__',
       rs: [{ origem: 'MED', destino: 'CD', cc: '4010 – Tecnologia da Informação' }, { origem: 'MED', destino: 'SUP', cc: '3020 – Garantia da Qualidade' }] });
     return `
       <div class="grid-2">
         <section class="card"><h2 class="section-t">Valores das rotas</h2>
-          <p class="section-s">Valor <b>fixo</b> de uma corrida entre as unidades (vale para os dois sentidos). Acréscimos (espera, pedágio…) são lançados em <a href="#viagens">Viagens</a>. Destinos fora das unidades: a Noemia informa o valor na viagem.</p>
-          <table class="tar-t"><thead><tr><th>Trecho</th><th>Táxi (R$)</th><th>Moto (R$)</th></tr></thead><tbody>
-          ${pares.map(([a, b]) => { const v = t[parKey(a, b)] || {}; return `<tr data-k="${parKey(a, b)}"><td>${esc(nome(a))} ↔ ${esc(nome(b))}</td>
-            <td><input class="tv" data-m="carro" type="number" min="0" step="0.01" inputmode="decimal" value="${v.carro ?? ''}" aria-label="Valor táxi"></td>
-            <td><input class="tv" data-m="moto" type="number" min="0" step="0.01" inputmode="decimal" value="${v.moto ?? ''}" aria-label="Valor moto"></td></tr>`; }).join('')}
+          <p class="section-s">Valor <b>fixo</b> de cada corrida (vale para os dois sentidos). <b>Só é alterado aqui</b> — em Viagens a Noemia lança apenas acréscimos (espera, pedágio…).</p>
+          <table class="tar-t"><thead><tr><th>Entre as unidades</th><th>Táxi (R$)</th><th>Moto (R$)</th></tr></thead><tbody>
+          ${pares.map(([a, b]) => linha(parKey(a, b), `${esc(nome(a))} ↔ ${esc(nome(b))}`, t[parKey(a, b)] || {})).join('')}
+          </tbody></table>
+          <table class="tar-t tar-o"><thead><tr><th>Outros destinos ${nPend ? `<em class="warn-t">· ${nPend} sem valor</em>` : ''}</th><th>Táxi (R$)</th><th>Moto (R$)</th></tr></thead><tbody>
+          ${outrosOrd.map(([k, o]) => linha(k, `${esc(curto(o.u))} ↔ ${esc(o.nome)}${(!t[k] || t[k].carro == null) ? ' <em class="warn-t">sem valor</em>' : ''}${t[k] ? ` <button class="btn-mini tdel" data-k="${esc(k)}" title="Remover destino">Remover</button>` : ''}`, t[k] || {}, `data-nome="${esc(o.nome)}"`)).join('')}
+          <tr class="tar-new"><td><select id="tnu" aria-label="Unidade">${Object.keys(SITES).map((k) => `<option value="${k}">${esc(curto(k))}</option>`).join('')}</select>
+            <input id="tnd" placeholder="Novo destino (ex.: Centro – Banco)" aria-label="Novo destino"></td>
+            <td><input id="tnc" type="number" min="0" step="0.01" inputmode="decimal" aria-label="Valor táxi do novo destino"></td>
+            <td><input id="tnm" type="number" min="0" step="0.01" inputmode="decimal" aria-label="Valor moto do novo destino"></td></tr>
           </tbody></table>
           <div id="tarmsg"></div>
           <div class="modal-acts"><button class="btn green" id="tsave">Salvar valores</button></div>
@@ -1864,14 +1872,40 @@ function bindValoresRotas() {
         if (!Number.isFinite(n) || n < 0) erro = 'Valores devem ser números maiores ou iguais a zero.';
         o[inp.dataset.m] = Math.round(n * 100) / 100;
       });
+      if (tr.dataset.nome) { if (o.carro == null && o.moto == null) return; o.nome = tr.dataset.nome; }
       novo[tr.dataset.k] = o;
     });
+    const nd = ($('#tnd') || {}).value ? $('#tnd').value.trim() : '';
+    if (nd) {
+      const u = $('#tnu').value;
+      if (SITES[normLoc(nd)]) erro = 'Esse destino já é uma unidade — use a tabela de cima.';
+      const o = { nome: nd };
+      [['carro', '#tnc'], ['moto', '#tnm']].forEach(([m, id]) => {
+        const raw = String($(id).value).trim().replace(',', '.');
+        if (raw === '') { o[m] = null; return; }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 0) erro = 'Valores devem ser números maiores ou iguais a zero.';
+        o[m] = Math.round(n * 100) / 100;
+      });
+      if (o.carro == null && o.moto == null) erro = erro || 'Informe o valor do novo destino.';
+      novo[parKey(u, normLoc(nd))] = o;
+    }
     if (erro) { $('#tarmsg').innerHTML = `<div class="msg-box bad">${erro}</div>`; return; }
     const antes = JSON.stringify(tabTarifas());
     S.tarifas = novo;
     audit('Valores das rotas alterados', 'Tabela de valores', antes, JSON.stringify(novo));
     save(); route(); toast('Valores das rotas salvos.');
   };
+  document.querySelectorAll('.tdel').forEach((b) => {
+    b.onclick = () => {
+      const t = tabTarifas(), k = b.dataset.k;
+      if (!t[k]) return;
+      const antes = JSON.stringify(t[k]);
+      delete t[k];
+      audit('Destino removido dos valores', k, antes, '');
+      save(); route(); toast('Destino removido.');
+    };
+  });
 }
 
 function csvCustos(d) {
