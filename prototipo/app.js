@@ -313,13 +313,14 @@ function route() {
   const ap = h.match(/^aprovar\/([A-Za-z0-9_-]+)$/);
   if (ap) { route.page = 'aprovar'; return renderAprovar(ap[1]); } // link do e-mail do gestor: cai direto na aprovação
   if (!S.user) return renderLogin();
-  const home = { colaborador: 'agenda', facilities: 'visao', ti: 'visao' }[S.user.role];
+  const home = { colaborador: 'agenda', facilities: 'visao', ti: 'inicio' }[S.user.role];
   const allowed = navDe(S.user).map(([k]) => k);
   const page = allowed.includes(h) ? h : home;
   if (page !== 'visao') UI.vx = null; // sair da tela expandida ao trocar de página
   route.page = page;
   ({ visao: renderVisao, agenda: renderAgenda, minhas: renderMinhas, painel: renderPainel, viagens: renderViagens, solicitacoes: renderTodas, motoristas: renderMotoristas,
-    grade: renderGrade, custos: renderCustos, historico: renderHistorico, cadastros: renderCadastros, aprovacoes: renderAprovacoes })[page](page);
+    grade: renderGrade, custos: renderCustos, historico: renderHistorico, cadastros: renderCadastros, aprovacoes: renderAprovacoes,
+    inicio: renderInicioTI, usuarios: renderUsuarios })[page](page);
 }
 window.addEventListener('hashchange', route);
 
@@ -331,7 +332,7 @@ const navDe = (u) => [...NAV[u.role], ...(u.gestor ? [['aprovacoes', 'Aprovaçõ
 const NAV = {
   colaborador: NAV_COLAB,
   facilities: NAV_FAC,
-  ti: [...NAV_FAC, ...NAV_COLAB, ['historico', 'Histórico'], ['cadastros', 'Cadastros']],
+  ti: [['inicio', 'Início'], ...NAV_FAC, ...NAV_COLAB, ['historico', 'Histórico'], ['usuarios', 'Usuários'], ['cadastros', 'Cadastros']],
 };
 // Ícones (traço, herdam a cor do texto)
 const ICO = {
@@ -355,6 +356,11 @@ const ICO = {
   expand: '<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
   bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  money: '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v.01M18 14.5v.01"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+  history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3 4v4h4"/><path d="M12 8v4l3 2"/>',
+  shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.5 12l2.5 2.5 4.5-4.5"/>',
+  userplus: '<circle cx="10" cy="8" r="3.5"/><path d="M3 20c.8-3.8 3.6-5.8 7-5.8 1.4 0 2.7.3 3.8 1"/><path d="M18 14v6M15 17h6"/>',
 };
 const ico = (n, s = 18) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO[n]}</svg>`;
 
@@ -377,7 +383,8 @@ function openAjuda() {
 }
 
 function shell(page, content) {
-  const nav = navDe(S.user);
+  // TI acessa tudo pelo Início (ícones); na barra fica só o Início e a tela aberta.
+  const nav = S.user.role === 'ti' ? navDe(S.user).filter(([k]) => k === 'inicio' || k === page) : navDe(S.user);
   const nAprov = S.user.gestor ? S.reqs.filter((r) => r.status === 'gestor' && r.gestor && r.gestor.email === S.user.email).length : 0;
   const nMinhas = S.reqs.filter((r) => r.email === S.user.email && ATIVOS.includes(r.status)).length;
   const nNovas = minhasMsgs().filter((e) => !e.lida).length;
@@ -503,6 +510,9 @@ function renderLogin() {
       const nome = em.split('@')[0].split(/[._-]/).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ');
       S.user = { email: em, nome, cargo: 'Tecnologia da Informação', role: 'colaborador', cc: '4010 – Tecnologia da Informação' };
     }
+    const cad = (S.usuarios || []).find((x) => x.email === em);
+    if (cad && !cad.ativo) { S.user = null; err.textContent = 'Seu acesso ao Mobilab está bloqueado. Fale com a TI.'; err.hidden = false; return; }
+    if (cad && cad.perfil) S.user.role = cad.perfil;
     audit('Login', em);
     save();
     location.hash = '';
@@ -2237,6 +2247,115 @@ function telaAprov(r, pr, expirado, decidir) {
     trava(); decidir(false, $('#apmt').value.trim());
   };
 }
+// ---------------- TI: tudo em uma tela (ícones) ----------------
+const TILES_TI = [
+  ['visao', 'Visão geral', 'grid', 'Facilities'], ['painel', 'Painel de análise', 'list', 'Facilities'], ['viagens', 'Viagens', 'route', 'Facilities'],
+  ['solicitacoes', 'Solicitações', 'filter', 'Facilities'], ['motoristas', 'Motoristas', 'car', 'Facilities'], ['grade', 'Grade e rotas', 'clock', 'Facilities'],
+  ['custos', 'Custos por setor', 'money', 'Facilities'], ['agenda', 'Agenda', 'cal', 'Colaborador'], ['minhas', 'Minhas solicitações', 'user', 'Colaborador'],
+  ['aprovacoes', 'Aprovações', 'check', 'Gestor'], ['usuarios', 'Usuários', 'users', 'Administração'], ['historico', 'Histórico', 'history', 'Administração'],
+  ['cadastros', 'Cadastros e parâmetros', 'gear', 'Administração'], ['#ajuda', 'Ajuda', 'info', 'Administração'],
+];
+function renderInicioTI(page) {
+  const ok = navDe(S.user).map(([k]) => k);
+  const tiles = TILES_TI.filter(([k]) => k === '#ajuda' || ok.includes(k));
+  const nPend = S.reqs.filter((r) => r.status === 'analise').length, nGestor = S.reqs.filter((r) => r.status === 'gestor').length;
+  const extra = { painel: nPend, visao: nGestor ? `${nGestor} aguard. gestor` : '' };
+  shell(page, `
+    <div class="ti-home">
+      <div class="ti-tiles">${tiles.map(([k, l, ic, grp]) => `<a class="ti-tile" href="${k.startsWith('#') ? '#' : `#${k}`}" ${k === '#ajuda' ? 'id="tajuda"' : ''} title="${esc(grp)}">
+          <span class="ti-ic g-${esc(grp.toLowerCase().replace(/[^a-z]/g, ''))}">${ico(ic, 26)}</span><b>${esc(l)}</b>${extra[k] ? `<span class="ti-badge">${esc(extra[k])}</span>` : ''}</a>`).join('')}</div>
+      <aside class="ti-brand"><div class="ti-art">${heroArt}</div><h2>Mobilab</h2><p>Táxi e Moto Táxi corporativo</p>
+        <div class="ti-line"><i></i><span>NATULAB · TI / ADMINISTRAÇÃO</span><i></i></div></aside>
+    </div>`);
+  const aj = $('#tajuda'); if (aj) aj.onclick = (e) => { e.preventDefault(); openAjuda(); };
+}
+
+// ---------------- TI: gestão de usuários ----------------
+// No sistema os usuários vêm do servidor (quem já entrou + cadastrados pela TI). Na simulação, da lista local.
+const Usr = {
+  async listar() {
+    if (window.MOBILAB_API) { const r = await fetch('/api/usuarios', { cache: 'no-store' }); const j = await r.json(); if (!r.ok) throw new Error(j.erro); return j.usuarios; }
+    if (!S.usuarios) {
+      const m = {};
+      const add = (email, nome, cc, perfil, origem) => { if (email && !m[email]) m[email] = { email, nome, cc: cc || '', perfil: perfil || '', padrao: perfil || 'colaborador', ativo: true, origem, ultimo_login: '' }; };
+      add('facilities@natulab.com.br', 'Equipe Facilities', 'Facilities', 'facilities', 'login');
+      add('ti@natulab.com.br', 'Equipe TI', '4010 – Tecnologia da Informação', 'ti', 'login');
+      S.reqs.forEach((r) => { add(r.email, r.nome, r.cc, '', 'login'); if (r.gestor) add(r.gestor.email, r.gestor.nome, '', '', 'gestor-ad'); });
+      S.usuarios = Object.values(m);
+    }
+    return S.usuarios;
+  },
+  async salvar(dados) {
+    if (window.MOBILAB_API) {
+      const r = await fetch('/api/usuarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.erro); return j.usuario;
+    }
+    const email = String(dados.email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Informe um e-mail válido.');
+    if (email === S.user.email && (dados.ativo === false || (dados.perfil && dados.perfil !== 'ti'))) throw new Error('Você não pode tirar o seu próprio acesso de TI.');
+    let u = S.usuarios.find((x) => x.email === email);
+    if (!u) { u = { email, nome: dados.nome || email, cc: '', perfil: '', padrao: 'colaborador', ativo: true, origem: 'cadastro-ti', ultimo_login: '' }; S.usuarios.push(u); }
+    if (dados.nome) u.nome = dados.nome;
+    if (dados.perfil !== undefined) u.perfil = dados.perfil;
+    if (dados.ativo !== undefined) u.ativo = dados.ativo;
+    audit('Usuário alterado', email, '', `${u.perfil || 'padrão'} · ${u.ativo ? 'ativo' : 'bloqueado'}`); save();
+    return u;
+  },
+};
+const PERFIL_L = { colaborador: 'Colaborador', facilities: 'Facilities', ti: 'TI / Administração' };
+const ORIGEM_L = { login: 'Já entrou', 'gestor-ad': 'Gestor (AD)', 'cadastro-ti': 'Cadastrado pela TI' };
+async function renderUsuarios(page) {
+  shell(page, `<div class="pg-head"><div><nav class="crumb"><span>Administração</span>${ico('right', 12)}<b>Usuários</b></nav><h1>Usuários</h1>
+      <p>Quem acessa o Mobilab e com qual perfil. O login é pelo AD; aqui a TI define o perfil e pode bloquear o acesso.</p></div></div>
+    <div class="card empty">Carregando…</div>`);
+  let us;
+  try { us = await Usr.listar(); } catch (e) { $('main .card').textContent = e.message || 'Não foi possível carregar.'; return; }
+  if (route.page !== 'usuarios') return;
+  const q = (renderUsuarios.q || '').toLowerCase(), fp = renderUsuarios.f || '';
+  const ef = (u) => u.perfil || u.padrao || 'colaborador';
+  const lista = us.filter((u) => (!q || `${u.nome} ${u.email} ${u.cc}`.toLowerCase().includes(q)) && (!fp || (fp === 'bloq' ? !u.ativo : ef(u) === fp)));
+  const cont = (f) => us.filter((u) => (f === 'bloq' ? !u.ativo : ef(u) === f)).length;
+  $('main').innerHTML = `<div class="pg-head"><div><nav class="crumb"><span>Administração</span>${ico('right', 12)}<b>Usuários</b></nav><h1>Usuários</h1>
+      <p>Quem acessa o Mobilab e com qual perfil. O login é pelo AD; aqui a TI define o perfil e pode bloquear o acesso.</p></div>
+      <div class="mini-kpis"><div class="mk"><small>Usuários</small><b>${us.length}</b></div><div class="mk"><small>Facilities</small><b>${cont('facilities')}</b></div>
+        <div class="mk"><small>TI</small><b>${cont('ti')}</b></div><div class="mk ${cont('bloq') ? 'warn' : ''}"><small>Bloqueados</small><b>${cont('bloq')}</b></div></div></div>
+    <div class="toolbar vtools">
+      <div class="seg">${[['', 'Todos'], ['colaborador', 'Colaboradores'], ['facilities', 'Facilities'], ['ti', 'TI'], ['bloq', 'Bloqueados']].map(([k, l]) => `<button class="seg-b${fp === k ? ' on' : ''}" data-uf="${k}">${l}</button>`).join('')}</div>
+      <label class="search">${ico('search', 16)}<input id="uq" placeholder="Buscar nome, e-mail ou setor…" value="${esc(renderUsuarios.q || '')}" aria-label="Buscar usuário"></label>
+      <button class="btn green" id="unovo">${ico('userplus', 16)} Novo usuário</button>
+    </div>
+    <div class="card"><div class="table-wrap"><table class="tbl-ap usr-t"><thead><tr><th>Nome</th><th>E-mail</th><th>Setor</th><th>Perfil</th><th>Acesso</th><th>Origem</th><th>Último acesso</th></tr></thead><tbody>
+      ${lista.map((u) => `<tr class="${u.ativo ? '' : 'bloq'}"><td><b>${esc(u.nome || '—')}</b></td><td>${esc(u.email)}</td><td>${esc(u.cc || '—')}</td>
+        <td><select class="uperf" data-e="${esc(u.email)}" aria-label="Perfil de ${esc(u.nome)}">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}" ${ef(u) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
+        <td><button class="btn-mini uat ${u.ativo ? '' : 'off'}" data-e="${esc(u.email)}">${u.ativo ? 'Ativo' : 'Bloqueado'}</button></td>
+        <td><small>${esc(ORIGEM_L[u.origem] || u.origem || '—')}</small></td><td><small>${esc(u.ultimo_login || '—')}</small></td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nenhum usuário neste filtro.</td></tr>'}
+    </tbody></table></div>
+    <p class="section-s" style="margin-top:10px">Mudança de perfil ou bloqueio vale no próximo login da pessoa. Gestor não é perfil: quem é gestor imediato no AD vê a aba Aprovações automaticamente.</p></div>`;
+  const salvar = async (dados, msg) => { try { await Usr.salvar(dados); toast(msg); } catch (e) { toast(e.message || 'Não foi possível salvar.'); } route(); };
+  document.querySelectorAll('[data-uf]').forEach((b) => { b.onclick = () => { renderUsuarios.f = b.dataset.uf; route(); }; });
+  $('#uq').oninput = (e) => { renderUsuarios.q = e.target.value; clearTimeout(renderUsuarios.t); renderUsuarios.t = setTimeout(() => { route(); setTimeout(() => { const i = $('#uq'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, 300); };
+  document.querySelectorAll('.uperf').forEach((sel) => { sel.onchange = () => salvar({ email: sel.dataset.e, perfil: sel.value }, `Perfil alterado para ${PERFIL_L[sel.value]}.`); });
+  document.querySelectorAll('.uat').forEach((b) => {
+    b.onclick = () => {
+      const bloquear = !b.classList.contains('off');
+      if (bloquear && !confirm(`Bloquear o acesso de ${b.dataset.e} ao Mobilab?`)) return;
+      salvar({ email: b.dataset.e, ativo: !bloquear }, bloquear ? 'Acesso bloqueado.' : 'Acesso liberado.');
+    };
+  });
+  $('#unovo').onclick = () => {
+    openModal(`<h3>Novo usuário</h3><p class="sub">Cadastre antes do primeiro login para já definir o perfil (ex.: alguém do Facilities). O nome e o setor são atualizados pelo AD quando a pessoa entrar.</p>
+      <div class="form-grid"><div class="f full"><label>E-mail corporativo</label><input class="input" id="nue" placeholder="nome.sobrenome@natulab.com.br"></div>
+        <div class="f full"><label>Nome</label><input class="input" id="nun"></div>
+        <div class="f full"><label>Perfil</label><select class="input" id="nup">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div></div>
+      <div id="numsg"></div><div class="modal-acts"><button class="btn" id="nuc">Cancelar</button><button class="btn green" id="nuok">Cadastrar</button></div>`);
+    $('#nuc').onclick = closeModal;
+    $('#nuok').onclick = async () => {
+      try { await Usr.salvar({ email: $('#nue').value, nome: $('#nun').value.trim(), perfil: $('#nup').value }); closeModal(); toast('Usuário cadastrado.'); route(); }
+      catch (e) { $('#numsg').innerHTML = `<div class="msg-box bad">${esc(e.message)}</div>`; }
+    };
+  };
+}
+
 function renderAprovacoes(page) {
   const minhas = S.reqs.filter((r) => r.gestor && r.gestor.email === S.user.email && !(r.perna === 'volta' && parDe(r)));
   const pend = minhas.filter((r) => r.status === 'gestor').sort((a, b) => at(a.data, a.hora) - at(b.data, b.hora));

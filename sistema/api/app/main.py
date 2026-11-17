@@ -28,6 +28,7 @@ LEMBRETE_MIN = 60  # intervalo mínimo entre notificações ao gestor (minutos)
 @asynccontextmanager
 async def _vida(_app):
     criar_tabelas()
+    ponte.migrar()
     yield
 
 

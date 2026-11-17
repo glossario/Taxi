@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, func, select
+from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, func, select, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from . import auth, config, mail
@@ -36,11 +36,26 @@ class Estado(Base):
 
 
 class Pessoa(Base):
-    """Endereços para os quais o sistema pode mandar e-mail (evita e-mail para endereços inventados)."""
+    """Usuários conhecidos. A TI define o perfil e pode bloquear o acesso. Também é a lista de quem pode receber e-mail."""
     __tablename__ = 'pessoas'
     email: Mapped[str] = mapped_column(String(200), primary_key=True)
     nome: Mapped[str] = mapped_column(String(200), default='')
     origem: Mapped[str] = mapped_column(String(30), default='')
+    perfil: Mapped[str | None] = mapped_column(String(15))  # vazio = padrão (configuração / colaborador)
+    ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    ultimo_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cc: Mapped[str] = mapped_column(String(200), default='')
+
+
+PERFIS = ('colaborador', 'facilities', 'ti')
+
+
+def migrar():
+    """Colunas novas em tabelas que já existiam (create_all não altera tabela existente)."""
+    from .db import engine
+    with engine.begin() as c:
+        for col in ("perfil varchar(15)", "ativo boolean not null default true", "ultimo_login timestamptz", "cc varchar(200) not null default ''"):
+            c.execute(text(f'alter table pessoas add column if not exists {col}'))
 
 
 class Envio(Base):
@@ -82,7 +97,18 @@ def usuario_tela(u):
 def conhecer(s, u):
     for email, nome, origem in ((u['email'], u['nome'], 'login'), ((u.get('gestor') or {}).get('email'), (u.get('gestor') or {}).get('nome'), 'gestor-ad')):
         if email and not s.get(Pessoa, email.lower()):
-            s.add(Pessoa(email=email.lower(), nome=nome or '', origem=origem))
+            s.add(Pessoa(email=email.lower(), nome=nome or '', origem=origem, ativo=True))
+    s.flush()
+    p = s.get(Pessoa, u['email'])
+    p.ultimo_login, p.nome, p.cc = agora(), u['nome'] or p.nome, u.get('cc') or p.cc
+    if not p.perfil and u.get('perfil') in ('facilities', 'ti'):
+        p.perfil = u['perfil']
+    if p.origem != 'login':
+        p.origem = 'login'
+
+
+def perfil_efetivo(p, padrao):
+    return p.perfil if p and p.perfil in PERFIS else padrao
 
 
 def _estado(s, travar=False):
@@ -112,6 +138,12 @@ async def api_login(request: Request):
     except auth.LoginInvalido as ex:
         return JSONResponse({'erro': str(ex)}, status_code=401)
     with Sessao() as s:
+        p = s.get(Pessoa, u['email'])
+        if p and not p.ativo:
+            return JSONResponse({'erro': 'Seu acesso ao Mobilab está bloqueado. Fale com a TI.'}, status_code=403)
+        u['perfil'] = perfil_efetivo(p, u['perfil'])  # perfil definido pela TI vale mais que o padrão
+        if p and not p.perfil and u['perfil'] != 'colaborador':
+            p.perfil = u['perfil']  # registra o perfil vindo da configuração para aparecer certo na lista
         dados = _estado(s).dados or {}
         if not u.get('gestor_de'):
             u['gestor_de'] = any((r.get('gestor') or {}).get('email', '').lower() == u['email'] for r in dados.get('reqs', []))
@@ -335,3 +367,56 @@ async def decidir_token(tok: str, request: Request, tarefas: BackgroundTasks):
     for env in envios:
         tarefas.add_task(_enviar, *env)
     return {'r': _publico(r)}
+
+
+# ---------------- gestão de usuários (só TI) ----------------
+def _ti(request):
+    u = request.session.get('u')
+    return u if u and u.get('perfil') == 'ti' else None
+
+
+def _linha_usuario(p):
+    return {'email': p.email, 'nome': p.nome, 'cc': p.cc, 'origem': p.origem, 'ativo': p.ativo,
+            'perfil': p.perfil or '', 'padrao': config.perfil_de(p.email),
+            'ultimo_login': p.ultimo_login.astimezone(config.FUSO).strftime('%d/%m/%Y %H:%M') if p.ultimo_login else ''}
+
+
+@rota.get('/api/usuarios')
+def listar_usuarios(request: Request):
+    if not _ti(request):
+        return JSONResponse({'erro': 'Só a TI gerencia usuários.'}, status_code=403)
+    with Sessao() as s:
+        return {'usuarios': [_linha_usuario(p) for p in s.scalars(select(Pessoa).order_by(Pessoa.nome, Pessoa.email)).all()]}
+
+
+@rota.post('/api/usuarios')
+async def salvar_usuario(request: Request):
+    u = _ti(request)
+    if not u:
+        return JSONResponse({'erro': 'Só a TI gerencia usuários.'}, status_code=403)
+    c = await request.json()
+    email = str(c.get('email', '')).strip().lower()
+    if '@' not in email or len(email) > 200 or ' ' in email:
+        return JSONResponse({'erro': 'Informe um e-mail válido.'}, status_code=400)
+    perfil = c.get('perfil')
+    if perfil not in (None, '', *PERFIS):
+        return JSONResponse({'erro': 'Perfil inválido.'}, status_code=400)
+    with Sessao() as s:
+        p = s.get(Pessoa, email)
+        antes = _linha_usuario(p) if p else {}
+        if not p:
+            p = Pessoa(email=email, nome=str(c.get('nome', '')).strip()[:200], origem='cadastro-ti', ativo=True)
+            s.add(p)
+        if 'nome' in c and str(c['nome']).strip():
+            p.nome = str(c['nome']).strip()[:200]
+        if perfil is not None:
+            p.perfil = perfil or None
+        if 'ativo' in c:
+            p.ativo = bool(c['ativo'])
+        if email == u['email'] and (not p.ativo or (p.perfil and p.perfil != 'ti')):
+            s.rollback()
+            return JSONResponse({'erro': 'Você não pode tirar o seu próprio acesso de TI.'}, status_code=400)
+        s.flush()
+        auditar(s, u['email'], 'Usuário alterado' if antes else 'Usuário cadastrado', email, antes, _linha_usuario(p))
+        s.commit()
+        return {'usuario': _linha_usuario(p)}
