@@ -1591,15 +1591,22 @@ function openMotorista(id) {
 }
 
 // ---------------- Grade e rotas (Facilities e TI) ----------------
+// Valor fixo da corrida de um horário da grade: até cada parada, contado da saída (vem de "Valores das rotas").
+function valorGradeHtml(p) {
+  return p.slice(1).map((c) => {
+    const t = tarifa(p[0], c, 'carro');
+    return `<span>até ${esc(curto(c))} <b>${t == null ? '<em class="warn-t">sem valor</em>' : brl(t)}</b></span>`;
+  }).join('');
+}
 function renderGrade(page) {
   const list = [...S.grade].sort((a, b) => a.hora.localeCompare(b.hora));
   shell(page, `
     <div class="page-head"><div><h1>Grade e rotas</h1><p>Horários fixos entre os sites. Alterações valem imediatamente para a agenda dos colaboradores.</p></div>
       <button class="btn green" id="novo">+ Novo horário</button></div>
-    <div class="card table-wrap"><table><thead><tr><th>Horário</th><th>Período</th><th>Origem</th><th>Parada</th><th>Destino</th><th>Situação</th><th>Solicitações futuras</th><th></th></tr></thead><tbody>
+    <div class="card table-wrap"><table><thead><tr><th>Horário</th><th>Período</th><th>Origem</th><th>Parada</th><th>Destino</th><th>Valor da corrida (fixo)</th><th>Situação</th><th>Solicitações futuras</th><th></th></tr></thead><tbody>
       ${list.map((g) => {
         const p = g.paradas, via = p.length === 3 ? siteName(p[1]) : '—';
-        return `<tr style="${g.ativo ? '' : 'opacity:.55'}"><td><b>${esc(g.hora)}</b></td><td>${periodo(g.hora)}</td><td>${esc(siteName(p[0]))}</td><td>${esc(via)}</td><td>${esc(siteName(p[p.length - 1]))}</td>
+        return `<tr style="${g.ativo ? '' : 'opacity:.55'}"><td><b>${esc(g.hora)}</b></td><td>${periodo(g.hora)}</td><td>${esc(siteName(p[0]))}</td><td>${esc(via)}</td><td>${esc(siteName(p[p.length - 1]))}</td><td class="gv">${valorGradeHtml(p)}</td>
           <td>${g.ativo ? '<span class="pill st-confirmada">Ativo</span>' : '<span class="pill st-concluida">Inativo</span>'}</td>
           <td>${futurasAtivas((r) => r.tipo === 'grade' && r.hora === g.hora).length}</td>
           <td style="white-space:nowrap"><button class="btn sm ed" data-id="${g.id}">Editar</button> <button class="btn sm tg" data-id="${g.id}">${g.ativo ? 'Desativar' : 'Ativar'}</button></td></tr>`;

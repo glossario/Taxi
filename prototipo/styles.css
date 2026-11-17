@@ -590,3 +590,5 @@ button.vp-h:focus-visible { outline: 3px solid rgba(74, 143, 34, .35); outline-o
 .vc-tot { margin-top: 10px; font-size: 13px; color: var(--muted); }
 .vc-tot b { font-size: 16px; color: var(--navy-ink); margin-left: 4px; }
 .vc-cost { grid-template-columns: minmax(280px, 420px) 1fr; }
+.gv span { display: block; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.gv b { color: var(--navy-ink); }
