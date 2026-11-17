@@ -51,9 +51,10 @@ a { color: var(--navy); }
 .hero-foot { color: var(--navy-ink); }
 .hero-foot .contact { font-size: 19px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
 .hero-foot .contact b { font-weight: 800; }
-.hero-foot .tag { margin-top: 26px; letter-spacing: 3px; font-size: 12px; font-weight: 800; color: #fff; text-transform: uppercase; }
-.hero-foot .lead { color: #fff; font-weight: 700; margin-top: 6px; }
-.hero-pill { position: absolute; right: 28px; bottom: 30px; border: 1.5px solid rgba(255,255,255,.8); color: #fff; border-radius: 999px; padding: 6px 22px; font-weight: 800; font-size: 13px; }
+.hero-foot .hero-tag { margin-top: 26px; letter-spacing: 3px; font-size: 12px; font-weight: 800; color: var(--navy-ink); opacity: .75; text-transform: uppercase; }
+.hero-bottom { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 6px; }
+.hero-foot .lead { color: var(--navy-ink); font-weight: 700; }
+.hero-pill { flex: none; border: 1.5px solid var(--navy-ink); color: var(--navy-ink); border-radius: 999px; padding: 6px 22px; font-weight: 800; font-size: 13px; line-height: 1.2; }
 
 .login-form { padding: 56px clamp(24px, 5vw, 88px) 28px; display: flex; flex-direction: column; }
 .login-top { display: flex; justify-content: space-between; align-items: center; }

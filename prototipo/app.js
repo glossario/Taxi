@@ -333,10 +333,10 @@ function shell(page, content) {
 const heroArt = `
 <svg viewBox="0 0 640 420" role="img" aria-label="Rota entre os sites Natulab">
   <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#1b3a7a"/><stop offset="1" stop-color="#2d5bd1"/></linearGradient></defs>
-  <path d="M70 300 C 180 120, 300 360, 420 190 S 580 110, 590 120" fill="none" stroke="#0b2a8f" stroke-width="10" stroke-linecap="round" stroke-dasharray="2 22" opacity=".55"/>
+  <path d="M70 300 C 180 120, 300 360, 420 190 S 545 110, 555 120" fill="none" stroke="#0b2a8f" stroke-width="10" stroke-linecap="round" stroke-dasharray="2 22" opacity=".55"/>
   <g transform="translate(70 300)"><circle r="34" fill="#fff"/><circle r="22" fill="url(#g)"/><text y="70" text-anchor="middle" font-size="20" font-weight="800" fill="#0b2a8f">Medicamentos</text></g>
   <g transform="translate(330 270)"><circle r="34" fill="#fff"/><circle r="22" fill="url(#g)"/><text y="70" text-anchor="middle" font-size="20" font-weight="800" fill="#0b2a8f">CD Natulab</text></g>
-  <g transform="translate(590 120)"><circle r="34" fill="#fff"/><circle r="22" fill="url(#g)"/><text y="70" text-anchor="middle" font-size="20" font-weight="800" fill="#0b2a8f">Suplementos</text></g>
+  <g transform="translate(555 120)"><circle r="34" fill="#fff"/><circle r="22" fill="url(#g)"/><text y="70" text-anchor="middle" font-size="20" font-weight="800" fill="#0b2a8f">Suplementos</text></g>
   <g transform="translate(160 120)">
     <rect x="0" y="20" width="190" height="80" rx="22" fill="#fff"/>
     <path d="M18 20 L50 -18 H150 L182 20 Z" fill="#fff"/>
@@ -363,10 +363,12 @@ function renderLogin() {
       <div class="art">${heroArt}</div>
       <div class="hero-foot">
         <div class="contact"><span><b>SAC</b> 0800 730 7370</span><span>|</span><b>natulab.com.br</b></div>
-        <div class="tag">Bem-estar todos os dias</div>
-        <div class="lead">Solicite, acompanhe e organize seus deslocamentos entre os sites.</div>
+        <div class="hero-tag">Bem-estar todos os dias</div>
+        <div class="hero-bottom">
+          <div class="lead">Solicite, acompanhe e organize seus deslocamentos entre os sites.</div>
+          <span class="hero-pill">Natulab</span>
+        </div>
       </div>
-      <span class="hero-pill">Natulab</span>
     </section>
     <section class="login-form">
       <div class="login-top">${brand}<span class="chip-brand"><i></i>Mobilab</span></div>
