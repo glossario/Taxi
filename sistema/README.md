@@ -3,6 +3,12 @@
 Python (FastAPI) + PostgreSQL em Docker. Por enquanto roda na máquina local; depois vai para a VPS.
 
 ## O que já funciona
+- **http://localhost:8080 abre as telas do protótipo, iguais**: Agenda, Painel, Visão geral, Viagens, Grade, Custos etc.
+  - Os dados ficam no PostgreSQL e são os mesmos para todos os usuários. A tela se atualiza sozinha a cada 15 s.
+  - O servidor confere as regras que a tela não pode burlar: só o gestor imediato aprova, ninguém troca o gestor e o colaborador só pede em nome próprio.
+  - Os e-mails que as telas geram são enviados de verdade pelo noreply, mas **só** para quem já entrou no sistema ou é gestor de quem entrou.
+  - O protótipo aberto direto do arquivo (`prototipo/index.html`) continua como simulação, com localStorage.
+  - As telas antigas, mais simples, continuam em `/classico`.
 - Login pelo **AD local (LDAP)**: nome, e-mail, setor (`department`) e gestor imediato (`manager`).
   - Enquanto o AD não estiver configurado, existe um **modo de teste**: `colaborador`, `facilities` ou `ti`, sem senha.
 - **Solicitação** de táxi na cidade e de táxi intermunicipal.

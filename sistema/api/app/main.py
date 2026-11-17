@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, config, mail
+from . import auth, config, mail, ponte
 from .db import Aprovacao, Sessao, Solicitacao, auditar, criar_tabelas
 
 FONTE = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
@@ -32,6 +32,7 @@ async def _vida(_app):
 
 
 app = FastAPI(title='Mobilab', docs_url=None, redoc_url=None, openapi_url=None, lifespan=_vida)
+app.include_router(ponte.rota)
 app.add_middleware(SessionMiddleware, secret_key=config.SECRET_KEY, session_cookie='mobilab', max_age=12 * 3600,
                    same_site='lax', https_only=config.COOKIE_SEGURO)
 PROTO = Path('/app/prototipo')
@@ -249,7 +250,31 @@ def ultima_notif(r):
     return aps[-1].criado_em if aps else r.criado_em, max(0, len(aps) - 1)
 
 
+# ---------------- telas do protótipo servidas pelo sistema (dados no servidor) ----------------
+def _arquivo(nome, tipo):
+    from fastapi.responses import Response
+    return Response((PROTO / nome).read_bytes(), media_type=tipo, headers={'Cache-Control': 'no-cache'})
+
+
 @app.get('/', response_class=HTMLResponse)
+def spa():
+    html = (PROTO / 'index.html').read_text(encoding='utf-8')
+    # Mesmo index do protótipo; só liga o modo servidor antes do app.js.
+    return HTMLResponse(html.replace('<script src="app.js"></script>', '<script>window.MOBILAB_API = true;</script><script src="/app.js"></script>')
+                        .replace('href="styles.css"', 'href="/styles.css"'), headers={'Cache-Control': 'no-cache'})
+
+
+@app.get('/app.js')
+def spa_js():
+    return _arquivo('app.js', 'application/javascript; charset=utf-8')
+
+
+@app.get('/styles.css')
+def spa_css():
+    return _arquivo('styles.css', 'text/css; charset=utf-8')
+
+
+@app.get('/classico', response_class=HTMLResponse)
 def inicio(request: Request):
     u = logado(request)
     if not u:

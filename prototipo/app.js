@@ -50,6 +50,7 @@ const AD_GESTORES = {
 const gestorDe = (cc) => { const g = AD_GESTORES[String(cc || '').slice(0, 4)] || ['Gestor imediato', 'gestor']; return { nome: g[0], email: `${g[1]}@natulab.com.br` }; };
 // Aprovação do gestor imediato: somente táxi intermunicipal (decisão do dono, 16/11).
 const precisaGestor = (r) => r.tipo === 'inter';
+const chefeDe = () => (S.user && S.user.chefe && S.user.chefe.email ? S.user.chefe : gestorDe(S.user.cc));
 const VEICULOS = [
   { id: 'V1', nome: 'Chevrolet Spin', placa: 'RFA-1A23', tipo: 'carro', cap: 7, bag: 6 },
   { id: 'V2', nome: 'Onix Sedan', placa: 'RFB-2B34', tipo: 'carro', cap: 4, bag: 4 },
@@ -108,7 +109,76 @@ const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[
 const KEY = 'mobilab-sim-v8';
 let S;
 function load() { try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* sem storage: segue em memória */ } }
+function save() {
+  if (window.MOBILAB_API) { if (S && S.user) Srv.gravar(); return; }
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* sem storage: segue em memória */ }
+}
+// Modo servidor: mesmas telas, dados no PostgreSQL (iguais para todos), login pelo AD e e-mails de verdade.
+const Srv = {
+  versao: -1, teste: false, timer: null, gravando: false, pendente: false, sujo: false,
+  async iniciar() {
+    S = { user: null, reqs: [], log: [], emails: [] };
+    if (/^aprovar\//.test(location.hash.replace('#', ''))) { route(); return; } // link do e-mail do gestor: sem login
+    try {
+      const eu = await (await fetch('/api/eu', { cache: 'no-store' })).json();
+      Srv.teste = !!eu.login_teste;
+      if (!eu.user) { route(); return; }
+      await Srv.carregar(eu.user);
+    } catch (e) { route(); toast('Sem conexão com o servidor do Mobilab.'); }
+  },
+  async carregar(user) {
+    const r = await fetch('/api/estado', { cache: 'no-store' });
+    if (r.status === 401) { S.user = null; route(); return; }
+    const j = await r.json();
+    Srv.versao = j.versao;
+    S = j.estado || estadoInicial();
+    S.user = user; S.week = 0;
+    if (!j.estado) save(); // primeiro uso: grava a base (grade, motoristas, valores)
+    route();
+    Srv.vigiar();
+  },
+  gravar() { this.sujo = true; clearTimeout(this.timer); this.timer = setTimeout(() => this.enviar(), 120); },
+  async enviar() {
+    if (this.gravando) { this.pendente = true; return; }
+    this.gravando = true;
+    const { user, week, ...est } = S;
+    try {
+      const r = await fetch('/api/estado', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ versao: this.versao, estado: est }) });
+      const j = await r.json();
+      if (r.ok) { this.versao = j.versao; this.sujo = false; }
+      else if (r.status === 401) { this.sujo = false; S.user = null; route(); toast('Sua sessão expirou. Entre novamente.'); }
+      else { this.sujo = false; this.aplicar(j); toast(r.status === 409 ? 'Outra pessoa alterou os dados agora — a tela foi atualizada. Confira e repita a ação.' : (j.erro || 'Não foi possível salvar.')); }
+    } catch (e) { toast('Sem conexão com o servidor — a última ação não foi salva.'); }
+    this.gravando = false;
+    if (this.pendente) { this.pendente = false; this.enviar(); }
+  },
+  aplicar(j) {
+    if (!j || !j.estado) return;
+    const u = S.user, w = S.week;
+    this.versao = j.versao; S = j.estado; S.user = u; S.week = w;
+    route();
+  },
+  vigiar() { // traz o que os outros fizeram (sem atrapalhar quem está digitando ou com janela aberta)
+    if (this.vigia) return;
+    this.vigia = setInterval(async () => {
+      if (!S.user || this.gravando || this.sujo || !$('#modal').hidden) return;
+      const ae = document.activeElement;
+      if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+      try { const j = await (await fetch(`/api/estado?v=${this.versao}`, { cache: 'no-store' })).json(); if (!j.igual && j.estado) this.aplicar(j); } catch (e) { /* tenta de novo */ }
+    }, 15000);
+  },
+  async entrar(usuario, senha) {
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario, senha }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.erro || 'Não foi possível entrar.');
+    await Srv.carregar(j.user);
+  },
+};
+// Base do sistema real: grade, motoristas e valores das rotas — sem as solicitações de exemplo.
+function estadoInicial() {
+  const b = seed();
+  return { ...b, user: null, reqs: [], log: [], emails: [], seq: { ...b.seq, req: 1000, os: 0 } };
+}
 
 function seed() {
   const d0 = workday(0), d1 = workday(1), d2 = workday(2), d3 = workday(3);
@@ -317,13 +387,13 @@ function shell(page, content) {
       <nav>${nav.map(([k, l]) => `<a href="#${k}" class="${k === page ? 'on' : ''}">${l}${k === 'minhas' && nMinhas ? ` <span class="count">${nMinhas}</span>` : ''}${k === 'aprovacoes' && nAprov ? ` <span class="count">${nAprov}</span>` : ''}</a>`).join('')}
         <a href="#" id="ajuda">Ajuda</a></nav>
       <span class="spacer"></span>
-      <span class="badge-sim">SIMULAÇÃO</span>
+      ${window.MOBILAB_API ? (Srv.teste ? '<span class="badge-sim">TESTE</span>' : '') : '<span class="badge-sim">SIMULAÇÃO</span>'}
       <button class="icon-btn bell" id="bell" aria-label="Mensagens do Facilities${nNovas ? ` (${nNovas} novas)` : ''}" title="Mensagens do Facilities">${ico('bell', 18)}${nNovas ? `<span class="dot">${nNovas}</span>` : ''}</button>
       <div class="user-wrap">
         <button class="user" id="umenu" aria-haspopup="true" aria-expanded="false"><span class="avatar">${esc(initials(S.user.nome))}</span>
           <span class="who"><b>${esc(S.user.nome)}</b>${esc(S.user.cargo)}</span>${ico('down', 16)}</button>
         <div class="menu" id="menu" hidden>
-          <button id="reset">Restaurar dados de exemplo</button>
+          ${window.MOBILAB_API ? '' : '<button id="reset">Restaurar dados de exemplo</button>'}
           <button id="logout">Sair</button>
         </div>
       </div>
@@ -332,8 +402,11 @@ function shell(page, content) {
   $('#ajuda').onclick = (e) => { e.preventDefault(); openAjuda(); };
   $('#bell').onclick = openCaixa;
   $('#umenu').onclick = () => { const m = $('#menu'); m.hidden = !m.hidden; $('#umenu').setAttribute('aria-expanded', String(!m.hidden)); };
-  $('#logout').onclick = () => { audit('Logout', S.user.email); S.user = null; save(); location.hash = ''; route(); };
-  $('#reset').onclick = () => { if (confirm('Restaurar os dados de exemplo da simulação?')) { const u = S.user; S = seed(); S.user = u; save(); route(); toast('Dados de exemplo restaurados.'); } };
+  $('#logout').onclick = () => {
+    if (window.MOBILAB_API) { fetch('/sair').finally(() => { location.hash = ''; location.reload(); }); return; }
+    audit('Logout', S.user.email); S.user = null; save(); location.hash = ''; route();
+  };
+  if ($('#reset')) $('#reset').onclick = () => { if (confirm('Restaurar os dados de exemplo da simulação?')) { const u = S.user; S = seed(); S.user = u; save(); route(); toast('Dados de exemplo restaurados.'); } };
 }
 
 // ---------------- Login ----------------
@@ -403,9 +476,21 @@ function renderLogin() {
   </div></div>`;
   $('#eye').onclick = () => { const p = $('#pw'); p.type = p.type === 'password' ? 'text' : 'password'; };
   $('#forgot').onclick = (e) => { e.preventDefault(); toast('Na versão final o acesso é pela conta corporativa (AD) — sem senha própria.'); };
-  document.querySelectorAll('.demo button').forEach((b) => { b.onclick = () => { $('#em').value = b.dataset.em; $('#pw').value = 'demo'; $('#lf').requestSubmit(); }; });
-  $('#lf').onsubmit = (e) => {
+  const TESTE_SRV = { 'colaborador@natulab.com.br': 'colaborador', 'ricardo.alves@natulab.com.br': 'gestor', 'facilities@natulab.com.br': 'facilities', 'ti@natulab.com.br': 'ti' };
+  if (window.MOBILAB_API) {
+    const dm = $('.demo');
+    if (!Srv.teste) dm.hidden = true; else dm.querySelector('p').innerHTML = '<b>Modo de teste</b> (AD ainda não ligado): a senha não é conferida. Entre como:';
+  }
+  document.querySelectorAll('.demo button').forEach((b) => { b.onclick = () => { $('#em').value = window.MOBILAB_API ? TESTE_SRV[b.dataset.em] : b.dataset.em; $('#pw').value = 'demo'; $('#lf').requestSubmit(); }; });
+  $('#lf').onsubmit = async (e) => {
     e.preventDefault();
+    if (window.MOBILAB_API) {
+      const err = $('#lerr'), bt = $('#lf .btn-primary');
+      if (!$('#em').value.trim() || !$('#pw').value) { err.textContent = 'Informe usuário (ou e-mail) e senha.'; err.hidden = false; return; }
+      bt.disabled = true; err.hidden = true;
+      try { location.hash = ''; await Srv.entrar($('#em').value.trim(), $('#pw').value); } catch (ex) { err.textContent = ex.message; err.hidden = false; bt.disabled = false; }
+      return;
+    }
     const em = $('#em').value.trim().toLowerCase();
     const err = $('#lerr');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || !$('#pw').value) { err.textContent = 'Informe um e-mail válido e a senha.'; err.hidden = false; return; }
@@ -802,7 +887,7 @@ function openAvulsa() {
       <div class="f c-moto" hidden><label for="mt2">Tamanho</label><select id="mt2">${Object.entries(ITEM_TAM).map(([k, t]) => `<option value="${k}">${t.l}</option>`).join('')}</select></div>
       <div class="f full c-moto" hidden><label for="mr">Quem recebe no destino?</label><input id="mr" placeholder="Nome ou setor de quem recebe"></div>
       <div class="f full"><label for="js">Justificativa</label><textarea id="js"></textarea></div>
-      <div class="f full" id="gnote" hidden><div class="msg-box warn" style="margin:0">Este pedido precisa da <b>aprovação do seu gestor imediato</b> (${esc(gestorDe(S.user.cc).nome)}, conforme o AD) antes de ir para o Facilities.</div></div>
+      <div class="f full" id="gnote" hidden><div class="msg-box warn" style="margin:0">Este pedido precisa da <b>aprovação do seu gestor imediato</b> (${esc(chefeDe().nome)}, conforme o AD) antes de ir para o Facilities.</div></div>
       <div class="f full" id="exc" hidden><label class="check"><input type="checkbox" id="exck"> <span>Solicitar como <b>exceção</b> ao prazo (requer autorização do Facilities — DEC-12)</span></label></div>
     </form>
     <div id="avmsg"></div>
@@ -895,7 +980,7 @@ function openAvulsa() {
       just, status: 'analise', veiculo: null, motorista: null, os: null, excecao, motivo: '', criado: nowStamp(),
     };
     if (ret && ret.bv) { r.bv = ret.bv; ret = null; } // bate-volta avulso = uma corrida só (motorista aguarda)
-    if (precisaGestor(r)) Object.assign(r, { status: 'gestor', gestor: gestorDe(r.cc), aprovPedido: nowStamp() });
+    if (precisaGestor(r)) Object.assign(r, { status: 'gestor', gestor: { ...chefeDe() }, aprovPedido: nowStamp() });
     S.reqs.push(r);
     if (r.gestor) pedirAprovacao(r);
     audit('Solicitação criada', r.id, '', `${TIPOS[tipo]} ${fmtDT(data, hora)}${excecao ? ' · EXCEÇÃO de prazo' : ''}`);
@@ -1335,7 +1420,7 @@ function openEmail(id) {
     <div class="mail-h"><span class="si ${e.kind === 'recusada' ? 'red' : e.kind ? 'amber' : 'green'}">${ico('mail', 20)}</span><div><h3>${esc(e.assunto)}</h3>
       <p class="sub">De: <b>Mobilab · Natulab</b> &lt;${esc(REMETENTE)}&gt; · Para: ${esc(e.para)} · ${esc(e.quando)}</p></div></div>
     <div class="mail-body">${esc(e.corpo)}</div>
-    ${e.kind === 'aprovacao' ? (() => { const r = S.reqs.find((x) => x.id === e.refs[0]); return r ? `<div class="mail-cta"><a class="btn green" href="${linkAprov(r)}" id="apvlink">Analisar solicitação</a></div>` : ''; })() : ''}
+    ${e.kind === 'aprovacao' ? (() => { const r = S.reqs.find((x) => x.id === e.refs[0]); return r ? `<div class="mail-cta"><a class="btn green" href="${window.MOBILAB_API ? '#aprovacoes' : linkAprov(r)}" id="apvlink">Analisar solicitação</a></div>` : ''; })() : ''}
     <p class="section-s" style="margin-top:10px">Simulação: no sistema real esta mensagem chega na caixa de e-mail corporativa ${e.kind === 'aprovacao' ? 'do gestor' : 'do colaborador'}.</p>
     <div class="modal-acts">${e.refs[0] && S.reqs.some((r) => r.id === e.refs[0] && r.email === S.user.email) ? `<button class="btn" id="vsol">Ver solicitação ${esc(e.refs[0])}</button>` : ''}<button class="btn green" id="cx">Fechar</button></div>`);
   $('#cx').onclick = () => { closeModal(); route(); };
@@ -2108,14 +2193,25 @@ function renderVisao(page) {
 // Página aberta pelo botão do e-mail do gestor. O clique só ABRE a página (filtros de segurança do e-mail
 // costumam abrir links sozinhos); a decisão vale quando o gestor clica em Aprovar ou Reprovar aqui.
 function renderAprovar(tok) {
+  if (window.MOBILAB_API) {
+    const url = `/api/aprovar/${encodeURIComponent(tok)}`;
+    fetch(url, { cache: 'no-store' }).then((x) => (x.ok ? x.json() : null)).then((j) => telaAprov(j && j.r, j && j.par, j && j.expirado, async (ok, motivo) => {
+      const x = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok, motivo }) }).catch(() => null);
+      if (!x || !x.ok) toast('Não foi possível registrar. Tente de novo.');
+      renderAprovar(tok);
+    })).catch(() => telaAprov(null));
+    return;
+  }
   const r = S.reqs.find((x) => x.tok && x.tok === tok && !(x.perna === 'volta' && parDe(x)));
+  telaAprov(r, r && parDe(r), false, (ok, motivo) => { decisaoGestor(r, ok, motivo); renderAprovar(tok); });
+}
+function telaAprov(r, pr, expirado, decidir) {
   const casca = (inner) => {
     app().innerHTML = `<div class="apv-wrap"><div class="apv-card">
       <div class="apv-top">${brand}<span>Aprovação de viagem</span></div>${inner}
       <p class="apv-ft">Mobilab · Facilities Natulab — ${S.user ? '<a href="#">voltar ao sistema</a>' : 'você pode fechar esta página.'}</p></div></div>`;
   };
   if (!r) { casca('<div class="apv-msg bad"><b>Link inválido ou expirado.</b><p>Confira se abriu o link mais recente do e-mail. Em caso de dúvida, fale com o Facilities.</p></div>'); return; }
-  const pr = parDe(r);
   const det = (x) => `<dl class="apv-dl">
       <div><dt>Solicitação</dt><dd>${esc(x.id)} — ${esc(TIPOS[x.tipo])}${x.excecao ? ' <em class="warn-t">fora do prazo mínimo</em>' : ''}</dd></div>
       <div><dt>Data e horário</dt><dd>${esc(fmtDT(x.data, x.hora))}</dd></div>
@@ -2127,17 +2223,18 @@ function renderAprovar(tok) {
     casca(`${head}${det(r)}<div class="apv-msg ${a && a.ok ? 'ok' : 'bad'}"><b>${a ? `${a.ok ? 'Aprovada' : 'Reprovada'} por ${esc(a.por)} em ${esc(a.quando)}` : 'Esta solicitação não está mais aguardando aprovação.'}</b>${a && a.motivo ? `<p>Motivo: ${esc(a.motivo)}</p>` : ''}<p>Nada mais a fazer por aqui.</p></div>`);
     return;
   }
+  if (expirado) { casca(`${head}${det(r)}<div class="apv-msg bad"><b>Este link expirou.</b><p>O horário da viagem já passou.</p></div>`); return; }
   casca(`${head}${det(r)}${pr && pr.status === 'gestor' ? `<p class="apv-sub"><b>Retorno:</b></p>${det(pr)}` : ''}
     <div class="apv-just"><small>Justificativa</small><p>${esc(r.just)}</p></div>
     <div class="apv-acts"><button class="btn green lg" id="apok">${ico('check', 18)} Aprovar</button><button class="btn red lg" id="apno">Reprovar</button></div>
     <div id="apmot" hidden><label class="field"><span>Motivo da reprovação <small>(opcional)</small></span><textarea id="apmt" rows="3" placeholder="Ex.: reunião pode ser on-line"></textarea></label>
       <div class="apv-acts"><button class="btn" id="apcan">Cancelar</button><button class="btn red" id="apconf">Confirmar reprovação</button></div></div>`);
-  $('#apok').onclick = () => { decisaoGestor(r, true); renderAprovar(tok); };
+  const trava = () => document.querySelectorAll('.apv-card button').forEach((b) => { b.disabled = true; });
+  $('#apok').onclick = () => { trava(); decidir(true, ''); };
   $('#apno').onclick = () => { $('#apmot').hidden = false; $('.apv-acts').hidden = true; $('#apmt').focus(); };
   $('#apcan').onclick = () => { $('#apmot').hidden = true; $('.apv-acts').hidden = false; };
   $('#apconf').onclick = () => {
-    const mo = $('#apmt').value.trim();
-    decisaoGestor(r, false, mo); renderAprovar(tok);
+    trava(); decidir(false, $('#apmt').value.trim());
   };
 }
 function renderAprovacoes(page) {
@@ -2180,5 +2277,5 @@ function renderAprovacoes(page) {
 if (typeof setInterval === 'function') setInterval(() => { if (S && S.user && route.page === 'visao' && $('#modal').hidden) route(); }, 60000);
 
 // ---------------- Boot ----------------
-S = load() || seed();
-route();
+if (window.MOBILAB_API) Srv.iniciar();
+else { S = load() || seed(); route(); }
