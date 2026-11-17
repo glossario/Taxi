@@ -1415,8 +1415,16 @@ function renderViagens(page) {
         <div class="vc-f">${ico('route', 18)}<div><small>Trajeto</small><b>${esc(t1)}</b><span>${esc(t2)}</span></div></div>
       </div>
       <div class="vc-cost">
-        <label class="vc-val"><small>Valor da corrida</small><span class="money">R$ <input class="vval" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.manual ? rt.total : ''}" placeholder="${rt.padrao != null ? rt.padrao.toFixed(2) : 'informe'}" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Valor da corrida"></span>
-          <em>${rt.manual ? `informado pela Noemia${rt.padrao != null ? ` · tabela ${brl(rt.padrao)}` : ''}` : rt.padrao != null ? 'pela tabela de valores' : 'sem valor na tabela — informe'}</em></label>
+        <div class="vc-val">
+          <small>Valor da corrida</small>
+          ${rt.padrao != null ? `<div class="fixo"><b>${brl(rt.padrao)}</b><em>valor fixo da rota</em></div>`
+            : `<span class="money">R$ <input class="vval" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.manual ? rt.base : ''}" placeholder="informe" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Valor da corrida"></span><em>destino fora das rotas cadastradas — informe o valor</em>`}
+          <small class="mt">Acréscimo <span class="opt">(espera, pedágio…)</span></small>
+          <div class="acr-row"><span class="money sm">R$ <input class="vacr" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.acrescimo || ''}" placeholder="0,00" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Acréscimo"></span>
+            <input class="vmot" placeholder="Motivo do acréscimo" value="${esc(rt.motivoAcr)}" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Motivo do acréscimo"></div>
+          ${rt.acrescimo && !rt.motivoAcr ? '<em class="warn-t">Informe o motivo do acréscimo</em>' : ''}
+          ${rt.total != null ? `<div class="vc-tot">Total <b>${brl(rt.total)}</b>${rt.acrescimo ? ` <em>(${brl(rt.base)} + ${brl(rt.acrescimo)})</em>` : ''}</div>` : ''}
+        </div>
         <div class="vc-rat"><small>Divisão por setor</small>${rt.ninguem ? '<span class="warn-t">Ninguém compareceu — sem cobrança</span>' : rt.total != null ? `<div class="chips">${rateioChips(rt)}</div>${rt.legs.length > 1 ? `<span class="legs">${rt.legs.map((l) => `${esc(siteName(l.de))} → ${esc(siteName(l.para))}: ${brl(l.valor)} (${l.ccs.map(setorCurto).map(esc).join(' + ')})`).join(' · ')}</span>` : ''}` : '<span class="warn-t">Aguardando o valor</span>'}</div>
       </div>
       <footer class="vc-ft">
@@ -1471,6 +1479,20 @@ function renderViagens(page) {
         save(); route(); toast(r.faltou ? `${r.nome} marcado como ausente — o valor fica com quem foi.` : `${r.nome} voltou para a divisão.`);
       };
     });
+    const va = $('.vacr', g), vmo = $('.vmot', g);
+    const salvaAcr = () => {
+      const raw = String(va.value).trim().replace(',', '.');
+      const n = raw === '' ? 0 : Number(raw);
+      if (!Number.isFinite(n) || n < 0) { toast('Acréscimo inválido.'); return; }
+      S.extras = S.extras || {};
+      const antes = S.extras[v.k] ? `${brl(S.extras[v.k].valor)} ${S.extras[v.k].motivo || ''}` : 'sem acréscimo';
+      const motivo = vmo.value.trim();
+      if (n === 0 && !motivo) delete S.extras[v.k]; else S.extras[v.k] = { valor: Math.round(n * 100) / 100, motivo };
+      audit('Acréscimo na viagem', v.rs.map((r) => r.id).join(', '), antes, n ? `${brl(n)} ${motivo}` : 'sem acréscimo');
+      save(); route(); toast(n ? `Acréscimo de ${brl(n)} lançado.` : 'Acréscimo removido.');
+    };
+    if (va) va.onchange = salvaAcr;
+    if (vmo) vmo.onchange = salvaAcr;
     const vi = $('.vval', g);
     if (vi) vi.onchange = () => {
       const raw = String(vi.value).trim().replace(',', '.');
@@ -1660,7 +1682,8 @@ function tarifa(a, b, modal) {
 // Cada trecho é dividido IGUALMENTE entre os SETORES que estão no carro naquele trecho.
 // Ex.: Site 1→CD = 50 e Site 1→Life = 75. TI desce no CD e Garantia vai até a Life:
 //      trecho Site 1→CD (50) = 25 TI + 25 Garantia; trecho CD→Life (75−50 = 25) = Garantia sozinha → Garantia 50, TI 25.
-// Se a Noemia digitar outro valor para a corrida, os trechos são ajustados na mesma proporção.
+// O valor da rota é FIXO (tabela). Acréscimos (espera, pedágio…) são lançados pela Noemia na viagem e divididos
+// na mesma proporção dos trechos. Só destino fora das rotas cadastradas tem o valor informado na viagem.
 function ratear(v) {
   const modal = v.tipo === 'moto' ? 'moto' : 'carro';
   // Quem não compareceu não entra na divisão: a viagem fica só com os setores que foram.
@@ -1689,24 +1712,31 @@ function ratear(v) {
   if (!legs.length) legs.push({ de: rs[0].origem, para: rs[0].destino, custo: null, ccs: [...new Set(rs.map((r) => r.cc))] });
   const padrao = legs.every((l) => l.custo != null) ? legs.reduce((t, l) => t + l.custo, 0) : null;
   const vm = (S.valores || {})[v.k];
-  const manual = vm !== undefined && vm !== null;
-  const total = manual ? Number(vm) : padrao;
+  const informado = padrao == null && vm !== undefined && vm !== null; // só quando não há valor fixo
+  const base = padrao != null ? padrao : informado ? Number(vm) : null;
+  const ex = (S.extras || {})[v.k] || {};
+  const acrescimo = Number(ex.valor) > 0 ? Number(ex.valor) : 0;
+  const total = base == null ? null : base + acrescimo;
+  const manual = informado;
   const partes = {};
   if (total != null) {
     const cents = Math.round(total * 100);
     const base = padrao ? legs.map((l) => l.custo) : legs.map(() => 1); // sem tabela: divide igual entre os trechos
     const soma = base.reduce((a, b) => a + b, 0) || 1;
-    const legC = base.map((b) => Math.floor((cents * b) / soma));
-    let resto = cents - legC.reduce((a, b) => a + b, 0);
-    for (let i = 0; resto > 0; i = (i + 1) % legC.length) { legC[i] += 1; resto -= 1; }
+    // Parte exata de cada setor (em centavos) e arredondamento pelo maior resto: a soma sempre bate com o total.
+    const exato = {};
     legs.forEach((l, i) => {
-      const n = l.ccs.length, cada = Math.floor(legC[i] / n), sobra = legC[i] - cada * n;
-      l.valor = legC[i] / 100;
-      l.ccs.forEach((cc, j) => { partes[cc] = (partes[cc] || 0) + cada + (j < sobra ? 1 : 0); });
+      const legCents = (cents * base[i]) / soma;
+      l.valor = Math.round(legCents) / 100;
+      l.ccs.forEach((cc) => { exato[cc] = (exato[cc] || 0) + legCents / l.ccs.length; });
     });
-    Object.keys(partes).forEach((cc) => { partes[cc] /= 100; });
+    const ccsOrd = Object.keys(exato);
+    ccsOrd.forEach((cc) => { partes[cc] = Math.floor(exato[cc] + 1e-9); });
+    let resto = cents - ccsOrd.reduce((t, cc) => t + partes[cc], 0);
+    [...ccsOrd].sort((x, y) => (exato[y] - partes[y]) - (exato[x] - partes[x])).forEach((cc) => { if (resto > 0) { partes[cc] += 1; resto -= 1; } });
+    ccsOrd.forEach((cc) => { partes[cc] /= 100; });
   }
-  return { total, padrao, manual, partes, legs, modal };
+  return { total, padrao, base, acrescimo, motivoAcr: ex.motivo || '', manual, partes, legs, modal };
 }
 const rateioChips = (rt) => Object.entries(rt.partes).map(([cc, val]) => `<span class="chip-r"><b>${esc(setorCurto(cc))}</b> ${brl(val)}</span>`).join('');
 
@@ -1759,7 +1789,7 @@ function renderCustos(page) {
               <td>${rt.legs.map((l) => `${esc(siteName(l.de))} → ${esc(siteName(l.para))}${l.valor != null ? ` <small>${brl(l.valor)} · ${l.ccs.map(setorCurto).map(esc).join(' + ')}</small>` : ''}`).join('<br>')}</td>
               <td>${esc(v.rs.filter((r) => r.cc === cc).map((r) => `${r.id} ${r.nome}`).join(', '))}</td>
               <td><div class="chips">${rateioChips(rt)}</div></td>
-              <td>${brl(rt.total)}${rt.manual ? ' <small>informado</small>' : ' <small>tabela</small>'}</td><td><b>${brl(val)}</b></td></tr>`).join('')}
+              <td>${brl(rt.total)} <small>${rt.manual ? 'informado' : 'fixo'}${rt.acrescimo ? ` + acréscimo ${brl(rt.acrescimo)}${rt.motivoAcr ? ` (${esc(rt.motivoAcr)})` : ''}` : ''}</small></td><td><b>${brl(val)}</b></td></tr>`).join('')}
             </tbody></table></details>`).join('')}
           <div class="cost-total"><span>Total</span><b>${brl(total)}</b></div></div>`
           : '<div class="empty">Nenhuma viagem com valor neste mês.</div>'}
@@ -1776,7 +1806,7 @@ function renderCustos(page) {
     body = `
       <div class="grid-2">
         <section class="card"><h2 class="section-t">Valores das rotas</h2>
-          <p class="section-s">Valor de uma corrida entre as unidades (vale para os dois sentidos). Destinos fora das unidades: a Noemia informa o valor na viagem.</p>
+          <p class="section-s">Valor <b>fixo</b> de uma corrida entre as unidades (vale para os dois sentidos). Acréscimos (espera, pedágio…) são lançados em <a href="#viagens">Viagens</a>. Destinos fora das unidades: a Noemia informa o valor na viagem.</p>
           <table class="tar-t"><thead><tr><th>Trecho</th><th>Táxi (R$)</th><th>Moto (R$)</th></tr></thead><tbody>
           ${pares.map(([a, b]) => { const v = t[parKey(a, b)] || {}; return `<tr data-k="${parKey(a, b)}"><td>${esc(nome(a))} ↔ ${esc(nome(b))}</td>
             <td><input class="tv" data-m="carro" type="number" min="0" step="0.01" inputmode="decimal" value="${v.carro ?? ''}" aria-label="Valor táxi"></td>
@@ -1789,9 +1819,9 @@ function renderCustos(page) {
           <ul class="help-list">
             <li>Cada viagem é dividida <b>igualmente entre os setores</b> que estão no carro (não por pessoa).</li>
             <li>Quem <b>não compareceu</b> sai da divisão: a viagem fica só com os setores que foram. Viagem não realizada não é cobrada.</li>
-            <li>Bate-volta: pela tabela é ida + volta; se houver espera cobrada, a Noemia informa o valor da corrida.</li>
+            <li>Bate-volta: pela tabela é ida + volta; se houver espera cobrada, a Noemia lança como acréscimo.</li>
             <li>Na grade, a conta é <b>por trecho</b>: o valor até cada parada é contado a partir da saída da rota. Quem desce antes não paga o resto do caminho.</li>
-            <li>Se a Noemia informar outro valor para a corrida, os trechos são ajustados na mesma proporção.</li>
+            <li>O valor da rota é <b>fixo</b>. Acréscimos lançados na viagem são divididos na mesma proporção dos trechos.</li>
             <li>Táxi avulso: o setor do solicitante paga sozinho. Moto agrupada: dividida entre os setores dos envios.</li>
           </ul>
           <div class="ex-box"><b>Exemplo com a tabela atual</b>
