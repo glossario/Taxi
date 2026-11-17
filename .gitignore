@@ -1,3 +1,5 @@
 # credenciais nunca vão para o GitHub
 .env
 *.env
+__pycache__/
+*.pyc
