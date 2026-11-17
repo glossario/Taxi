@@ -600,3 +600,28 @@ button.vp-h:focus-visible { outline: 3px solid rgba(74, 143, 34, .35); outline-o
 .tar-new select, .tar-new #tnd { width: 100%; box-sizing: border-box; margin: 2px 0; }
 .fixo.sem b { color: var(--warn, #b45309); }
 .fixo.sem a { font-weight: 600; }
+/* Página de aprovação do gestor (link do e-mail) */
+.apv-wrap { min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; background: var(--bg, #f3f4ef); box-sizing: border-box; }
+.apv-card { width: 100%; max-width: 620px; background: #fff; border: 1px solid var(--line, #e5e7e0); border-radius: 18px; padding: 28px; box-shadow: 0 10px 30px rgba(0,0,0,.06); }
+.apv-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 16px; margin-bottom: 18px; border-bottom: 1px solid var(--line, #e5e7e0); }
+.apv-top > span { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #6b7280); }
+.apv-card h1 { margin: 0 0 4px; font-size: 24px; }
+.apv-sub { margin: 0 0 14px; color: var(--muted, #6b7280); }
+.apv-dl { margin: 0 0 16px; display: grid; gap: 8px; }
+.apv-dl div { display: grid; grid-template-columns: 130px 1fr; gap: 10px; }
+.apv-dl dt { color: var(--muted, #6b7280); font-size: 13px; }
+.apv-dl dd { margin: 0; font-weight: 600; }
+.apv-just { background: #f7f8f4; border-radius: 12px; padding: 12px 14px; margin-bottom: 20px; }
+.apv-just small { color: var(--muted, #6b7280); font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .05em; }
+.apv-just p { margin: 4px 0 0; }
+.apv-acts { display: flex; gap: 10px; flex-wrap: wrap; }
+.apv-acts .btn.lg { flex: 1; min-width: 160px; justify-content: center; padding: 14px; font-size: 16px; }
+#apmot .apv-acts { justify-content: flex-end; margin-top: 10px; }
+#apmot textarea { width: 100%; box-sizing: border-box; }
+.apv-msg { border-radius: 12px; padding: 14px 16px; }
+.apv-msg p { margin: 6px 0 0; }
+.apv-msg.ok { background: #eef7e6; color: #2f5d12; }
+.apv-msg.bad { background: #fdecec; color: #8a1f1f; }
+.apv-ft { margin: 22px 0 0; font-size: 12px; color: var(--muted, #6b7280); text-align: center; }
+.mail-cta { margin-top: 14px; }
+@media (max-width: 520px) { .apv-card { padding: 20px; } .apv-dl div { grid-template-columns: 1fr; gap: 2px; } }

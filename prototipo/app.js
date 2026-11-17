@@ -240,6 +240,8 @@ const brand = `<a class="brand" href="#"><span class="w">NATU<span>LAB</span></s
 
 function route() {
   const h = location.hash.replace('#', '') || '';
+  const ap = h.match(/^aprovar\/([A-Za-z0-9_-]+)$/);
+  if (ap) { route.page = 'aprovar'; return renderAprovar(ap[1]); } // link do e-mail do gestor: cai direto na aprovação
   if (!S.user) return renderLogin();
   const home = { colaborador: 'agenda', facilities: 'visao', ti: 'visao' }[S.user.role];
   const allowed = NAV[S.user.role].map(([k]) => k);
@@ -1324,11 +1326,13 @@ function openEmail(id) {
   if (!e.lida) { e.lida = true; save(); }
   openModal(`
     <div class="mail-h"><span class="si ${e.kind === 'recusada' ? 'red' : e.kind ? 'amber' : 'green'}">${ico('mail', 20)}</span><div><h3>${esc(e.assunto)}</h3>
-      <p class="sub">De: <b>Mobilab · Facilities</b> &lt;mobilab@natulab.com.br&gt; · Para: ${esc(e.para)} · ${esc(e.quando)}</p></div></div>
+      <p class="sub">De: <b>Mobilab · Natulab</b> &lt;${esc(REMETENTE)}&gt; · Para: ${esc(e.para)} · ${esc(e.quando)}</p></div></div>
     <div class="mail-body">${esc(e.corpo)}</div>
-    <p class="section-s" style="margin-top:10px">Simulação: no sistema real esta mensagem chega na caixa de e-mail corporativa do colaborador.</p>
+    ${e.kind === 'aprovacao' ? (() => { const r = S.reqs.find((x) => x.id === e.refs[0]); return r ? `<div class="mail-cta"><a class="btn green" href="${linkAprov(r)}" id="apvlink">Analisar solicitação</a></div>` : ''; })() : ''}
+    <p class="section-s" style="margin-top:10px">Simulação: no sistema real esta mensagem chega na caixa de e-mail corporativa ${e.kind === 'aprovacao' ? 'do gestor' : 'do colaborador'}.</p>
     <div class="modal-acts">${e.refs[0] && S.reqs.some((r) => r.id === e.refs[0] && r.email === S.user.email) ? `<button class="btn" id="vsol">Ver solicitação ${esc(e.refs[0])}</button>` : ''}<button class="btn green" id="cx">Fechar</button></div>`);
   $('#cx').onclick = () => { closeModal(); route(); };
+  const al = $('#apvlink'); if (al) al.onclick = () => closeModal();
   const vs = $('#vsol'); if (vs) vs.onclick = () => openDetalhe(e.refs[0]);
 }
 function openCaixa() {
@@ -1924,11 +1928,28 @@ function csvCustos(d) {
 }
 
 // ---------------- Aprovação do gestor imediato (vem do AD) ----------------
+// Link do e-mail: token aleatório por solicitação (vale para ida e volta ligadas). Só serve enquanto aguarda o gestor.
+function tokenAprov(r) {
+  if (!r.tok) {
+    const b = new Uint8Array(18);
+    if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(b); else for (let i = 0; i < b.length; i++) b[i] = Math.floor(Math.random() * 256);
+    r.tok = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+    const pr = parDe(r); if (pr) pr.tok = r.tok;
+  }
+  return r.tok;
+}
+const linkAprov = (r) => `#aprovar/${tokenAprov(r)}`;
+function emailAprovacao(r) { // e-mail que o gestor recebeu (gera se a solicitação veio dos dados de exemplo)
+  let e = caixa().find((x) => x.kind === 'aprovacao' && x.refs[0] === r.id);
+  if (!e) { pedirAprovacao(r); e = caixa()[caixa().length - 1]; save(); }
+  return e;
+}
 function pedirAprovacao(r) {
   const L = [`Olá, ${r.gestor.nome.split(' ')[0]}!`, '', `${r.nome} (${r.cc}) solicitou um transporte que precisa da sua aprovação:`, '',
     `${r.id} — ${TIPOS[r.tipo]}${r.excecao ? ' (fora do prazo mínimo)' : ''}`, `Data e horário: ${fmtDT(r.data, r.hora)}`,
     `Trecho: ${siteName(r.origem)} → ${siteName(r.destino)} · ${r.pax} passageiro(s)`, `Justificativa: ${r.just}`, '',
-    'Responda pelo botão Aprovar / Reprovar do e-mail (no sistema real).', '', 'Mobilab · Facilities Natulab'];
+    'Clique em "Analisar solicitação" para aprovar ou reprovar.', 'Este é um e-mail automático — não responda.', '', 'Mobilab · Facilities Natulab'];
+  tokenAprov(r);
   caixa().push({ id: `EM-${caixa().length + 1}`, para: r.gestor.email, nome: r.gestor.nome, refs: [r.id], quando: nowStamp(), lida: false, kind: 'aprovacao',
     assunto: `Aprovação pendente: ${r.id} de ${r.nome}`, corpo: L.join('\n') });
   audit('Enviada ao gestor para aprovação', r.id, '', `${r.gestor.nome} <${r.gestor.email}>`);
@@ -1945,6 +1966,7 @@ function decisaoGestor(r, ok, motivo) {
   save();
 }
 
+const REMETENTE = 'noreply@natulab.com.br'; // envio via smtp.office365.com (porta 587, STARTTLS)
 const TIPO_CURTO = { grade: 'Grade', cidade: 'Táxi', inter: 'Intermunicipal', moto: 'Moto' };
 function renderVisao(page) {
   const now = new Date(), hoje = ymd(now), amanha = ymd(addDays(now, 1));
@@ -1965,7 +1987,7 @@ function renderVisao(page) {
   };
   const diaTxt = (ds) => (ds === hoje ? 'Hoje' : ds === amanha ? 'Amanhã' : `${DIAS[at(ds, '12:00').getDay()].slice(0, 3)} ${fmtDate(ds).slice(0, 5)}`);
   const destTxt = (r) => (r.tipo === 'moto' ? `${siteName(r.origem)} → ${siteName(r.destino)} · ${r.vol}× ${r.item}` : `${siteName(r.origem)} → ${siteName(r.destino)}`);
-  const simBtns = (r) => `<button class="btn sm g-ok" data-id="${esc(r.id)}" title="Simula a resposta do gestor">Simular: aprovou</button><button class="btn sm red g-no" data-id="${esc(r.id)}">Simular: reprovou</button>`;
+  const simBtns = (r) => `<button class="btn sm g-mail" data-id="${esc(r.id)}" title="Simulação: abre o e-mail que o gestor recebeu">${ico('mail', 14)} E-mail do gestor</button>`;
   // Texto de situação complementar (gestor, retorno de aprovação, motivo, veículo)
   const extraTxt = (r, o) => {
     const v = veic(r.veiculo), m = mot(r.motorista);
@@ -2064,15 +2086,42 @@ function renderVisao(page) {
     document.querySelectorAll('.vx-r').forEach((tr) => { tr.hidden = !!q && !tr.textContent.toLowerCase().includes(q); });
   };
   const csv = $('#vxcsv'); if (csv && k) csv.onclick = () => exportCsv(CATS[k].ls);
-  document.querySelectorAll('.g-ok').forEach((b) => { b.onclick = () => { const r = S.reqs.find((x) => x.id === b.dataset.id); decisaoGestor(r, true); route(); toast(`${r.id} aprovada por ${r.gestor.nome} — foi para a análise do Facilities.`); }; });
-  document.querySelectorAll('.g-no').forEach((b) => {
-    b.onclick = () => {
-      const r = S.reqs.find((x) => x.id === b.dataset.id);
-      const mo = prompt(`Motivo da reprovação de ${r.gestor.nome} (opcional):`);
-      if (mo === null) return;
-      decisaoGestor(r, false, mo.trim()); route(); toast(`${r.id} reprovada pelo gestor — colaborador avisado por e-mail.`);
-    };
-  });
+  document.querySelectorAll('.g-mail').forEach((b) => { b.onclick = () => openEmail(emailAprovacao(S.reqs.find((x) => x.id === b.dataset.id)).id); });
+}
+// Página aberta pelo botão do e-mail do gestor. O clique só ABRE a página (filtros de segurança do e-mail
+// costumam abrir links sozinhos); a decisão vale quando o gestor clica em Aprovar ou Reprovar aqui.
+function renderAprovar(tok) {
+  const r = S.reqs.find((x) => x.tok && x.tok === tok && !(x.perna === 'volta' && parDe(x)));
+  const casca = (inner) => {
+    app().innerHTML = `<div class="apv-wrap"><div class="apv-card">
+      <div class="apv-top">${brand}<span>Aprovação de viagem</span></div>${inner}
+      <p class="apv-ft">Mobilab · Facilities Natulab — ${S.user ? '<a href="#">voltar ao sistema</a>' : 'você pode fechar esta página.'}</p></div></div>`;
+  };
+  if (!r) { casca('<div class="apv-msg bad"><b>Link inválido ou expirado.</b><p>Confira se abriu o link mais recente do e-mail. Em caso de dúvida, fale com o Facilities.</p></div>'); return; }
+  const pr = parDe(r);
+  const det = (x) => `<dl class="apv-dl">
+      <div><dt>Solicitação</dt><dd>${esc(x.id)} — ${esc(TIPOS[x.tipo])}${x.excecao ? ' <em class="warn-t">fora do prazo mínimo</em>' : ''}</dd></div>
+      <div><dt>Data e horário</dt><dd>${esc(fmtDT(x.data, x.hora))}</dd></div>
+      <div><dt>Trecho</dt><dd>${esc(siteName(x.origem))} → ${esc(siteName(x.destino))}${x.bv ? ` · bate-volta para ${esc(siteName(x.bv.volta))}` : ''}</dd></div>
+      <div><dt>Passageiros</dt><dd>${esc(x.pax)}</dd></div></dl>`;
+  const head = `<h1>${esc(r.nome)}</h1><p class="apv-sub">${esc(r.cc)} · solicitou um transporte que precisa da sua aprovação, ${esc(r.gestor.nome.split(' ')[0])}.</p>`;
+  if (r.status !== 'gestor') {
+    const a = r.aprov;
+    casca(`${head}${det(r)}<div class="apv-msg ${a && a.ok ? 'ok' : 'bad'}"><b>${a ? `${a.ok ? 'Aprovada' : 'Reprovada'} por ${esc(a.por)} em ${esc(a.quando)}` : 'Esta solicitação não está mais aguardando aprovação.'}</b>${a && a.motivo ? `<p>Motivo: ${esc(a.motivo)}</p>` : ''}<p>Nada mais a fazer por aqui.</p></div>`);
+    return;
+  }
+  casca(`${head}${det(r)}${pr && pr.status === 'gestor' ? `<p class="apv-sub"><b>Retorno:</b></p>${det(pr)}` : ''}
+    <div class="apv-just"><small>Justificativa</small><p>${esc(r.just)}</p></div>
+    <div class="apv-acts"><button class="btn green lg" id="apok">${ico('check', 18)} Aprovar</button><button class="btn red lg" id="apno">Reprovar</button></div>
+    <div id="apmot" hidden><label class="field"><span>Motivo da reprovação <small>(opcional)</small></span><textarea id="apmt" rows="3" placeholder="Ex.: reunião pode ser on-line"></textarea></label>
+      <div class="apv-acts"><button class="btn" id="apcan">Cancelar</button><button class="btn red" id="apconf">Confirmar reprovação</button></div></div>`);
+  $('#apok').onclick = () => { decisaoGestor(r, true); renderAprovar(tok); };
+  $('#apno').onclick = () => { $('#apmot').hidden = false; $('.apv-acts').hidden = true; $('#apmt').focus(); };
+  $('#apcan').onclick = () => { $('#apmot').hidden = true; $('.apv-acts').hidden = false; };
+  $('#apconf').onclick = () => {
+    const mo = $('#apmt').value.trim();
+    decisaoGestor(r, false, mo); renderAprovar(tok);
+  };
 }
 // Visão geral se atualiza sozinha a cada minuto (se nenhuma janela estiver aberta).
 if (typeof setInterval === 'function') setInterval(() => { if (S && S.user && route.page === 'visao' && $('#modal').hidden) route(); }, 60000);
