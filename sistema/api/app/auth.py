@@ -12,11 +12,13 @@ class LoginInvalido(Exception):
 
 # Usuários fictícios — só existem com LDAP_SERVER vazio e LOGIN_TESTE=1.
 USUARIOS_TESTE = {
-    'colaborador': {'email': 'quesia.lima@natulab.com.br', 'nome': 'Quésia Lima', 'cc': '3020 – Garantia da Qualidade',
-                    'gestor': {'nome': 'Ricardo Alves', 'email': 'alysonjesus@natulab.com.br'}, 'perfil': 'colaborador'},
-    'facilities': {'email': 'facilities@natulab.com.br', 'nome': 'Noemia', 'cc': 'Facilities',
+    'colaborador': {'email': 'colaborador.teste@natulab.com.br', 'nome': 'Colaborador Teste', 'cc': '3020 – Garantia da Qualidade',
+                    'gestor': {'nome': 'Alyson Jesus', 'email': 'alysonjesus@natulab.com.br'}, 'perfil': 'colaborador'},
+    'gestor': {'email': 'alysonjesus@natulab.com.br', 'nome': 'Alyson Jesus', 'cc': '4010 – Tecnologia da Informação',
+               'gestor': {'nome': '', 'email': ''}, 'perfil': 'colaborador', 'gestor_de': True},
+    'facilities': {'email': 'facilities.teste@natulab.com.br', 'nome': 'Noemia', 'cc': 'Facilities',
                    'gestor': {'nome': '', 'email': ''}, 'perfil': 'facilities'},
-    'ti': {'email': 'ti@natulab.com.br', 'nome': 'TI Natulab', 'cc': '4010 – Tecnologia da Informação',
+    'ti': {'email': 'ti.teste@natulab.com.br', 'nome': 'TI Natulab', 'cc': '4010 – Tecnologia da Informação',
            'gestor': {'nome': '', 'email': ''}, 'perfil': 'ti'},
 }
 

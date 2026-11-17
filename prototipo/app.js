@@ -1987,7 +1987,8 @@ function renderVisao(page) {
   };
   const diaTxt = (ds) => (ds === hoje ? 'Hoje' : ds === amanha ? 'Amanhã' : `${DIAS[at(ds, '12:00').getDay()].slice(0, 3)} ${fmtDate(ds).slice(0, 5)}`);
   const destTxt = (r) => (r.tipo === 'moto' ? `${siteName(r.origem)} → ${siteName(r.destino)} · ${r.vol}× ${r.item}` : `${siteName(r.origem)} → ${siteName(r.destino)}`);
-  const simBtns = (r) => `<button class="btn sm g-mail" data-id="${esc(r.id)}" title="Simulação: abre o e-mail que o gestor recebeu">${ico('mail', 14)} E-mail do gestor</button>`;
+  // Quem aprova é o gestor; o Facilities só acompanha e pode notificar para agilizar.
+  const simBtns = (r) => `<button class="btn sm g-not" data-id="${esc(r.id)}" title="Reenvia o pedido de aprovação ao gestor">${ico('bell', 14)} Notificar gestor</button>`;
   // Texto de situação complementar (gestor, retorno de aprovação, motivo, veículo)
   const extraTxt = (r, o) => {
     const v = veic(r.veiculo), m = mot(r.motorista);
@@ -2086,7 +2087,16 @@ function renderVisao(page) {
     document.querySelectorAll('.vx-r').forEach((tr) => { tr.hidden = !!q && !tr.textContent.toLowerCase().includes(q); });
   };
   const csv = $('#vxcsv'); if (csv && k) csv.onclick = () => exportCsv(CATS[k].ls);
-  document.querySelectorAll('.g-mail').forEach((b) => { b.onclick = () => openEmail(emailAprovacao(S.reqs.find((x) => x.id === b.dataset.id)).id); });
+  document.querySelectorAll('.g-not').forEach((b) => {
+    b.onclick = () => {
+      const r = S.reqs.find((x) => x.id === b.dataset.id);
+      pedirAprovacao(r);
+      const em = caixa()[caixa().length - 1];
+      em.assunto = `Lembrete: ${em.assunto}`;
+      audit('Gestor notificado (lembrete)', r.id, '', r.gestor.email);
+      save(); route(); toast(`Lembrete enviado para ${r.gestor.nome}.`);
+    };
+  });
 }
 // Página aberta pelo botão do e-mail do gestor. O clique só ABRE a página (filtros de segurança do e-mail
 // costumam abrir links sozinhos); a decisão vale quando o gestor clica em Aprovar ou Reprovar aqui.

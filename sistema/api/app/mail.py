@@ -75,7 +75,7 @@ def _detalhes(r):
             ('Passageiros', str(r.pax))]
 
 
-def modelo_aprovacao(r, link):
+def modelo_aprovacao(r, link, lembrete=False):
     det = _detalhes(r)
     texto = '\n'.join([f'Olá, {r.gestor_nome.split(" ")[0] if r.gestor_nome else ""}!', '',
                        f'{r.solicitante_nome} ({r.centro_custo}) solicitou um transporte que precisa da sua aprovação:', '',
@@ -90,7 +90,12 @@ def modelo_aprovacao(r, link):
   <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="background:#4a8f1f;border-radius:10px">
     <a href="{escape(link)}" style="display:inline-block;padding:14px 28px;color:#fff;font-weight:700;text-decoration:none;font-size:15px">Analisar solicitação</a></td></tr></table>
   <p style="margin:14px 0 0;font-size:12px;color:#6b7280">Ao clicar, você vai direto para a página onde aprova ou reprova a solicitação.</p>"""
-    return f'Aprovação pendente: {r.codigo} de {r.solicitante_nome}', texto, _moldura('APROVAÇÃO DE VIAGEM', corpo)
+    assunto = f'{"Lembrete: " if lembrete else ""}Aprovação pendente: {r.codigo} de {r.solicitante_nome}'
+    if lembrete:
+        corpo = ('<div style="background:#fff3d6;color:#92400e;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-weight:600">'
+                 'O Facilities está aguardando a sua decisão sobre esta viagem.</div>' + corpo)
+        texto = 'LEMBRETE — o Facilities está aguardando a sua decisão.\n\n' + texto
+    return assunto, texto, _moldura('APROVAÇÃO DE VIAGEM', corpo)
 
 
 def modelo_decisao(r, aprovado, motivo):

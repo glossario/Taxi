@@ -1,4 +1,7 @@
-"""Mobilab — API e telas (fase 1): login AD, solicitações e aprovação do gestor pelo link do e-mail."""
+"""Mobilab — API e telas (fase 1): login AD, solicitações e aprovação do gestor (e-mail e tela do gestor).
+
+Quem aprova intermunicipal é SÓ o gestor imediato. O Facilities acompanha e pode notificar o gestor para agilizar.
+"""
 import hashlib
 import secrets
 from contextlib import asynccontextmanager
@@ -9,11 +12,15 @@ from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import auth, config, mail
 from .db import Aprovacao, Sessao, Solicitacao, auditar, criar_tabelas
+
+LEMBRETE_MIN = 60  # intervalo mínimo entre notificações ao gestor (minutos)
+
 
 @asynccontextmanager
 async def _vida(_app):
@@ -27,8 +34,6 @@ app.add_middleware(SessionMiddleware, secret_key=config.SECRET_KEY, session_cook
 PROTO = Path('/app/prototipo')
 if PROTO.exists():
     app.mount('/prototipo', StaticFiles(directory=PROTO, html=True), name='prototipo')
-
-
 
 
 @app.middleware('http')
@@ -65,30 +70,78 @@ def aviso(request: Request):
     return f'<div class="{"ok-b" if a[0] == "ok" else "er-b"}">{esc(a[1])}</div>' if a else ''
 
 
-def pagina(titulo, corpo, u=None, largo=False):
-    topo = ''
-    if u:
-        topo = (f'<div class="apv-top"><span class="w-brand"><b style="color:#4a8f1f">NATU</b><b style="color:#1e3a6e">LAB</b></span>'
-                f'<span>{esc(u["nome"])} · {esc(u["perfil"])} · <a href="/sair">Sair</a></span></div>')
-    else:
-        topo = ('<div class="apv-top"><span class="w-brand"><b style="color:#4a8f1f">NATU</b><b style="color:#1e3a6e">LAB</b></span>'
-                f'<span>{esc(titulo)}</span></div>')
-    return HTMLResponse(f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{esc(titulo)} · Mobilab</title><link rel="stylesheet" href="/prototipo/styles.css">
-<style>.w-brand{{font-size:22px;letter-spacing:.5px}} .apv-card.largo{{max-width:1100px}} .tbl{{width:100%;border-collapse:collapse;font-size:14px}}
-.tbl th,.tbl td{{text-align:left;padding:8px 6px;border-bottom:1px solid #eef0ea;vertical-align:top}} .tbl th{{color:#6b7280;font-size:12px;text-transform:uppercase}}
-.frm{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:12px 0}} .frm label{{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#374151}}
-.frm input,.frm select,.frm textarea{{padding:9px 10px;border:1.5px solid #e5e7e0;border-radius:9px;font:inherit}} .frm .full{{grid-column:1/-1}}
-.st{{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef0ea;font-size:12px;font-weight:600}} .st-gestor{{background:#fff3d6;color:#92400e}}
-.st-analise{{background:#e6efff;color:#1e3a6e}} .st-recusada{{background:#fdecec;color:#8a1f1f}} .st-confirmada{{background:#eef7e6;color:#2f5d12}}
-.ok-b{{background:#eef7e6;color:#2f5d12;padding:10px 14px;border-radius:10px;margin:10px 0}} .er-b{{background:#fdecec;color:#8a1f1f;padding:10px 14px;border-radius:10px;margin:10px 0}}
-h2{{font-size:17px;margin:22px 0 6px}}</style></head>
-<body><div class="apv-wrap"><div class="apv-card{' largo' if largo else ''}">{topo}{corpo}
-<p class="apv-ft">Mobilab · Facilities Natulab</p></div></div></body></html>""")
+def ha_quanto(dt):
+    m = int((agora() - dt).total_seconds() // 60)
+    if m < 1:
+        return 'agora'
+    if m < 60:
+        return f'há {m} min'
+    if m < 48 * 60:
+        return f'há {m // 60} h'
+    return f'há {m // 1440} dias'
+
+
+def quando_txt(r):
+    return f'{r.data.strftime("%d/%m/%Y")} {r.hora}'
+
+
+def trecho(r):
+    return f'{esc(config.local_nome(r.origem))} → {esc(config.local_nome(r.destino))}'
 
 
 def st(s):
     return f'<span class="st st-{esc(s)}">{esc(config.STATUS.get(s, s))}</span>'
+
+
+CSS = """.w-brand{font-size:22px;letter-spacing:.5px} .apv-card.largo{max-width:1180px} .tbl{width:100%;border-collapse:collapse;font-size:14px}
+.tbl th,.tbl td{text-align:left;padding:9px 6px;border-bottom:1px solid #eef0ea;vertical-align:top} .tbl th{color:#6b7280;font-size:12px;text-transform:uppercase}
+.frm{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:12px 0} .frm label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#374151}
+.frm input,.frm select,.frm textarea{padding:9px 10px;border:1.5px solid #e5e7e0;border-radius:9px;font:inherit} .frm .full{grid-column:1/-1}
+.st{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef0ea;font-size:12px;font-weight:600;white-space:nowrap} .st-gestor{background:#fff3d6;color:#92400e}
+.st-analise{background:#e6efff;color:#1e3a6e} .st-recusada{background:#fdecec;color:#8a1f1f} .st-confirmada{background:#eef7e6;color:#2f5d12}
+.ok-b{background:#eef7e6;color:#2f5d12;padding:10px 14px;border-radius:10px;margin:10px 0} .er-b{background:#fdecec;color:#8a1f1f;padding:10px 14px;border-radius:10px;margin:10px 0}
+h2{font-size:17px;margin:24px 0 8px} .nav{display:flex;gap:6px;align-items:center;flex-wrap:wrap} .nav a{padding:6px 12px;border-radius:999px;text-decoration:none;color:#374151;font-weight:600;font-size:14px}
+.nav a.on{background:#eef7e6;color:#2f5d12} .nav .n{display:inline-block;min-width:18px;padding:0 6px;margin-left:4px;border-radius:999px;background:#d97706;color:#fff;font-size:11px;text-align:center}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:14px 0}
+.kp{border:1px solid #e5e7e0;border-radius:14px;padding:14px 16px;background:#fff} .kp small{display:block;color:#6b7280;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.kp b{font-size:28px;color:#1f2937} .kp.warn{background:#fff8e6;border-color:#f5d68a} .kp.ok{background:#f3f9ee} .kp.bad{background:#fdf2f2}
+.apcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}
+.apc{border:1px solid #e5e7e0;border-left:4px solid #d97706;border-radius:14px;padding:16px;background:#fff}
+.apc h3{margin:0 0 2px;font-size:17px} .apc .sub{color:#6b7280;font-size:13px;margin:0 0 10px} .apc dl{margin:0 0 10px;display:grid;gap:4px;font-size:14px}
+.apc dl div{display:grid;grid-template-columns:110px 1fr} .apc dt{color:#6b7280} .apc dd{margin:0;font-weight:600}
+.apc .just{background:#f7f8f4;border-radius:10px;padding:8px 10px;font-size:14px;margin-bottom:12px}
+.apc form{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start} .apc textarea{width:100%;box-sizing:border-box;padding:8px;border:1.5px solid #e5e7e0;border-radius:9px;font:inherit}
+.apc details{flex-basis:100%} .apc summary{cursor:pointer;color:#8a1f1f;font-weight:600;font-size:14px;padding:6px 0}
+.muted{color:#6b7280;font-size:13px} .btn.sm{padding:6px 10px;font-size:13px}"""
+
+
+def pagina(titulo, corpo, u=None, largo=False, aba='', pend=0):
+    marca = '<span class="w-brand"><b style="color:#4a8f1f">NATU</b><b style="color:#1e3a6e">LAB</b></span>'
+    if u:
+        links = [('inicio', '/', 'Início')]
+        if u.get('gestor_de'):
+            links.append(('aprov', '/aprovacoes', f'Aprovações{f"<span class=n>{pend}</span>" if pend else ""}'))
+        nav = ''.join(f'<a class="{"on" if k == aba else ""}" href="{h}">{t}</a>' for k, h, t in links)
+        topo = (f'<div class="apv-top">{marca}<nav class="nav">{nav}</nav>'
+                f'<span>{esc(u["nome"])} · {esc(u["perfil"])} · <a href="/sair">Sair</a></span></div>')
+    else:
+        topo = f'<div class="apv-top">{marca}<span>{esc(titulo)}</span></div>'
+    return HTMLResponse(f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(titulo)} · Mobilab</title><link rel="stylesheet" href="/prototipo/styles.css"><style>{CSS}</style></head>
+<body><div class="apv-wrap"><div class="apv-card{' largo' if largo else ''}">{topo}{corpo}
+<p class="apv-ft">Mobilab · Facilities Natulab</p></div></div></body></html>""")
+
+
+def pendentes_do_gestor(s, email):
+    return s.scalar(select(func.count()).select_from(Solicitacao).where(
+        Solicitacao.gestor_email == email, Solicitacao.status == 'gestor')) or 0
+
+
+def marcar_gestor(s, u):
+    """Quem aparece como gestor imediato em alguma solicitação ganha a aba Aprovações."""
+    if not u.get('gestor_de'):
+        u['gestor_de'] = bool(s.scalar(select(func.count()).select_from(Solicitacao).where(Solicitacao.gestor_email == u['email'])))
+    return u
 
 
 # ---------------- login ----------------
@@ -97,7 +150,7 @@ def tela_login(request: Request):
     teste = ''
     if config.LOGIN_TESTE:
         teste = ('<div class="er-b"><b>Modo de teste</b> (AD ainda não configurado): digite '
-                 '<code>colaborador</code>, <code>facilities</code> ou <code>ti</code> no usuário — senha não é conferida.</div>')
+                 '<code>colaborador</code>, <code>gestor</code>, <code>facilities</code> ou <code>ti</code> no usuário — senha não é conferida.</div>')
     return pagina('Entrar', f"""<h1>Bem-vindo de volta</h1><p class="apv-sub">Entre com seu usuário e senha da rede Natulab.</p>{teste}
       {aviso(request)}
       <form method="post" action="/login" class="frm" style="grid-template-columns:1fr">
@@ -113,11 +166,13 @@ def fazer_login(request: Request, usuario: str = Form(''), senha: str = Form('')
     except auth.LoginInvalido as ex:
         return ir(request, '/login', erro=str(ex))
     request.session.clear()
-    request.session['u'] = u
     with Sessao() as s:
+        marcar_gestor(s, u)
+        pend = pendentes_do_gestor(s, u['email']) if u.get('gestor_de') else 0
         auditar(s, u['email'], 'Login', '', '', 'AD' if config.LDAP_SERVER else 'teste')
         s.commit()
-    return RedirectResponse('/', status_code=303)
+    request.session['u'] = u
+    return RedirectResponse('/aprovacoes' if pend else '/', status_code=303)
 
 
 @app.get('/sair')
@@ -126,30 +181,11 @@ def sair(request: Request):
     return RedirectResponse('/login', status_code=303)
 
 
-# ---------------- início ----------------
-@app.get('/', response_class=HTMLResponse)
-def inicio(request: Request):
-    u = logado(request)
-    if not u:
-        return RedirectResponse('/login', status_code=303)
-    with Sessao() as s:
-        q = select(Solicitacao).order_by(Solicitacao.id.desc()).limit(200)
-        if u['perfil'] == 'colaborador':
-            q = q.where(Solicitacao.solicitante_email == u['email'])
-        rs = s.scalars(q).all()
-    g = u.get('gestor') or {}
+# ---------------- início (colaborador / Facilities / TI) ----------------
+def form_nova():
     opts = ''.join(f'<option value="{k}">{esc(v)}</option>' for k, v in config.SITES.items())
-    linhas = ''.join(
-        f'<tr><td><b>{esc(r.codigo)}</b></td><td>{esc(config.TIPOS.get(r.tipo, r.tipo))}</td><td>{r.data.strftime("%d/%m/%Y")} {esc(r.hora)}</td>'
-        f'<td>{esc(config.local_nome(r.origem))} → {esc(config.local_nome(r.destino))}</td>'
-        f'{"" if u["perfil"] == "colaborador" else f"<td>{esc(r.solicitante_nome)}<br><small>{esc(r.centro_custo)}</small></td>"}'
-        f'<td>{st(r.status)}{f"<br><small>{esc(r.motivo)}</small>" if r.motivo else ""}</td></tr>' for r in rs)
     amanha = (agora() + timedelta(days=1)).date().isoformat()
-    corpo = f"""<h1>Olá, {esc(u['nome'].split(' ')[0])}!</h1>
-      <p class="apv-sub">{esc(u.get('cc') or 'Setor não informado no AD')} · Gestor imediato: <b>{esc(g.get('nome') or 'não informado no AD')}</b>
-      {f"&lt;{esc(g.get('email'))}&gt;" if g.get('email') else ''}</p>
-      {aviso(request)}
-      <h2>Nova solicitação</h2>
+    return f"""<h2>Nova solicitação</h2>
       <form method="post" action="/solicitacoes" class="frm">
         <label>Tipo<select name="tipo"><option value="inter">Táxi intermunicipal (precisa do gestor)</option><option value="cidade">Táxi na cidade</option></select></label>
         <label>Data<input type="date" name="data" value="{amanha}" required></label>
@@ -159,13 +195,79 @@ def inicio(request: Request):
         <label>Destino<input name="destino" required maxlength="200" placeholder="Ex.: Laboratório Central – Salvador"></label>
         <label class="full">Justificativa<textarea name="justificativa" rows="2" required maxlength="1000"></textarea></label>
         <div class="full"><button class="btn green" type="submit">Enviar solicitação</button></div>
-      </form>
-      <h2>{'Minhas solicitações' if u['perfil'] == 'colaborador' else 'Solicitações'}</h2>
-      {f'''<table class="tbl"><thead><tr><th>Código</th><th>Tipo</th><th>Quando</th><th>Trecho</th>{'' if u['perfil'] == 'colaborador' else '<th>Solicitante</th>'}<th>Status</th></tr></thead>
-      <tbody>{linhas}</tbody></table>''' if rs else '<p class="apv-sub">Nenhuma solicitação ainda.</p>'}
-      <p class="apv-sub" style="margin-top:18px">As demais telas (Agenda, Painel da Noemia, Viagens, Grade, Custos) ainda estão no
-      <a href="/prototipo/">protótipo</a> e vão sendo ligadas a este sistema.</p>"""
-    return pagina('Início', corpo, u, largo=True)
+      </form>"""
+
+
+def ultima_notif(r):
+    aps = sorted(r.aprovacoes, key=lambda a: a.criado_em)
+    return aps[-1].criado_em if aps else r.criado_em, max(0, len(aps) - 1)
+
+
+@app.get('/', response_class=HTMLResponse)
+def inicio(request: Request):
+    u = logado(request)
+    if not u:
+        return RedirectResponse('/login', status_code=303)
+    staff = u['perfil'] in ('facilities', 'ti')
+    with Sessao() as s:
+        q = select(Solicitacao).options(selectinload(Solicitacao.aprovacoes)).order_by(Solicitacao.id.desc()).limit(300)
+        if not staff:
+            q = q.where(Solicitacao.solicitante_email == u['email'])
+        rs = s.scalars(q).all()
+        pend = pendentes_do_gestor(s, u['email']) if u.get('gestor_de') else 0
+    g = u.get('gestor') or {}
+    cont = lambda stt: sum(1 for r in rs if r.status == stt)  # noqa: E731
+    kpis = f"""<div class="kpis">
+        <div class="kp warn"><small>Aguardando gestor</small><b>{cont('gestor')}</b></div>
+        <div class="kp"><small>Em análise</small><b>{cont('analise')}</b></div>
+        <div class="kp ok"><small>Confirmadas</small><b>{cont('confirmada')}</b></div>
+        <div class="kp bad"><small>Reprovadas / recusadas</small><b>{cont('recusada')}</b></div></div>"""
+    bloco_gestor = ''
+    if staff:
+        ag = [r for r in rs if r.status == 'gestor']
+        linhas_ag = ''
+        for r in sorted(ag, key=lambda x: (x.data, x.hora)):
+            ult, n = ultima_notif(r)
+            pode = (agora() - ult) >= timedelta(minutes=LEMBRETE_MIN)
+            linhas_ag += (f'<tr><td><b>{esc(r.codigo)}</b></td><td>{esc(quando_txt(r))}</td><td>{trecho(r)}</td>'
+                          f'<td>{esc(r.solicitante_nome)}<br><small class="muted">{esc(r.centro_custo)}</small></td>'
+                          f'<td>{esc(r.gestor_nome)}<br><small class="muted">{esc(r.gestor_email)}</small></td>'
+                          f'<td>pedido {ha_quanto(r.criado_em)}{f"<br><small class=muted>{n} lembrete(s), último {ha_quanto(ult)}</small>" if n else ""}</td>'
+                          f'<td><form method="post" action="/solicitacoes/{esc(r.codigo)}/notificar"><button class="btn sm" {"" if pode else "disabled"} '
+                          f'title="{"Reenvia o e-mail de aprovação ao gestor" if pode else f"Aguarde {LEMBRETE_MIN} min entre lembretes"}">Notificar gestor</button></form></td></tr>')
+        bloco_gestor = f"""<h2>Aguardando o gestor</h2>
+          <p class="muted">Quem aprova é o gestor imediato do solicitante. Você acompanha aqui e pode <b>notificar o gestor</b> para agilizar.</p>
+          {f'''<table class="tbl"><thead><tr><th>Código</th><th>Quando</th><th>Trecho</th><th>Solicitante</th><th>Gestor</th><th>Espera</th><th></th></tr></thead>
+          <tbody>{linhas_ag}</tbody></table>''' if ag else '<p class="muted">Nenhuma solicitação aguardando gestor.</p>'}"""
+    linhas = ''.join(
+        f'<tr><td><b>{esc(r.codigo)}</b></td><td>{esc(config.TIPOS.get(r.tipo, r.tipo))}</td><td>{esc(quando_txt(r))}</td><td>{trecho(r)}</td>'
+        f'{f"<td>{esc(r.solicitante_nome)}<br><small class=muted>{esc(r.centro_custo)}</small></td>" if staff else ""}'
+        f'<td>{st(r.status)}{f"<br><small class=muted>{esc(r.motivo)}</small>" if r.motivo else ""}'
+        f'{f"<br><small class=muted>com {esc(r.gestor_nome)}</small>" if r.status == "gestor" and not staff else ""}</td></tr>' for r in rs)
+    corpo = f"""<h1>Olá, {esc(u['nome'].split(' ')[0])}!</h1>
+      <p class="apv-sub">{esc(u.get('cc') or 'Setor não informado no AD')} · Gestor imediato: <b>{esc(g.get('nome') or 'não informado no AD')}</b>
+      {f"&lt;{esc(g.get('email'))}&gt;" if g.get('email') else ''}</p>
+      {aviso(request)}{kpis}{bloco_gestor}{'' if staff else form_nova()}
+      <h2>{'Todas as solicitações' if staff else 'Minhas solicitações'}</h2>
+      {f'''<table class="tbl"><thead><tr><th>Código</th><th>Tipo</th><th>Quando</th><th>Trecho</th>{'<th>Solicitante</th>' if staff else ''}<th>Status</th></tr></thead>
+      <tbody>{linhas}</tbody></table>''' if rs else '<p class="muted">Nenhuma solicitação ainda.</p>'}
+      {form_nova() if staff else ''}
+      <p class="muted" style="margin-top:18px">As demais telas (Agenda, Painel, Viagens, Grade, Custos) ainda estão no
+      <a href="/prototipo/">protótipo</a> (simulação — lá nenhum e-mail é enviado de verdade) e vão sendo ligadas a este sistema.</p>"""
+    return pagina('Início', corpo, u, largo=True, aba='inicio', pend=pend)
+
+
+def _novo_pedido_aprovacao(s, r, quando_viagem, lembrete=False):
+    token = secrets.token_urlsafe(32)
+    s.add(Aprovacao(solicitacao_id=r.id, token_hash=hash_token(token), gestor_nome=r.gestor_nome, gestor_email=r.gestor_email,
+                    expira_em=quando_viagem))
+    assunto, texto, html = mail.modelo_aprovacao(r, f'{config.APP_URL}/aprovar/{token}', lembrete)
+    e = mail.registrar(s, r.gestor_email, assunto, 'lembrete' if lembrete else 'aprovacao', r.id)
+    return (e.id, r.gestor_email, assunto, texto, html)
+
+
+def viagem_em(r):
+    return datetime.combine(r.data, datetime.strptime(r.hora, '%H:%M').time(), config.FUSO)
 
 
 @app.post('/solicitacoes')
@@ -193,7 +295,7 @@ def criar(request: Request, tarefas: BackgroundTasks, tipo: str = Form(...), dat
         return ir(request, '/', erro='Seu gestor imediato não está cadastrado no AD. Fale com a TI.')
     with Sessao() as s:
         r = Solicitacao(tipo=tipo, status='gestor' if gestor else 'analise', solicitante_email=u['email'], solicitante_nome=u['nome'],
-                        centro_custo=u.get('cc') or '', gestor_nome=g.get('nome', ''), gestor_email=g.get('email', ''),
+                        centro_custo=u.get('cc') or '', gestor_nome=g.get('nome', ''), gestor_email=(g.get('email') or '').lower(),
                         data=d, hora=hora, origem=origem, destino=destino, pax=pax, justificativa=justificativa, dados={})
         s.add(r)
         s.flush()
@@ -201,19 +303,118 @@ def criar(request: Request, tarefas: BackgroundTasks, tipo: str = Form(...), dat
         auditar(s, u['email'], 'Solicitação criada', r.codigo, '', config.STATUS[r.status])
         envio = None
         if gestor:
-            token = secrets.token_urlsafe(32)
-            s.add(Aprovacao(solicitacao_id=r.id, token_hash=hash_token(token), gestor_nome=r.gestor_nome, gestor_email=r.gestor_email,
-                            expira_em=quando))
-            assunto, texto, html = mail.modelo_aprovacao(r, f'{config.APP_URL}/aprovar/{token}')
-            e = mail.registrar(s, r.gestor_email, assunto, 'aprovacao', r.id)
+            envio = _novo_pedido_aprovacao(s, r, quando)
             auditar(s, 'sistema', 'Enviada ao gestor para aprovação', r.codigo, '', r.gestor_email)
-            envio = (e.id, r.gestor_email, assunto, texto, html)
         s.commit()
         cod = r.codigo
     if envio:
         tarefas.add_task(mail.enviar, *envio)
-        return ir(request, '/', ok=f'{cod} enviada. O gestor recebeu o pedido de aprovação por e-mail.')
+        return ir(request, '/', ok=f'{cod} enviada. O gestor ({g.get("nome")}) recebeu o pedido de aprovação por e-mail.')
     return ir(request, '/', ok=f'{cod} enviada para a análise do Facilities.')
+
+
+@app.post('/solicitacoes/{codigo}/notificar')
+def notificar(codigo: str, request: Request, tarefas: BackgroundTasks):
+    u = logado(request)
+    if not u or u['perfil'] not in ('facilities', 'ti'):
+        return ir(request, '/', erro='Só o Facilities pode notificar o gestor.')
+    with Sessao() as s:
+        r = s.scalars(select(Solicitacao).options(selectinload(Solicitacao.aprovacoes))
+                      .where(Solicitacao.codigo == codigo).with_for_update()).first()
+        if not r or r.status != 'gestor':
+            return ir(request, '/', erro='Essa solicitação não está aguardando o gestor.')
+        ult, _ = ultima_notif(r)
+        if agora() - ult < timedelta(minutes=LEMBRETE_MIN):
+            return ir(request, '/', erro=f'O gestor foi avisado {ha_quanto(ult)}. Aguarde {LEMBRETE_MIN} min entre lembretes.')
+        if viagem_em(r) <= agora():
+            return ir(request, '/', erro='O horário da viagem já passou.')
+        envio = _novo_pedido_aprovacao(s, r, viagem_em(r), lembrete=True)
+        auditar(s, u['email'], 'Gestor notificado (lembrete)', r.codigo, '', r.gestor_email)
+        s.commit()
+    tarefas.add_task(mail.enviar, *envio)
+    return ir(request, '/', ok=f'Lembrete enviado para {r.gestor_nome} ({r.gestor_email}).')
+
+
+# ---------------- decisão do gestor (mesma regra para o link do e-mail e para a tela do gestor) ----------------
+def aplicar_decisao(s, r, ok, motivo, por_email, ip=''):
+    motivo = '' if ok else (motivo or '').strip()[:500]
+    for a in r.aprovacoes:  # todos os links pendentes dessa solicitação passam a mostrar a decisão
+        if not a.decidido_em:
+            a.decidido_em, a.aprovado, a.motivo, a.ip = agora(), ok, motivo, ip[:64]
+    antes = config.STATUS[r.status]
+    r.status = 'analise' if ok else 'recusada'
+    if not ok:
+        r.motivo = f'Reprovada pelo gestor {r.gestor_nome}' + (f': {motivo}' if motivo else '')
+    auditar(s, por_email, 'Aprovada pelo gestor' if ok else 'Reprovada pelo gestor', r.codigo, antes, config.STATUS[r.status])
+    assunto, texto, html = mail.modelo_decisao(r, ok, motivo)
+    e = mail.registrar(s, r.solicitante_email, assunto, 'decisao', r.id)
+    return (e.id, r.solicitante_email, assunto, texto, html)
+
+
+# ---------------- tela do gestor ----------------
+@app.get('/aprovacoes', response_class=HTMLResponse)
+def tela_gestor(request: Request):
+    u = logado(request)
+    if not u:
+        return RedirectResponse('/login', status_code=303)
+    with Sessao() as s:
+        rs = s.scalars(select(Solicitacao).options(selectinload(Solicitacao.aprovacoes))
+                       .where(Solicitacao.gestor_email == u['email']).order_by(Solicitacao.data, Solicitacao.hora)).all()
+    pend = [r for r in rs if r.status == 'gestor' and viagem_em(r) > agora()]
+    venc = [r for r in rs if r.status == 'gestor' and viagem_em(r) <= agora()]
+    dec = sorted([r for r in rs if r.status != 'gestor'], key=lambda r: r.atualizado_em, reverse=True)
+    aprovadas = sum(1 for r in dec if any(a.aprovado for a in r.aprovacoes))
+    reprovadas = sum(1 for r in dec if any(a.aprovado is False for a in r.aprovacoes))
+
+    def cartao(r):
+        _, n = ultima_notif(r)
+        return f"""<article class="apc"><h3>{esc(r.solicitante_nome)}</h3>
+          <p class="sub">{esc(r.centro_custo)} · pedido {ha_quanto(r.criado_em)}{f' · <b>{n} lembrete(s) do Facilities</b>' if n else ''}</p>
+          <dl><div><dt>Solicitação</dt><dd>{esc(r.codigo)} — {esc(config.TIPOS.get(r.tipo, r.tipo))}</dd></div>
+            <div><dt>Quando</dt><dd>{esc(quando_txt(r))}</dd></div><div><dt>Trecho</dt><dd>{trecho(r)}</dd></div>
+            <div><dt>Passageiros</dt><dd>{r.pax}</dd></div></dl>
+          <div class="just"><span class="muted">Justificativa:</span> {esc(r.justificativa)}</div>
+          <form method="post" action="/aprovacoes/{esc(r.codigo)}">
+            <button class="btn green" name="decisao" value="aprovar">Aprovar</button>
+            <details><summary>Reprovar</summary><textarea name="motivo" rows="2" maxlength="500" placeholder="Motivo (opcional)"></textarea>
+              <button class="btn red sm" name="decisao" value="reprovar" style="margin-top:6px">Confirmar reprovação</button></details>
+          </form></article>"""
+
+    hist = ''.join(f'<tr><td><b>{esc(r.codigo)}</b></td><td>{esc(r.solicitante_nome)}</td><td>{esc(quando_txt(r))}</td><td>{trecho(r)}</td>'
+                   f'<td>{st(r.status)}{f"<br><small class=muted>{esc(r.motivo)}</small>" if r.motivo else ""}</td></tr>' for r in dec[:100])
+    corpo = f"""<h1>Aprovações da sua equipe</h1>
+      <p class="apv-sub">Viagens intermunicipais de quem tem você como gestor imediato no AD. Você também pode aprovar pelo botão do e-mail.</p>
+      {aviso(request)}
+      <div class="kpis"><div class="kp warn"><small>Aguardando você</small><b>{len(pend)}</b></div>
+        <div class="kp ok"><small>Aprovadas</small><b>{aprovadas}</b></div><div class="kp bad"><small>Reprovadas</small><b>{reprovadas}</b></div>
+        <div class="kp"><small>Expiradas sem resposta</small><b>{len(venc)}</b></div></div>
+      <h2>Aguardando sua aprovação</h2>
+      {f'<div class="apcards">{"".join(cartao(r) for r in pend)}</div>' if pend else '<p class="muted">Nada pendente. 🎉</p>'}
+      <h2>Já decididas</h2>
+      {f'<table class="tbl"><thead><tr><th>Código</th><th>Solicitante</th><th>Quando</th><th>Trecho</th><th>Status</th></tr></thead><tbody>{hist}</tbody></table>'
+        if dec else '<p class="muted">Nenhuma ainda.</p>'}"""
+    return pagina('Aprovações', corpo, u, largo=True, aba='aprov', pend=len(pend))
+
+
+@app.post('/aprovacoes/{codigo}')
+def decidir_tela(codigo: str, request: Request, tarefas: BackgroundTasks, decisao: str = Form(...), motivo: str = Form('')):
+    u = logado(request)
+    if not u:
+        return RedirectResponse('/login', status_code=303)
+    with Sessao() as s:
+        r = s.scalars(select(Solicitacao).options(selectinload(Solicitacao.aprovacoes))
+                      .where(Solicitacao.codigo == codigo).with_for_update()).first()
+        if not r or r.gestor_email != u['email']:  # só o gestor imediato daquela solicitação decide
+            return ir(request, '/aprovacoes', erro='Você não é o gestor desta solicitação.')
+        if r.status != 'gestor' or decisao not in ('aprovar', 'reprovar'):
+            return ir(request, '/aprovacoes', erro=f'{codigo} já tinha sido decidida.')
+        if viagem_em(r) <= agora():
+            return ir(request, '/aprovacoes', erro='O horário dessa viagem já passou.')
+        ok = decisao == 'aprovar'
+        envio = aplicar_decisao(s, r, ok, motivo, u['email'], request.client.host if request.client else '')
+        s.commit()
+    tarefas.add_task(mail.enviar, *envio)
+    return ir(request, '/aprovacoes', ok=f'{codigo} {"aprovada" if ok else "reprovada"}. {r.solicitante_nome} foi avisado(a) por e-mail.')
 
 
 # ---------------- aprovação pelo link do e-mail (sem login: o token do link é a credencial) ----------------
@@ -224,7 +425,7 @@ def _busca_aprov(s, token, travar=False):
     return s.scalars(q).first()
 
 
-def _tela_aprov(a, aviso=''):
+def _tela_aprov(a, aviso_txt=''):
     if not a:
         return pagina('Aprovação de viagem', '<div class="apv-msg bad"><b>Link inválido.</b><p>Confira se abriu o link do e-mail mais recente. '
                       'Em caso de dúvida, fale com o Facilities.</p></div>')
@@ -232,14 +433,14 @@ def _tela_aprov(a, aviso=''):
     det = f"""<dl class="apv-dl">
       <div><dt>Solicitação</dt><dd>{esc(r.codigo)} — {esc(config.TIPOS.get(r.tipo, r.tipo))}</dd></div>
       <div><dt>Data e horário</dt><dd>{r.data.strftime('%d/%m/%Y')} às {esc(r.hora)}</dd></div>
-      <div><dt>Trecho</dt><dd>{esc(config.local_nome(r.origem))} → {esc(config.local_nome(r.destino))}</dd></div>
+      <div><dt>Trecho</dt><dd>{trecho(r)}</dd></div>
       <div><dt>Passageiros</dt><dd>{r.pax}</dd></div></dl>"""
     head = (f'<h1>{esc(r.solicitante_nome)}</h1><p class="apv-sub">{esc(r.centro_custo)} · solicitou um transporte que precisa da sua aprovação'
             f'{", " + esc(a.gestor_nome.split(" ")[0]) if a.gestor_nome else ""}.</p>')
     if a.decidido_em:
         quando = a.decidido_em.astimezone(config.FUSO).strftime('%d/%m/%Y às %H:%M')
         msg = (f'<div class="apv-msg {"ok" if a.aprovado else "bad"}"><b>{"Aprovada" if a.aprovado else "Reprovada"} por {esc(a.gestor_nome)} em {quando}.</b>'
-               f'{f"<p>Motivo: {esc(a.motivo)}</p>" if a.motivo else ""}<p>{esc(aviso) or "Nada mais a fazer por aqui."}</p></div>')
+               f'{f"<p>Motivo: {esc(a.motivo)}</p>" if a.motivo else ""}<p>{esc(aviso_txt) or "Nada mais a fazer por aqui."}</p></div>')
         return pagina('Aprovação de viagem', head + det + msg)
     if a.expira_em <= agora() or r.status != 'gestor':
         return pagina('Aprovação de viagem', head + det + '<div class="apv-msg bad"><b>Este link expirou.</b><p>A viagem já passou ou a solicitação '
@@ -268,25 +469,16 @@ def ver_aprovacao(token: str):
 @app.post('/aprovar/{token}', response_class=HTMLResponse)
 def decidir(token: str, request: Request, tarefas: BackgroundTasks, decisao: str = Form(...), motivo: str = Form('')):
     with Sessao() as s:
-        a = _busca_aprov(s, token, travar=True)  # trava a linha: dois cliques ao mesmo tempo não decidem duas vezes
+        a = _busca_aprov(s, token, travar=True)
         if not a:
             return _tela_aprov(None)
-        r = a.solicitacao
+        r = s.scalars(select(Solicitacao).options(selectinload(Solicitacao.aprovacoes))
+                      .where(Solicitacao.id == a.solicitacao_id).with_for_update()).first()  # trava: dois cliques não decidem duas vezes
         if a.decidido_em or a.expira_em <= agora() or r.status != 'gestor' or decisao not in ('aprovar', 'reprovar'):
             return _tela_aprov(a, 'Esta solicitação já tinha sido decidida.' if a.decidido_em else '')
-        ok = decisao == 'aprovar'
-        motivo = motivo.strip()[:500] if not ok else ''
-        a.decidido_em, a.aprovado, a.motivo = agora(), ok, motivo
-        a.ip = (request.client.host if request.client else '')[:64]
-        antes = config.STATUS[r.status]
-        r.status = 'analise' if ok else 'recusada'
-        if not ok:
-            r.motivo = f'Reprovada pelo gestor {a.gestor_nome}' + (f': {motivo}' if motivo else '')
-        auditar(s, a.gestor_email, 'Aprovada pelo gestor' if ok else 'Reprovada pelo gestor', r.codigo, antes, config.STATUS[r.status])
-        assunto, texto, html = mail.modelo_decisao(r, ok, motivo)
-        e = mail.registrar(s, r.solicitante_email, assunto, 'decisao', r.id)
+        envio = aplicar_decisao(s, r, decisao == 'aprovar', motivo, a.gestor_email, request.client.host if request.client else '')
         s.commit()
-        tarefas.add_task(mail.enviar, e.id, r.solicitante_email, assunto, texto, html)
+        tarefas.add_task(mail.enviar, *envio)
         return _tela_aprov(a, 'Obrigado! O colaborador foi avisado por e-mail.')
 
 
