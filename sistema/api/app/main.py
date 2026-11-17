@@ -135,6 +135,38 @@ def pagina(titulo, corpo, u=None, largo=False, aba='', pend=0):
 <p class="apv-ft">Mobilab · Facilities Natulab</p></div></div></body></html>""")
 
 
+def iniciais(n):
+    return ''.join(p[0].upper() for p in (n or '?').split()[:2])
+
+
+def casca(u, aba, titulo, sub, corpo, pend=0):
+    """Mesmo layout do protótipo: barra de cima com abas + cabeçalho da página. Gestor = abas do colaborador + Aprovações."""
+    staff = u['perfil'] in ('facilities', 'ti')
+    abas = [('inicio', '/', 'Solicitações' if staff else 'Minhas solicitações')]
+    if u.get('gestor_de'):
+        abas.append(('aprov', '/aprovacoes', f'Aprovações{f" <span class=count>{pend}</span>" if pend else ""}'))
+    nav = ''.join(f'<a href="{h}" class="{"on" if k == aba else ""}">{t}</a>' for k, h, t in abas)
+    cargo = {'facilities': 'Facilities', 'ti': 'TI / Administração do sistema'}.get(u['perfil'], u.get('cc') or 'Colaborador')
+    if u.get('gestor_de') and not staff:
+        cargo = f'Gestor · {cargo}'
+    crumb = 'Gestão' if aba == 'aprov' else ('Operação' if staff else 'Transporte')
+    teste = '<span class="badge-sim">TESTE</span>' if config.LOGIN_TESTE else ''
+    return HTMLResponse(f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{esc(titulo)} · Mobilab</title>{FONTE}<link rel="stylesheet" href="/prototipo/styles.css"><style>{CSS}</style></head><body>
+  <header class="topbar">{_do_prototipo('brand')}<nav>{nav}</nav><span class="spacer"></span>{teste}
+    <div class="user-wrap"><button class="user" id="umenu" aria-haspopup="true" aria-expanded="false"><span class="avatar">{esc(iniciais(u['nome']))}</span>
+      <span class="who"><b>{esc(u['nome'])}</b>{esc(cargo)}</span></button>
+      <div class="menu" id="menu" hidden><button id="logout" onclick="location.href='/sair'">Sair</button></div></div>
+  </header>
+  <main><div class="pg-head"><div><nav class="crumb"><span>{crumb}</span> › <b>{esc(titulo)}</b></nav><h1>{esc(titulo)}</h1><p>{sub}</p></div></div>
+    {corpo}</main>
+<script>
+var b=document.getElementById('umenu'),m=document.getElementById('menu');
+b.onclick=function(e){{e.stopPropagation();m.hidden=!m.hidden;b.setAttribute('aria-expanded',String(!m.hidden));}};
+document.addEventListener('click',function(){{m.hidden=true;}});
+</script></body></html>""")
+
+
 def pendentes_do_gestor(s, email):
     return s.scalar(select(func.count()).select_from(Solicitacao).where(
         Solicitacao.gestor_email == email, Solicitacao.status == 'gestor')) or 0
@@ -215,11 +247,10 @@ def fazer_login(request: Request, usuario: str = Form(''), senha: str = Form('')
     request.session.clear()
     with Sessao() as s:
         marcar_gestor(s, u)
-        pend = pendentes_do_gestor(s, u['email']) if u.get('gestor_de') else 0
         auditar(s, u['email'], 'Login', '', '', 'AD' if config.LDAP_SERVER else 'teste')
         s.commit()
     request.session['u'] = u
-    return RedirectResponse('/aprovacoes' if pend else '/', status_code=303)
+    return RedirectResponse('/', status_code=303)  # gestor entra na mesma tela do colaborador; Aprovações é uma aba
 
 
 @app.get('/sair')
@@ -291,17 +322,18 @@ def inicio(request: Request):
         f'{f"<td>{esc(r.solicitante_nome)}<br><small class=muted>{esc(r.centro_custo)}</small></td>" if staff else ""}'
         f'<td>{st(r.status)}{f"<br><small class=muted>{esc(r.motivo)}</small>" if r.motivo else ""}'
         f'{f"<br><small class=muted>com {esc(r.gestor_nome)}</small>" if r.status == "gestor" and not staff else ""}</td></tr>' for r in rs)
-    corpo = f"""<h1>Olá, {esc(u['nome'].split(' ')[0])}!</h1>
-      <p class="apv-sub">{esc(u.get('cc') or 'Setor não informado no AD')} · Gestor imediato: <b>{esc(g.get('nome') or 'não informado no AD')}</b>
-      {f"&lt;{esc(g.get('email'))}&gt;" if g.get('email') else ''}</p>
-      {aviso(request)}{kpis}{bloco_gestor}{'' if staff else form_nova()}
-      <h2>{'Todas as solicitações' if staff else 'Minhas solicitações'}</h2>
-      {f'''<table class="tbl"><thead><tr><th>Código</th><th>Tipo</th><th>Quando</th><th>Trecho</th>{'<th>Solicitante</th>' if staff else ''}<th>Status</th></tr></thead>
-      <tbody>{linhas}</tbody></table>''' if rs else '<p class="muted">Nenhuma solicitação ainda.</p>'}
-      {form_nova() if staff else ''}
+    sub = (f"Olá, {esc(u['nome'].split(' ')[0])}! {esc(u.get('cc') or 'Setor não informado no AD')} · Gestor imediato: "
+           f"<b>{esc(g.get('nome') or 'não informado no AD')}</b>")
+    tabela = (f'''<table class="tbl"><thead><tr><th>Código</th><th>Tipo</th><th>Quando</th><th>Trecho</th>{'<th>Solicitante</th>' if staff else ''}<th>Status</th></tr></thead>
+      <tbody>{linhas}</tbody></table>''' if rs else '<p class="muted">Nenhuma solicitação ainda.</p>')
+    topo = bloco_gestor if staff else form_nova()
+    corpo = f"""{aviso(request)}{kpis}
+      <section class="card">{topo}</section>
+      <section class="card" style="margin-top:16px"><h2 style="margin-top:0">{'Todas as solicitações' if staff else 'Minhas solicitações'}</h2>{tabela}</section>
+      {f'<section class="card" style="margin-top:16px">{form_nova()}</section>' if staff else ''}
       <p class="muted" style="margin-top:18px">As demais telas (Agenda, Painel, Viagens, Grade, Custos) ainda estão no
       <a href="/prototipo/">protótipo</a> (simulação — lá nenhum e-mail é enviado de verdade) e vão sendo ligadas a este sistema.</p>"""
-    return pagina('Início', corpo, u, largo=True, aba='inicio', pend=pend)
+    return casca(u, 'inicio', 'Solicitações' if staff else 'Minhas solicitações', sub, corpo, pend)
 
 
 def _novo_pedido_aprovacao(s, r, quando_viagem, lembrete=False):
@@ -429,18 +461,17 @@ def tela_gestor(request: Request):
 
     hist = ''.join(f'<tr><td><b>{esc(r.codigo)}</b></td><td>{esc(r.solicitante_nome)}</td><td>{esc(quando_txt(r))}</td><td>{trecho(r)}</td>'
                    f'<td>{st(r.status)}{f"<br><small class=muted>{esc(r.motivo)}</small>" if r.motivo else ""}</td></tr>' for r in dec[:100])
-    corpo = f"""<h1>Aprovações da sua equipe</h1>
-      <p class="apv-sub">Viagens intermunicipais de quem tem você como gestor imediato no AD. Você também pode aprovar pelo botão do e-mail.</p>
-      {aviso(request)}
+    corpo = f"""{aviso(request)}
       <div class="kpis"><div class="kp warn"><small>Aguardando você</small><b>{len(pend)}</b></div>
         <div class="kp ok"><small>Aprovadas</small><b>{aprovadas}</b></div><div class="kp bad"><small>Reprovadas</small><b>{reprovadas}</b></div>
         <div class="kp"><small>Expiradas sem resposta</small><b>{len(venc)}</b></div></div>
-      <h2>Aguardando sua aprovação</h2>
-      {f'<div class="apcards">{"".join(cartao(r) for r in pend)}</div>' if pend else '<p class="muted">Nada pendente. 🎉</p>'}
-      <h2>Já decididas</h2>
+      <section class="card"><h2 style="margin-top:0">Aguardando sua aprovação</h2>
+      {f'<div class="apcards">{"".join(cartao(r) for r in pend)}</div>' if pend else '<p class="muted">Nada pendente.</p>'}</section>
+      <section class="card" style="margin-top:16px"><h2 style="margin-top:0">Já decididas</h2>
       {f'<table class="tbl"><thead><tr><th>Código</th><th>Solicitante</th><th>Quando</th><th>Trecho</th><th>Status</th></tr></thead><tbody>{hist}</tbody></table>'
-        if dec else '<p class="muted">Nenhuma ainda.</p>'}"""
-    return pagina('Aprovações', corpo, u, largo=True, aba='aprov', pend=len(pend))
+        if dec else '<p class="muted">Nenhuma ainda.</p>'}</section>"""
+    return casca(u, 'aprov', 'Aprovações', 'Viagens intermunicipais de quem tem você como gestor imediato no AD. Você também pode aprovar pelo botão do e-mail.',
+                 corpo, len(pend))
 
 
 @app.post('/aprovacoes/{codigo}')

@@ -244,18 +244,20 @@ function route() {
   if (ap) { route.page = 'aprovar'; return renderAprovar(ap[1]); } // link do e-mail do gestor: cai direto na aprovação
   if (!S.user) return renderLogin();
   const home = { colaborador: 'agenda', facilities: 'visao', ti: 'visao' }[S.user.role];
-  const allowed = NAV[S.user.role].map(([k]) => k);
+  const allowed = navDe(S.user).map(([k]) => k);
   const page = allowed.includes(h) ? h : home;
   if (page !== 'visao') UI.vx = null; // sair da tela expandida ao trocar de página
   route.page = page;
   ({ visao: renderVisao, agenda: renderAgenda, minhas: renderMinhas, painel: renderPainel, viagens: renderViagens, solicitacoes: renderTodas, motoristas: renderMotoristas,
-    grade: renderGrade, custos: renderCustos, historico: renderHistorico, cadastros: renderCadastros })[page](page);
+    grade: renderGrade, custos: renderCustos, historico: renderHistorico, cadastros: renderCadastros, aprovacoes: renderAprovacoes })[page](page);
 }
 window.addEventListener('hashchange', route);
 
 // Perfis → telas. TI / Administração do sistema tem acesso a tudo.
 const NAV_COLAB = [['agenda', 'Agenda'], ['minhas', 'Minhas solicitações']];
 const NAV_FAC = [['visao', 'Visão geral'], ['painel', 'Painel'], ['viagens', 'Viagens'], ['solicitacoes', 'Solicitações'], ['motoristas', 'Motoristas'], ['grade', 'Grade e rotas'], ['custos', 'Custos']];
+// Gestor imediato (vem do AD) vê as mesmas abas do colaborador + Aprovações.
+const navDe = (u) => [...NAV[u.role], ...(u.gestor ? [['aprovacoes', 'Aprovações']] : [])];
 const NAV = {
   colaborador: NAV_COLAB,
   facilities: NAV_FAC,
@@ -305,13 +307,14 @@ function openAjuda() {
 }
 
 function shell(page, content) {
-  const nav = NAV[S.user.role];
+  const nav = navDe(S.user);
+  const nAprov = S.user.gestor ? S.reqs.filter((r) => r.status === 'gestor' && r.gestor && r.gestor.email === S.user.email).length : 0;
   const nMinhas = S.reqs.filter((r) => r.email === S.user.email && ATIVOS.includes(r.status)).length;
   const nNovas = minhasMsgs().filter((e) => !e.lida).length;
   app().innerHTML = `
     <header class="topbar">
       ${brand}
-      <nav>${nav.map(([k, l]) => `<a href="#${k}" class="${k === page ? 'on' : ''}">${l}${k === 'minhas' && nMinhas ? ` <span class="count">${nMinhas}</span>` : ''}</a>`).join('')}
+      <nav>${nav.map(([k, l]) => `<a href="#${k}" class="${k === page ? 'on' : ''}">${l}${k === 'minhas' && nMinhas ? ` <span class="count">${nMinhas}</span>` : ''}${k === 'aprovacoes' && nAprov ? ` <span class="count">${nAprov}</span>` : ''}</a>`).join('')}
         <a href="#" id="ajuda">Ajuda</a></nav>
       <span class="spacer"></span>
       <span class="badge-sim">SIMULAÇÃO</span>
@@ -390,6 +393,7 @@ function renderLogin() {
         <p><b>Simulação:</b> qualquer senha funciona. Entre como:</p>
         <div class="chips">
           <button data-em="colaborador@natulab.com.br">Colaborador</button>
+          <button data-em="ricardo.alves@natulab.com.br">Gestor</button>
           <button data-em="facilities@natulab.com.br">Facilities</button>
           <button data-em="ti@natulab.com.br">TI / Administração</button>
         </div>
@@ -406,7 +410,10 @@ function renderLogin() {
     const err = $('#lerr');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) || !$('#pw').value) { err.textContent = 'Informe um e-mail válido e a senha.'; err.hidden = false; return; }
     if (em.includes('facilities')) S.user = { email: em, nome: 'Equipe Facilities', cargo: 'Facilities', role: 'facilities' };
-    else if (em.startsWith('ti@')) S.user = { email: em, nome: 'Equipe TI', cargo: 'TI / Administração do sistema', role: 'ti', cc: '4010 – Tecnologia da Informação' };
+    else if (Object.values(AD_GESTORES).some(([, e]) => `${e}@natulab.com.br` === em)) {
+      const [cc, [nome]] = Object.entries(AD_GESTORES).find(([, [, e]]) => `${e}@natulab.com.br` === em);
+      S.user = { email: em, nome, cargo: 'Gestor', role: 'colaborador', gestor: true, cc: cc === '3020' ? '3020 – Garantia da Qualidade' : cc };
+    } else if (em.startsWith('ti@')) S.user = { email: em, nome: 'Equipe TI', cargo: 'TI / Administração do sistema', role: 'ti', cc: '4010 – Tecnologia da Informação' };
     else {
       const nome = em.split('@')[0].split(/[._-]/).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ');
       S.user = { email: em, nome, cargo: 'Tecnologia da Informação', role: 'colaborador', cc: '4010 – Tecnologia da Informação' };
@@ -2132,6 +2139,42 @@ function renderAprovar(tok) {
     const mo = $('#apmt').value.trim();
     decisaoGestor(r, false, mo); renderAprovar(tok);
   };
+}
+function renderAprovacoes(page) {
+  const minhas = S.reqs.filter((r) => r.gestor && r.gestor.email === S.user.email && !(r.perna === 'volta' && parDe(r)));
+  const pend = minhas.filter((r) => r.status === 'gestor').sort((a, b) => at(a.data, a.hora) - at(b.data, b.hora));
+  const dec = minhas.filter((r) => r.aprov).sort((a, b) => (b.aprov.ts || 0) - (a.aprov.ts || 0));
+  const card = (r) => `<article class="card ap-card">
+      <header><div><b>${esc(r.nome)}</b><small>${esc(r.cc)}</small></div>${pill(r.status)}</header>
+      <dl><div><dt>Solicitação</dt><dd>${esc(r.id)} — ${esc(TIPOS[r.tipo])}</dd></div>
+        <div><dt>Quando</dt><dd>${esc(fmtDT(r.data, r.hora))}</dd></div>
+        <div><dt>Trecho</dt><dd>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}</dd></div>
+        <div><dt>Passageiros</dt><dd>${esc(r.pax)}</dd></div></dl>
+      <p class="ap-just"><small>Justificativa</small>${esc(r.just)}</p>
+      <div class="ap-acts"><button class="btn green ap-ok" data-id="${esc(r.id)}">Aprovar</button><button class="btn red ap-no" data-id="${esc(r.id)}">Reprovar</button></div>
+    </article>`;
+  shell(page, `
+    <div class="pg-head"><div><nav class="crumb"><span>Gestão</span>${ico('right', 12)}<b>Aprovações</b></nav>
+      <h1>Aprovações</h1><p>Viagens intermunicipais de quem tem você como gestor imediato no AD. Você também pode aprovar pelo botão do e-mail.</p></div>
+      <div class="mini-kpis"><div class="mk warn"><small>Aguardando você</small><b>${pend.length}</b></div>
+        <div class="mk"><small>Aprovadas</small><b>${dec.filter((r) => r.aprov.ok).length}</b></div>
+        <div class="mk"><small>Reprovadas</small><b>${dec.filter((r) => !r.aprov.ok).length}</b></div></div></div>
+    <h2 class="section-t">Aguardando sua aprovação</h2>
+    ${pend.length ? `<div class="ap-grid">${pend.map(card).join('')}</div>` : '<div class="card empty">Nada pendente.</div>'}
+    <h2 class="section-t" style="margin-top:22px">Já decididas</h2>
+    ${dec.length ? `<div class="card"><table class="tbl-ap"><thead><tr><th>Código</th><th>Solicitante</th><th>Quando</th><th>Trecho</th><th>Decisão</th></tr></thead><tbody>
+      ${dec.map((r) => `<tr><td><b>${esc(r.id)}</b></td><td>${esc(r.nome)}</td><td>${esc(fmtDT(r.data, r.hora))}</td><td>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}</td>
+        <td>${r.aprov.ok ? 'Aprovada' : 'Reprovada'} em ${esc(r.aprov.quando)}${r.aprov.motivo ? `<br><small>${esc(r.aprov.motivo)}</small>` : ''}</td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="card empty">Nenhuma decisão ainda.</div>'}`);
+  document.querySelectorAll('.ap-ok').forEach((b) => { b.onclick = () => { const r = S.reqs.find((x) => x.id === b.dataset.id); decisaoGestor(r, true); route(); toast(`${r.id} aprovada — seguiu para o Facilities.`); }; });
+  document.querySelectorAll('.ap-no').forEach((b) => {
+    b.onclick = () => {
+      const r = S.reqs.find((x) => x.id === b.dataset.id);
+      const mo = prompt('Motivo da reprovação (opcional):');
+      if (mo === null) return;
+      decisaoGestor(r, false, mo.trim()); route(); toast(`${r.id} reprovada — ${r.nome} foi avisado(a) por e-mail.`);
+    };
+  });
 }
 // Visão geral se atualiza sozinha a cada minuto (se nenhuma janela estiver aberta).
 if (typeof setInterval === 'function') setInterval(() => { if (S && S.user && route.page === 'visao' && $('#modal').hidden) route(); }, 60000);

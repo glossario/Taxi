@@ -625,3 +625,20 @@ button.vp-h:focus-visible { outline: 3px solid rgba(74, 143, 34, .35); outline-o
 .apv-ft { margin: 22px 0 0; font-size: 12px; color: var(--muted, #6b7280); text-align: center; }
 .mail-cta { margin-top: 14px; }
 @media (max-width: 520px) { .apv-card { padding: 20px; } .apv-dl div { grid-template-columns: 1fr; gap: 2px; } }
+/* Aprovações do gestor */
+.ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; }
+.ap-card { border-left: 4px solid #d97706; }
+.ap-card header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.ap-card header b { display: block; font-size: 17px; color: var(--navy-ink); }
+.ap-card header small { color: var(--muted); }
+.ap-card dl { margin: 0 0 10px; display: grid; gap: 4px; font-size: 14px; }
+.ap-card dl div { display: grid; grid-template-columns: 110px 1fr; }
+.ap-card dt { color: var(--muted); }
+.ap-card dd { margin: 0; font-weight: 700; }
+.ap-just { background: var(--bg); border-radius: 10px; padding: 8px 12px; margin: 0 0 12px; font-size: 14px; }
+.ap-just small { display: block; color: var(--muted); font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.ap-acts { display: flex; gap: 8px; }
+.tbl-ap { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tbl-ap th, .tbl-ap td { text-align: left; padding: 9px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.tbl-ap th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+@media (max-width: 520px) { .ap-grid { grid-template-columns: 1fr; } }
