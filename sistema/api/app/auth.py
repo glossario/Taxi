@@ -66,4 +66,6 @@ def login(usuario: str, senha: str) -> dict:
         return login_ldap(usuario, senha)
     if config.LOGIN_TESTE and usuario in USUARIOS_TESTE:
         return dict(USUARIOS_TESTE[usuario])
+    if config.LOGIN_TESTE:
+        raise LoginInvalido('Modo de teste: use os botões Colaborador, Gestor, Facilities ou TI abaixo.')
     raise LoginInvalido('Login pelo AD ainda não configurado (LDAP_SERVER vazio).')

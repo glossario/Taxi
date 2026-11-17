@@ -3,6 +3,7 @@
 Quem aprova intermunicipal é SÓ o gestor imediato. O Facilities acompanha e pode notificar o gestor para agilizar.
 """
 import hashlib
+import re
 import secrets
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
@@ -19,6 +20,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import auth, config, mail
 from .db import Aprovacao, Sessao, Solicitacao, auditar, criar_tabelas
 
+FONTE = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
+         '<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet">')
 LEMBRETE_MIN = 60  # intervalo mínimo entre notificações ao gestor (minutos)
 
 
@@ -127,7 +130,7 @@ def pagina(titulo, corpo, u=None, largo=False, aba='', pend=0):
     else:
         topo = f'<div class="apv-top">{marca}<span>{esc(titulo)}</span></div>'
     return HTMLResponse(f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{esc(titulo)} · Mobilab</title><link rel="stylesheet" href="/prototipo/styles.css"><style>{CSS}</style></head>
+<title>{esc(titulo)} · Mobilab</title>{FONTE}<link rel="stylesheet" href="/prototipo/styles.css"><style>{CSS}</style></head>
 <body><div class="apv-wrap"><div class="apv-card{' largo' if largo else ''}">{topo}{corpo}
 <p class="apv-ft">Mobilab · Facilities Natulab</p></div></div></body></html>""")
 
@@ -145,18 +148,62 @@ def marcar_gestor(s, u):
 
 
 # ---------------- login ----------------
+def _do_prototipo(nome):
+    """Arte e marca vêm do próprio protótipo (app.js) — a tela de login fica idêntica à aprovada."""
+    try:
+        m = re.search(rf'const {nome} = `(.*?)`;', (PROTO / 'app.js').read_text(encoding='utf-8'), re.S)
+        return m.group(1) if m else ''
+    except OSError:
+        return ''
+
+
 @app.get('/login', response_class=HTMLResponse)
 def tela_login(request: Request):
-    teste = ''
+    a = request.session.pop('aviso', None)
+    erro = f'<div id="lerr" class="err">{esc(a[1])}</div>' if a else '<div id="lerr" class="err" hidden></div>'
+    demo = ''
     if config.LOGIN_TESTE:
-        teste = ('<div class="er-b"><b>Modo de teste</b> (AD ainda não configurado): digite '
-                 '<code>colaborador</code>, <code>gestor</code>, <code>facilities</code> ou <code>ti</code> no usuário — senha não é conferida.</div>')
-    return pagina('Entrar', f"""<h1>Bem-vindo de volta</h1><p class="apv-sub">Entre com seu usuário e senha da rede Natulab.</p>{teste}
-      {aviso(request)}
-      <form method="post" action="/login" class="frm" style="grid-template-columns:1fr">
-        <label>Usuário<input name="usuario" autocomplete="username" required autofocus placeholder="nome.sobrenome"></label>
-        <label>Senha<input name="senha" type="password" autocomplete="current-password" {'' if config.LOGIN_TESTE else 'required'}></label>
-        <button class="btn green lg" type="submit">Entrar</button></form>""")
+        demo = """<div class="demo"><p><b>Modo de teste</b> (AD ainda não ligado): a senha não é conferida. Entre como:</p>
+        <div class="chips"><button type="button" data-u="colaborador">Colaborador</button><button type="button" data-u="gestor">Gestor</button>
+          <button type="button" data-u="facilities">Facilities</button><button type="button" data-u="ti">TI / Administração</button></div></div>"""
+    ano = agora().year
+    return HTMLResponse(f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mobilab</title>{FONTE}<link rel="stylesheet" href="/prototipo/styles.css"></head><body>
+  <div class="login-wrap"><div class="login">
+    <section class="login-hero">
+      <h1>Mobilab</h1>
+      <div class="sub">Táxi e Moto Táxi corporativo</div>
+      <div class="art">{_do_prototipo('heroArt')}</div>
+      <div class="hero-foot">
+        <div class="contact"><span><b>SAC</b> 0800 730 7370</span><span>|</span><b>natulab.com.br</b></div>
+        <div class="hero-tag">Bem-estar todos os dias</div>
+        <div class="hero-bottom">
+          <div class="lead">Solicite, acompanhe e organize seus deslocamentos entre os sites.</div>
+          <span class="hero-pill">Natulab</span>
+        </div>
+      </div>
+    </section>
+    <section class="login-form">
+      <div class="login-top">{_do_prototipo('brand')}<span class="chip-brand"><i></i>Mobilab</span></div>
+      <h2>Bem-vindo de volta</h2>
+      <p class="hint">Entre com o seu usuário e senha da rede Natulab.</p>
+      <form id="lf" method="post" action="/login">
+        <div class="field"><label for="em">Usuário ou e-mail</label><input class="input" id="em" name="usuario" placeholder="nome.sobrenome ou seuemail@natulab.com.br" autocomplete="username" required autofocus></div>
+        <div class="field"><label for="pw">Senha</label><div class="pw"><input class="input" id="pw" name="senha" type="password" placeholder="Digite sua senha" autocomplete="current-password" {'' if config.LOGIN_TESTE else 'required'}>
+          <button type="button" id="eye" aria-label="Mostrar senha"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
+        <div class="row-between"><span></span><a class="link-strong" href="#" id="forgot">Esqueci minha senha</a></div>
+        <button class="btn-primary" type="submit">Entrar</button>
+        {erro}
+      </form>
+      {demo}
+      <div class="login-foot">Copyright © {ano} Mobilab · Natulab</div>
+    </section>
+  </div></div>
+<script>
+document.getElementById('eye').onclick=function(){{var p=document.getElementById('pw');p.type=p.type==='password'?'text':'password';}};
+document.getElementById('forgot').onclick=function(e){{e.preventDefault();var l=document.getElementById('lerr');l.textContent='A senha é a mesma da rede Natulab. Para trocar ou desbloquear, fale com a TI.';l.hidden=false;}};
+document.querySelectorAll('.demo button').forEach(function(b){{b.onclick=function(){{document.getElementById('em').value=b.dataset.u;document.getElementById('lf').submit();}};}});
+</script></body></html>""")
 
 
 @app.post('/login')
