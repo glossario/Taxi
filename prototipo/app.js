@@ -591,9 +591,6 @@ function renderAgenda(page) {
   const g = grade().filter((s) => UI.per === 'todos' || periodo(s.hora) === UI.per);
   if (UI.sel && !days.some((d) => ymd(d) === UI.sel.d)) UI.sel = null;
 
-  let livresSemana = 0;
-  days.forEach((d) => grade().forEach((s) => { const i = slotInfo(ymd(d), s, min, mine); if (i.cls !== 'indisp') livresSemana += i.livres; }));
-  const pend = mine.filter((r) => r.status === 'analise').length;
   const novas = minhasMsgs().filter((e) => !e.lida);
 
   const card = (ds, s) => {
@@ -630,12 +627,6 @@ function renderAgenda(page) {
       <div><span class="eyebrow">Mobilidade corporativa</span><h1>Olá, ${esc(S.user.nome)}</h1>
         <p>Encontre um horário, confira os detalhes da rota e solicite sua vaga.</p></div>
       <button class="btn-cta inline" id="avulsa">${ico('plus', 18)} Solicitação avulsa</button>
-    </div>
-    <div class="stats">
-      <div class="stat"><span class="si blue">${ico('cal', 20)}</span><span><b>${g.length * days.length}</b><small>horários na semana</small></span></div>
-      <div class="stat"><span class="si green">${ico('users', 20)}</span><span><b>${livresSemana}</b><small>vagas disponíveis</small></span></div>
-      <div class="stat"><span class="si amber">${ico('clock', 20)}</span><span><b>${pend}</b><small>${pend === 1 ? 'solicitação pendente' : 'solicitações pendentes'}</small></span></div>
-      <div class="stat info">${ico('info', 18)}<span>A ocupação considera solicitações em análise e confirmadas. Padrão: ${CAP_PADRAO} vagas por horário; acima disso, Spin (${SLOT_CAP}).</span></div>
     </div>
     ${novas.length ? `<div class="notif">
       <div class="notif-h"><span class="si green">${ico('mail', 20)}</span><div><b>${novas.every((e) => !e.kind) ? (novas.length === 1 ? 'Viagem confirmada' : `${novas.length} viagens confirmadas`) : `${novas.length} ${novas.length === 1 ? 'mensagem nova' : 'mensagens novas'} do Facilities`}</b>
