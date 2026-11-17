@@ -1,0 +1,41 @@
+# Mobilab — sistema real (fase 1). Sobe com:  docker compose up -d --build   →  http://localhost:8080
+# Configuração em .env (copie de .env.example). A senha do noreply NÃO fica aqui: vem do arquivo indicado em NOREPLY_FILE.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mobilab
+      POSTGRES_USER: mobilab
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mobilab -d mobilab"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://mobilab:${DB_PASSWORD}@db:5432/mobilab
+      NOREPLY_PATH: /run/secrets/noreply
+    secrets:
+      - noreply
+    ports:
+      - "${PORTA:-8080}:8000"
+    volumes:
+      - ../prototipo:/app/prototipo:ro   # telas e estilos reaproveitados do protótipo
+
+secrets:
+  noreply:
+    file: ${NOREPLY_FILE:-../../noreply.txt}   # linha 1 = usuário, linha 2 = senha (fica fora do repositório)
+
+volumes:
+  dbdata:
