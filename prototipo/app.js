@@ -64,7 +64,7 @@ const SEED_MOTORISTAS = [
   { id: 'D3', nome: 'Marcos Silva', tipo: 'moto', fone: '75999990003', ativo: true },
   { id: 'D4', nome: 'Paulo Santos', tipo: 'moto', fone: '75999990004', ativo: true },
 ];
-// Valores das rotas (cadastrados pela Noemia em Custos → Valores das rotas). Valores de EXEMPLO.
+// Valores das rotas (cadastrados pela Noemia em Grade e rotas → Valores das rotas). Valores de EXEMPLO.
 // Chave = par de locais (sem sentido). Táxi e moto têm valores próprios.
 const SEED_TARIFAS = { 'CD|MED': { carro: 50, moto: 15 }, 'MED|SUP': { carro: 75, moto: 20 }, 'CD|SUP': { carro: 30, moto: 15 } };
 const DURACAO_MIN = 60; // intervalo mínimo entre viagens do mesmo veículo/motorista (RF-14)
@@ -1605,8 +1605,10 @@ function renderGrade(page) {
           <td style="white-space:nowrap"><button class="btn sm ed" data-id="${g.id}">Editar</button> <button class="btn sm tg" data-id="${g.id}">${g.ativo ? 'Desativar' : 'Ativar'}</button></td></tr>`;
       }).join('')}
     </tbody></table></div>
-    <p class="section-s" style="margin-top:12px">Dias de operação: segunda a sexta (DEC-01 em validação). Horários com solicitações futuras não podem ser alterados nem desativados — reagende-as antes.</p>`);
+    <p class="section-s" style="margin-top:12px">Dias de operação: segunda a sexta (DEC-01 em validação). Horários com solicitações futuras não podem ser alterados nem desativados — reagende-as antes.</p>
+    <div style="margin-top:18px">${valoresRotasHtml()}</div>`);
   $('#novo').onclick = () => openGrade();
+  bindValoresRotas();
   document.querySelectorAll('.ed').forEach((b) => { b.onclick = () => openGrade(b.dataset.id); });
   document.querySelectorAll('.tg').forEach((b) => {
     b.onclick = () => {
@@ -1741,12 +1743,10 @@ function ratear(v) {
 const rateioChips = (rt) => Object.entries(rt.partes).map(([cc, val]) => `<span class="chip-r"><b>${esc(setorCurto(cc))}</b> ${brl(val)}</span>`).join('');
 
 function renderCustos(page) {
-  const aba = renderCustos.aba || 'relatorio';
   const mes = renderCustos.mes || ymd(new Date()).slice(0, 7);
   const prev = !!renderCustos.prev;
-  const tabs = `<div class="seg">${[['relatorio', 'Relatório do mês'], ['tarifas', 'Valores das rotas']].map(([k, l]) => `<button class="seg-b${aba === k ? ' on' : ''}" data-aba="${k}">${l}</button>`).join('')}</div>`;
   let body = '';
-  if (aba === 'relatorio') {
+  {
     const vs = viagens().filter((v) => v.data.slice(0, 7) === mes && (v.st === 'concluida' || (prev && ['enviar', 'enviada'].includes(v.st))) && v.rs.some((r) => !r.faltou)); // ninguém foi = sem cobrança
     const porSetor = {};
     let total = 0;
@@ -1794,7 +1794,18 @@ function renderCustos(page) {
           <div class="cost-total"><span>Total</span><b>${brl(total)}</b></div></div>`
           : '<div class="empty">Nenhuma viagem com valor neste mês.</div>'}
       </div>`;
-  } else {
+  }
+  shell(page, `
+    <div class="pg-head"><div><nav class="crumb"><span>Operação</span>${ico('right', 12)}<b>Custos</b></nav><h1>Custos por setor</h1>
+      <p>Valor de cada corrida, divisão entre os setores e o que cada setor deve no mês.</p></div></div>
+    <p class="section-s">Os valores fixos das rotas ficam em <a href="#grade">Grade e rotas</a>; acréscimos (espera, pedágio…) são lançados em <a href="#viagens">Viagens</a>.</p>
+    ${body}`);
+  const cm = $('#cmes'); if (cm) cm.onchange = () => { if (cm.value) { renderCustos.mes = cm.value; route(); } };
+  const cp = $('#cprev'); if (cp) cp.onchange = () => { renderCustos.prev = cp.checked; route(); };
+  const cc = $('#ccsv'); if (cc) cc.onclick = () => csvCustos(renderCustos.dados);
+}
+// Valores das rotas: ficam em Grade e rotas (valor fixo por trecho). Acréscimos são lançados em Viagens.
+function valoresRotasHtml() {
     const pares = [];
     const ks = Object.keys(SITES);
     for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) pares.push([ks[i], ks[j]]);
@@ -1803,7 +1814,7 @@ function renderCustos(page) {
     // Exemplo ao vivo com a tabela atual
     const ex = ratear({ tipo: 'grade', hora: (grade().find((g) => g.paradas[0] === 'MED' && g.paradas[g.paradas.length - 1] === 'SUP') || {}).hora, k: '__exemplo__',
       rs: [{ origem: 'MED', destino: 'CD', cc: '4010 – Tecnologia da Informação' }, { origem: 'MED', destino: 'SUP', cc: '3020 – Garantia da Qualidade' }] });
-    body = `
+    return `
       <div class="grid-2">
         <section class="card"><h2 class="section-t">Valores das rotas</h2>
           <p class="section-s">Valor <b>fixo</b> de uma corrida entre as unidades (vale para os dois sentidos). Acréscimos (espera, pedágio…) são lançados em <a href="#viagens">Viagens</a>. Destinos fora das unidades: a Noemia informa o valor na viagem.</p>
@@ -1831,16 +1842,8 @@ function renderCustos(page) {
           </div>
         </section>
       </div>`;
-  }
-  shell(page, `
-    <div class="pg-head"><div><nav class="crumb"><span>Operação</span>${ico('right', 12)}<b>Custos</b></nav><h1>Custos por setor</h1>
-      <p>Valor de cada corrida, divisão entre os setores e o que cada setor deve no mês.</p></div></div>
-    <div class="toolbar">${tabs}</div>
-    ${body}`);
-  document.querySelectorAll('[data-aba]').forEach((b) => { b.onclick = () => { renderCustos.aba = b.dataset.aba; route(); }; });
-  const cm = $('#cmes'); if (cm) cm.onchange = () => { if (cm.value) { renderCustos.mes = cm.value; route(); } };
-  const cp = $('#cprev'); if (cp) cp.onchange = () => { renderCustos.prev = cp.checked; route(); };
-  const cc = $('#ccsv'); if (cc) cc.onclick = () => csvCustos(renderCustos.dados);
+}
+function bindValoresRotas() {
   const ts = $('#tsave');
   if (ts) ts.onclick = () => {
     const novo = {};
@@ -1863,6 +1866,7 @@ function renderCustos(page) {
     save(); route(); toast('Valores das rotas salvos.');
   };
 }
+
 function csvCustos(d) {
   if (!d || !d.setores.length) { toast('Nada para exportar.'); return; }
   const q = (v) => { let x = String(v ?? ''); if (/^[=+\-@]/.test(x)) x = `'${x}`; return `"${x.replace(/"/g, '""')}"`; };
