@@ -64,6 +64,9 @@ const SEED_MOTORISTAS = [
   { id: 'D3', nome: 'Marcos Silva', tipo: 'moto', fone: '75999990003', ativo: true },
   { id: 'D4', nome: 'Paulo Santos', tipo: 'moto', fone: '75999990004', ativo: true },
 ];
+// Valores das rotas (cadastrados pela Noemia em Custos → Valores das rotas). Valores de EXEMPLO.
+// Chave = par de locais (sem sentido). Táxi e moto têm valores próprios.
+const SEED_TARIFAS = { 'CD|MED': { carro: 50, moto: 15 }, 'MED|SUP': { carro: 75, moto: 20 }, 'CD|SUP': { carro: 30, moto: 15 } };
 const DURACAO_MIN = 60; // intervalo mínimo entre viagens do mesmo veículo/motorista (RF-14)
 
 // ---------------- Utilidades ----------------
@@ -100,7 +103,7 @@ const fmtFone = (d) => (d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-$
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 
 // ---------------- Estado ----------------
-const KEY = 'mobilab-sim-v6';
+const KEY = 'mobilab-sim-v7';
 let S;
 function load() { try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* sem storage: segue em memória */ } }
@@ -136,9 +139,20 @@ function seed() {
     r({ id: 'SOL-1056', tipo: 'cidade', nome: 'Pedro Araújo', email: 'pedro.araujo@natulab.com.br', cc: '4030 – Suprimentos', data: hoje, hora: hAgora, origem: 'MED', destino: 'Centro – Fornecedor de embalagens', pax: 1, bag: 'nenhuma', just: 'Aprovação de amostra de embalagem', status: 'confirmada', veiculo: 'V2', motorista: 'D2', wpp: nowStamp() }),
     r({ id: 'SOL-1057', tipo: 'inter', nome: 'Quésia Lima', email: 'quesia.lima@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: d1, hora: '08:15', origem: 'MED', destino: 'Laboratório Central – Salvador', pax: 1, bag: 'pequena', just: 'Entrega urgente de laudo', status: 'gestor', ...g('3020') }),
   );
+  // Viagens já concluídas no mês, para o relatório de custos (inclui o exemplo do dono: TI até o CD e Garantia até a Life).
+  const dias = (k) => ymd(addDays(new Date(), -k));
+  const fz = (o) => r({ status: 'concluida', wpp: nowStamp(), bag: 'nenhuma', ...o });
+  reqs.push(
+    fz({ id: 'SOL-1058', tipo: 'grade', nome: 'Ana Souza', email: 'ana.souza@natulab.com.br', cc: '4010 – Tecnologia da Informação', data: dias(9), hora: '08:40', origem: 'MED', destino: 'CD', pax: 1, just: 'Inventário de equipamentos', veiculo: 'V2', motorista: 'D1' }),
+    fz({ id: 'SOL-1059', tipo: 'grade', nome: 'Bruno Lima', email: 'bruno.lima@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: dias(9), hora: '08:40', origem: 'MED', destino: 'SUP', pax: 1, just: 'Auditoria de linha', veiculo: 'V2', motorista: 'D1' }),
+    fz({ id: 'SOL-1060', tipo: 'cidade', nome: 'Elisa Prado', email: 'elisa.prado@natulab.com.br', cc: '6010 – Comercial', data: dias(3), hora: '10:00', origem: 'MED', destino: 'Centro – Cartório de Notas', pax: 1, just: 'Reconhecimento de firma', veiculo: 'V3', motorista: 'D2' }),
+    fz({ id: 'SOL-1061', tipo: 'moto', nome: 'Kátia Ramos', email: 'katia.ramos@natulab.com.br', cc: '4030 – Suprimentos', data: dias(2), hora: '10:30', origem: 'MED', destino: 'CD', ...item('Notas fiscais', 1, 'pequeno', 'Recebimento do CD'), just: 'Conferência', veiculo: 'M1', motorista: 'D3', os: 'OS-2026-000118' }),
+    fz({ id: 'SOL-1062', tipo: 'moto', nome: 'Lucas Martins', email: 'lucas.martins@natulab.com.br', cc: '3020 – Garantia da Qualidade', data: dias(2), hora: '10:30', origem: 'MED', destino: 'CD', ...item('Amostras de retenção', 1, 'pequeno', 'Laboratório CQ – CD'), just: 'Transferência', veiculo: 'M1', motorista: 'D3', os: 'OS-2026-000118' }),
+  );
   return {
     user: null, reqs, motoristas: SEED_MOTORISTAS.map((m) => ({ ...m })), grade: SEED_GRADE.map((g) => ({ ...g, paradas: [...g.paradas] })),
-    log: [], seq: { req: 1057, os: 122, mot: 4, grade: SEED_GRADE.length }, week: 0,
+    log: [], seq: { req: 1062, os: 122, mot: 4, grade: SEED_GRADE.length }, week: 0,
+    tarifas: JSON.parse(JSON.stringify(SEED_TARIFAS)), valores: { [`${dias(3)}|10:00|V3|D2`]: 38 },
   };
 }
 
@@ -231,13 +245,13 @@ function route() {
   if (page !== 'visao') UI.vx = null; // sair da tela expandida ao trocar de página
   route.page = page;
   ({ visao: renderVisao, agenda: renderAgenda, minhas: renderMinhas, painel: renderPainel, viagens: renderViagens, solicitacoes: renderTodas, motoristas: renderMotoristas,
-    grade: renderGrade, historico: renderHistorico, cadastros: renderCadastros })[page](page);
+    grade: renderGrade, custos: renderCustos, historico: renderHistorico, cadastros: renderCadastros })[page](page);
 }
 window.addEventListener('hashchange', route);
 
 // Perfis → telas. TI / Administração do sistema tem acesso a tudo.
 const NAV_COLAB = [['agenda', 'Agenda'], ['minhas', 'Minhas solicitações']];
-const NAV_FAC = [['visao', 'Visão geral'], ['painel', 'Painel'], ['viagens', 'Viagens'], ['solicitacoes', 'Solicitações'], ['motoristas', 'Motoristas'], ['grade', 'Grade e rotas']];
+const NAV_FAC = [['visao', 'Visão geral'], ['painel', 'Painel'], ['viagens', 'Viagens'], ['solicitacoes', 'Solicitações'], ['motoristas', 'Motoristas'], ['grade', 'Grade e rotas'], ['custos', 'Custos']];
 const NAV = {
   colaborador: NAV_COLAB,
   facilities: NAV_FAC,
@@ -1384,6 +1398,7 @@ function renderViagens(page) {
     const [t1, t2] = trajeto(v);
     const busca = [v.rs.map((r) => `${r.id} ${r.nome} ${r.os || ''} ${siteName(r.origem)} ${siteName(r.destino)}`).join(' '), m.nome, ve.nome, ve.placa, TIPOS[v.tipo]].join(' ').toLowerCase();
     const mails = [...new Set(v.rs.filter((r) => r.mail).map((r) => r.nome))];
+    const rt = ratear(v);
     return `<article class="vc ${cls}" data-i="${i}" data-q="${esc(busca)}">
       <header class="vc-h">
         <div class="vc-date"><small>${DIAS[d.getDay()].slice(0, 3)}</small><b>${pad(d.getDate())}</b></div>
@@ -1394,6 +1409,11 @@ function renderViagens(page) {
         <div class="vc-f">${ico('user', 18)}<div><small>${v.tipo === 'moto' ? 'Motociclista' : 'Motorista'}</small><b>${esc(m.nome)}</b><span>${esc(fmtFone(m.fone))}</span></div></div>
         <div class="vc-f">${ico(v.tipo === 'moto' ? 'moto' : 'car', 18)}<div><small>Veículo</small><b>${esc(ve.nome)}</b><span>${esc(ve.placa)}</span></div></div>
         <div class="vc-f">${ico('route', 18)}<div><small>Trajeto</small><b>${esc(t1)}</b><span>${esc(t2)}</span></div></div>
+      </div>
+      <div class="vc-cost">
+        <label class="vc-val"><small>Valor da corrida</small><span class="money">R$ <input class="vval" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.manual ? rt.total : ''}" placeholder="${rt.padrao != null ? rt.padrao.toFixed(2) : 'informe'}" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Valor da corrida"></span>
+          <em>${rt.manual ? `informado pela Noemia${rt.padrao != null ? ` · tabela ${brl(rt.padrao)}` : ''}` : rt.padrao != null ? 'pela tabela de valores' : 'sem valor na tabela — informe'}</em></label>
+        <div class="vc-rat"><small>Divisão por setor</small>${rt.total != null ? `<div class="chips">${rateioChips(rt)}</div>${rt.legs.length > 1 ? `<span class="legs">${rt.legs.map((l) => `${esc(siteName(l.de))} → ${esc(siteName(l.para))}: ${brl(l.valor)} (${l.ccs.map(setorCurto).map(esc).join(' + ')})`).join(' · ')}</span>` : ''}` : '<span class="warn-t">Aguardando o valor</span>'}</div>
       </div>
       <footer class="vc-ft">
         <div class="vc-sols"><ul>${v.rs.map(linhaSol).join('')}</ul>
@@ -1439,6 +1459,20 @@ function renderViagens(page) {
     const v = list[Number(g.dataset.i)];
     const w = $('.wpp', g), fim = $('.fim', g), nr = $('.nr', g);
     if (w) w.onclick = () => openWpp(v);
+    const vi = $('.vval', g);
+    if (vi) vi.onchange = () => {
+      const raw = String(vi.value).trim().replace(',', '.');
+      S.valores = S.valores || {};
+      const antes = S.valores[v.k];
+      if (raw === '') delete S.valores[v.k];
+      else {
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 0) { toast('Valor inválido.'); return; }
+        S.valores[v.k] = Math.round(n * 100) / 100;
+      }
+      audit('Valor da corrida', v.rs.map((r) => r.id).join(', '), antes == null ? 'tabela' : brl(antes), raw === '' ? 'tabela' : brl(S.valores[v.k]));
+      save(); route(); toast('Valor da corrida atualizado.');
+    };
     if (fim) fim.onclick = () => {
       v.rs.forEach((r) => { audit('Concluída', r.id, STATUS[r.status], 'Concluída'); r.status = 'concluida'; });
       save(); route(); toast('Viagem concluída.');
@@ -1594,6 +1628,207 @@ function openGrade(id) {
     }
     save(); closeModal(); route(); toast('Grade atualizada.');
   };
+}
+
+// ---------------- Custos: valor da corrida e rateio por setor ----------------
+const brl = (n) => (n == null || Number.isNaN(n) ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+const setorCurto = (cc) => (String(cc || '').split('–')[1] || cc || '—').trim();
+const parKey = (a, b) => [a, b].sort().join('|');
+const tabTarifas = () => S.tarifas || (S.tarifas = JSON.parse(JSON.stringify(SEED_TARIFAS)));
+function tarifa(a, b, modal) {
+  a = normLoc(a); b = normLoc(b);
+  if (a === b) return 0;
+  if (!SITES[a] || !SITES[b]) return null; // endereço fora das unidades: a Noemia informa o valor
+  const t = tabTarifas()[parKey(a, b)];
+  const v = t ? t[modal] : null;
+  return v === null || v === undefined || v === '' ? null : Number(v);
+}
+// Rateio de uma viagem (grupo de solicitações no mesmo carro/moto).
+// Grade: o valor de cada trecho = valor da origem da rota até o fim do trecho − valor até o começo dele (acumulado a partir da 1ª parada).
+// Cada trecho é dividido IGUALMENTE entre os SETORES que estão no carro naquele trecho.
+// Ex.: Site 1→CD = 50 e Site 1→Life = 75. TI desce no CD e Garantia vai até a Life:
+//      trecho Site 1→CD (50) = 25 TI + 25 Garantia; trecho CD→Life (75−50 = 25) = Garantia sozinha → Garantia 50, TI 25.
+// Se a Noemia digitar outro valor para a corrida, os trechos são ajustados na mesma proporção.
+function ratear(v) {
+  const modal = v.tipo === 'moto' ? 'moto' : 'carro';
+  const legs = [];
+  if (v.tipo === 'grade') {
+    const slot = slotOf(v.hora);
+    const p = slot ? slot.paradas : [v.rs[0].origem, v.rs[0].destino];
+    for (let k = 0; k < p.length - 1; k++) {
+      const ccs = [...new Set(v.rs.filter((r) => p.indexOf(r.origem) <= k && p.indexOf(r.destino) > k).map((r) => r.cc))];
+      if (!ccs.length) continue;
+      const a = tarifa(p[0], p[k], modal), b = tarifa(p[0], p[k + 1], modal);
+      legs.push({ de: p[k], para: p[k + 1], custo: a == null || b == null ? null : Math.max(0, b - a), ccs });
+    }
+  } else if (v.tipo === 'moto') {
+    const r0 = v.rs[0];
+    legs.push({ de: r0.origem, para: r0.destino, custo: tarifa(r0.origem, r0.destino, 'moto'), ccs: [...new Set(v.rs.map((r) => r.cc))] });
+  } else {
+    v.rs.forEach((r) => {
+      let c = tarifa(r.origem, r.destino, 'carro');
+      if (r.bv && c != null) { const c2 = tarifa(r.destino, r.bv.volta, 'carro'); c = c2 == null ? null : c + c2; }
+      legs.push({ de: r.origem, para: r.bv ? r.bv.volta : r.destino, custo: c, ccs: [r.cc] });
+    });
+  }
+  if (!legs.length) legs.push({ de: v.rs[0].origem, para: v.rs[0].destino, custo: null, ccs: [...new Set(v.rs.map((r) => r.cc))] });
+  const padrao = legs.every((l) => l.custo != null) ? legs.reduce((t, l) => t + l.custo, 0) : null;
+  const vm = (S.valores || {})[v.k];
+  const manual = vm !== undefined && vm !== null;
+  const total = manual ? Number(vm) : padrao;
+  const partes = {};
+  if (total != null) {
+    const cents = Math.round(total * 100);
+    const base = padrao ? legs.map((l) => l.custo) : legs.map(() => 1); // sem tabela: divide igual entre os trechos
+    const soma = base.reduce((a, b) => a + b, 0) || 1;
+    const legC = base.map((b) => Math.floor((cents * b) / soma));
+    let resto = cents - legC.reduce((a, b) => a + b, 0);
+    for (let i = 0; resto > 0; i = (i + 1) % legC.length) { legC[i] += 1; resto -= 1; }
+    legs.forEach((l, i) => {
+      const n = l.ccs.length, cada = Math.floor(legC[i] / n), sobra = legC[i] - cada * n;
+      l.valor = legC[i] / 100;
+      l.ccs.forEach((cc, j) => { partes[cc] = (partes[cc] || 0) + cada + (j < sobra ? 1 : 0); });
+    });
+    Object.keys(partes).forEach((cc) => { partes[cc] /= 100; });
+  }
+  return { total, padrao, manual, partes, legs, modal };
+}
+const rateioChips = (rt) => Object.entries(rt.partes).map(([cc, val]) => `<span class="chip-r"><b>${esc(setorCurto(cc))}</b> ${brl(val)}</span>`).join('');
+
+function renderCustos(page) {
+  const aba = renderCustos.aba || 'relatorio';
+  const mes = renderCustos.mes || ymd(new Date()).slice(0, 7);
+  const prev = !!renderCustos.prev;
+  const tabs = `<div class="seg">${[['relatorio', 'Relatório do mês'], ['tarifas', 'Valores das rotas']].map(([k, l]) => `<button class="seg-b${aba === k ? ' on' : ''}" data-aba="${k}">${l}</button>`).join('')}</div>`;
+  let body = '';
+  if (aba === 'relatorio') {
+    const vs = viagens().filter((v) => v.data.slice(0, 7) === mes && (v.st === 'concluida' || (prev && ['enviar', 'enviada'].includes(v.st))));
+    const porSetor = {};
+    let total = 0;
+    const semValor = [];
+    vs.forEach((v) => {
+      const rt = ratear(v);
+      if (rt.total == null) { semValor.push(v); return; }
+      total += rt.total;
+      Object.entries(rt.partes).forEach(([cc, val]) => {
+        const sx = porSetor[cc] || (porSetor[cc] = { valor: 0, itens: [] });
+        sx.valor += val; sx.itens.push({ v, val, rt });
+      });
+    });
+    const setores = Object.entries(porSetor).sort((a, b) => b[1].valor - a[1].valor);
+    renderCustos.dados = { setores, mes };
+    const [ano, mm] = mes.split('-');
+    body = `
+      <div class="cost-bar">
+        <label class="f-inline">Mês <input type="month" id="cmes" value="${esc(mes)}"></label>
+        <label class="check"><input type="checkbox" id="cprev" ${prev ? 'checked' : ''}> <span>Incluir viagens ainda não concluídas (previsão)</span></label>
+        <span class="spacer"></span>
+        <button class="btn" id="ccsv">Exportar CSV</button>
+      </div>
+      <div class="mini-kpis cost-kpis">
+        <div class="mk"><small>Total do mês</small><b>${brl(total)}</b></div>
+        <div class="mk"><small>Viagens</small><b>${vs.length - semValor.length}</b></div>
+        <div class="mk"><small>Setores</small><b>${setores.length}</b></div>
+        <div class="mk ${semValor.length ? 'warn' : ''}"><small>Sem valor</small><b>${semValor.length}</b></div>
+      </div>
+      ${semValor.length ? `<div class="banner warn">${ico('info', 18)}<div><b>${semValor.length} viagem(ns) sem valor</b> — destino fora das unidades ou rota sem valor na tabela. Informe o valor em <a href="#viagens">Viagens</a>: ${semValor.map((v) => esc(v.rs.map((r) => r.id).join('+'))).join(', ')}.</div></div>` : ''}
+      <div class="card cost-card">
+        <h2 class="section-t">Quanto cada setor deve — ${esc(MESES[Number(mm) - 1])} de ${esc(ano)}</h2>
+        <p class="section-s">${prev ? 'Concluídas + previsão das viagens em aberto.' : 'Somente viagens concluídas.'} Clique no setor para ver as viagens.</p>
+        ${setores.length ? `<div class="cost-list">${setores.map(([cc, sx]) => `
+          <details class="cost-row"><summary><span class="cs-n"><b>${esc(setorCurto(cc))}</b><small>${esc(cc)}</small></span>
+            <span class="cs-q">${sx.itens.length} viagem(ns)</span><span class="cs-bar"><i style="width:${total ? Math.round((sx.valor / total) * 100) : 0}%"></i></span><b class="cs-v">${brl(sx.valor)}</b></summary>
+            <table class="cost-t"><thead><tr><th>Data</th><th>Tipo</th><th>Trajeto</th><th>Solicitações do setor</th><th>Divisão da viagem</th><th>Valor da viagem</th><th>Parte do setor</th></tr></thead><tbody>
+            ${sx.itens.sort((a, b) => at(a.v.data, a.v.hora) - at(b.v.data, b.v.hora)).map(({ v, val, rt }) => `<tr>
+              <td>${fmtDate(v.data)} <small>${esc(v.hora)}</small></td><td>${esc(TIPO_CURTO[v.tipo])}${v.st !== 'concluida' ? ' <small>(previsão)</small>' : ''}</td>
+              <td>${rt.legs.map((l) => `${esc(siteName(l.de))} → ${esc(siteName(l.para))}${l.valor != null ? ` <small>${brl(l.valor)} · ${l.ccs.map(setorCurto).map(esc).join(' + ')}</small>` : ''}`).join('<br>')}</td>
+              <td>${esc(v.rs.filter((r) => r.cc === cc).map((r) => `${r.id} ${r.nome}`).join(', '))}</td>
+              <td><div class="chips">${rateioChips(rt)}</div></td>
+              <td>${brl(rt.total)}${rt.manual ? ' <small>informado</small>' : ' <small>tabela</small>'}</td><td><b>${brl(val)}</b></td></tr>`).join('')}
+            </tbody></table></details>`).join('')}
+          <div class="cost-total"><span>Total</span><b>${brl(total)}</b></div></div>`
+          : '<div class="empty">Nenhuma viagem com valor neste mês.</div>'}
+      </div>`;
+  } else {
+    const pares = [];
+    const ks = Object.keys(SITES);
+    for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) pares.push([ks[i], ks[j]]);
+    const nome = (k) => `${siteName(k)}${SITE_APELIDO[k] ? ` (${SITE_APELIDO[k]})` : ''}`;
+    const t = tabTarifas();
+    // Exemplo ao vivo com a tabela atual
+    const ex = ratear({ tipo: 'grade', hora: (grade().find((g) => g.paradas[0] === 'MED' && g.paradas[g.paradas.length - 1] === 'SUP') || {}).hora, k: '__exemplo__',
+      rs: [{ origem: 'MED', destino: 'CD', cc: '4010 – Tecnologia da Informação' }, { origem: 'MED', destino: 'SUP', cc: '3020 – Garantia da Qualidade' }] });
+    body = `
+      <div class="grid-2">
+        <section class="card"><h2 class="section-t">Valores das rotas</h2>
+          <p class="section-s">Valor de uma corrida entre as unidades (vale para os dois sentidos). Destinos fora das unidades: a Noemia informa o valor na viagem.</p>
+          <table class="tar-t"><thead><tr><th>Trecho</th><th>Táxi (R$)</th><th>Moto (R$)</th></tr></thead><tbody>
+          ${pares.map(([a, b]) => { const v = t[parKey(a, b)] || {}; return `<tr data-k="${parKey(a, b)}"><td>${esc(nome(a))} ↔ ${esc(nome(b))}</td>
+            <td><input class="tv" data-m="carro" type="number" min="0" step="0.01" inputmode="decimal" value="${v.carro ?? ''}" aria-label="Valor táxi"></td>
+            <td><input class="tv" data-m="moto" type="number" min="0" step="0.01" inputmode="decimal" value="${v.moto ?? ''}" aria-label="Valor moto"></td></tr>`; }).join('')}
+          </tbody></table>
+          <div id="tarmsg"></div>
+          <div class="modal-acts"><button class="btn green" id="tsave">Salvar valores</button></div>
+        </section>
+        <section class="card"><h2 class="section-t">Como o valor é dividido</h2>
+          <ul class="help-list">
+            <li>Cada viagem é dividida <b>igualmente entre os setores</b> que estão no carro (não por pessoa).</li>
+            <li>Na grade, a conta é <b>por trecho</b>: o valor até cada parada é contado a partir da saída da rota. Quem desce antes não paga o resto do caminho.</li>
+            <li>Se a Noemia informar outro valor para a corrida, os trechos são ajustados na mesma proporção.</li>
+            <li>Táxi avulso: o setor do solicitante paga sozinho. Moto agrupada: dividida entre os setores dos envios.</li>
+          </ul>
+          <div class="ex-box"><b>Exemplo com a tabela atual</b>
+            <p>TI vai do Site 1 até o CD e Garantia vai do Site 1 até a Life, no mesmo carro.</p>
+            ${ex.total != null ? `<ul>${ex.legs.map((l) => `<li>${esc(siteName(l.de))} → ${esc(siteName(l.para))}: <b>${brl(l.valor)}</b> ÷ ${l.ccs.length} = ${l.ccs.map((cc) => `${esc(setorCurto(cc))} ${brl(l.valor / l.ccs.length)}`).join(' · ')}</li>`).join('')}</ul>
+              <div class="chips">${rateioChips(ex)}</div>` : '<p class="bad-t">Preencha os valores Site 1 ↔ CD e Site 1 ↔ Life para ver o exemplo.</p>'}
+          </div>
+        </section>
+      </div>`;
+  }
+  shell(page, `
+    <div class="pg-head"><div><nav class="crumb"><span>Operação</span>${ico('right', 12)}<b>Custos</b></nav><h1>Custos por setor</h1>
+      <p>Valor de cada corrida, divisão entre os setores e o que cada setor deve no mês.</p></div></div>
+    <div class="toolbar">${tabs}</div>
+    ${body}`);
+  document.querySelectorAll('[data-aba]').forEach((b) => { b.onclick = () => { renderCustos.aba = b.dataset.aba; route(); }; });
+  const cm = $('#cmes'); if (cm) cm.onchange = () => { if (cm.value) { renderCustos.mes = cm.value; route(); } };
+  const cp = $('#cprev'); if (cp) cp.onchange = () => { renderCustos.prev = cp.checked; route(); };
+  const cc = $('#ccsv'); if (cc) cc.onclick = () => csvCustos(renderCustos.dados);
+  const ts = $('#tsave');
+  if (ts) ts.onclick = () => {
+    const novo = {};
+    let erro = '';
+    document.querySelectorAll('.tar-t tr[data-k]').forEach((tr) => {
+      const o = {};
+      tr.querySelectorAll('.tv').forEach((inp) => {
+        const raw = String(inp.value).trim().replace(',', '.');
+        if (raw === '') { o[inp.dataset.m] = null; return; }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 0) erro = 'Valores devem ser números maiores ou iguais a zero.';
+        o[inp.dataset.m] = Math.round(n * 100) / 100;
+      });
+      novo[tr.dataset.k] = o;
+    });
+    if (erro) { $('#tarmsg').innerHTML = `<div class="msg-box bad">${erro}</div>`; return; }
+    const antes = JSON.stringify(tabTarifas());
+    S.tarifas = novo;
+    audit('Valores das rotas alterados', 'Tabela de valores', antes, JSON.stringify(novo));
+    save(); route(); toast('Valores das rotas salvos.');
+  };
+}
+function csvCustos(d) {
+  if (!d || !d.setores.length) { toast('Nada para exportar.'); return; }
+  const q = (v) => { let x = String(v ?? ''); if (/^[=+\-@]/.test(x)) x = `'${x}`; return `"${x.replace(/"/g, '""')}"`; };
+  const num = (n) => Number(n).toFixed(2).replace('.', ',');
+  const head = ['setor', 'centro_custo', 'data', 'hora', 'tipo', 'solicitacoes', 'valor_viagem', 'parte_do_setor'];
+  const lines = [];
+  d.setores.forEach(([cc, sx]) => sx.itens.forEach(({ v, val, rt }) => lines.push([setorCurto(cc), cc, fmtDate(v.data), v.hora, TIPOS[v.tipo], v.rs.map((r) => r.id).join(' '), num(rt.total), num(val)].map(q).join(';'))));
+  d.setores.forEach(([cc, sx]) => lines.push([setorCurto(cc), cc, 'TOTAL DO MÊS', '', '', '', '', num(sx.valor)].map(q).join(';')));
+  const blob = new Blob(['﻿' + [head.join(';'), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `custos_por_setor_${d.mes}.csv`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  audit('Exportação CSV (custos)', d.mes, '', `${d.setores.length} setores`); save();
+  toast('Relatório exportado.');
 }
 
 // ---------------- Aprovação do gestor imediato (vem do AD) ----------------
