@@ -685,3 +685,52 @@ button.vp-h:focus-visible { outline: 3px solid rgba(74, 143, 34, .35); outline-o
 .usr-t .uat.off { color: var(--red); border-color: #f3c4c4; background: #fdf2f2; }
 .tag-ed { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: #e8eefc; color: #2d5bd1; font-size: 10.5px; font-weight: 800; vertical-align: middle; }
 .usr-t td small { color: var(--muted); }
+
+/* ---------- Login (mesmo visual do Portal Natulab, ocupando 95% da tela) ---------- */
+.lg-fundo { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; background: #eef1ec; padding: 2.5vh 2.5vw; }
+.lg-tela { width: 95vw; height: 95vh; height: 95dvh; min-height: 560px; display: grid; grid-template-columns: 1fr 1fr; border-radius: 18px; overflow: hidden; box-shadow: 0 12px 32px #1018141f, 0 2px 6px #1018140d; }
+.lg-marca { position: relative; background: #fff; border-right: 1px solid #e5e8e5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 36px; padding: 48px; }
+.lg-logo svg { display: block; width: min(400px, 72%); height: auto; margin: 0 auto; }
+.lg-logo { width: 100%; text-align: center; }
+.lg-servicos { border-top: 1px solid #e5e8e5; width: min(400px, 80%); padding-top: 24px; display: flex; flex-direction: column; gap: 14px; }
+.lg-frase { margin: 0; color: #1b2420; text-align: center; font-size: 16px; font-weight: 600; }
+.lg-servicos ul { list-style: none; margin: 0; padding: 0; }
+.lg-servicos li { border: 1px solid #e5e8e5; border-radius: 10px; background: #fafbfa; padding: 12px 14px; display: flex; flex-direction: column; }
+.lg-servicos li b { color: #3f6f12; font-size: 15px; font-weight: 700; }
+.lg-servicos li small { color: #5d6862; font-size: 13.5px; margin-top: 1px; }
+.lg-acesso { position: relative; background: #3f7d1c; color: #fff; display: flex; align-items: center; justify-content: center; padding: 48px 32px; }
+.lg-form { width: 100%; max-width: 460px; }
+.lg-form h1 { margin: 0; font-size: 38px; font-weight: 700; letter-spacing: -.5px; color: #fff; }
+.lg-sub { color: #fffffff5; margin: 6px 0 30px; font-size: 16px; }
+.lg-campo { margin-bottom: 20px; }
+.lg-campo > label { display: block; color: #fff; margin-bottom: 8px; font-size: 15px; font-weight: 600; }
+.lg-input { width: 100%; height: 56px; color: #1b2420; background: #fff; border: 1.5px solid transparent; border-radius: 10px; outline: none; padding: 0 18px; font: inherit; font-size: 16px; box-shadow: 0 1px 2px #0a1e0533; transition: border-color .15s, box-shadow .15s; }
+.lg-input:focus { border-color: #73bc25; box-shadow: 0 0 0 4px #73bc258c; }
+.lg-senha { position: relative; }
+.lg-senha .lg-input { padding-right: 60px; }
+.lg-senha button { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); height: 40px; width: 44px; border: 0; background: none; color: #5d6862; border-radius: 6px; display: grid; place-items: center; cursor: pointer; }
+.lg-senha button:hover { background: #f7f8f7; color: #1b2420; }
+.lg-linha { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 6px; }
+.lg-lembrar { display: inline-flex; align-items: center; gap: 10px; font-size: 15px; cursor: pointer; color: #fff; }
+.lg-lembrar input { width: 20px; height: 20px; accent-color: #73bc25; }
+.lg-link { color: #fff; font-size: 15px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.lg-entrar.btn-primary { width: 100%; height: 56px; margin-top: 14px; border: 0; border-radius: 12px; background: #fff; color: #1b2420; font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: none; transition: transform .15s, box-shadow .15s; }
+.lg-entrar.btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px #0000002e; background: #fff; }
+.lg-entrar.btn-primary:disabled { opacity: .85; cursor: progress; }
+.lg-erro { margin-top: 12px; background: #00000030; color: #fff; border-radius: 10px; padding: 10px 12px; font-size: 14px; font-weight: 600; }
+.lg-demo.demo { margin-top: 28px; padding: 16px 0 0; border: 0; border-top: 1px solid #ffffff40; border-radius: 0; background: none; color: #fffc; font-size: 13.5px; }
+.lg-demo.demo p { margin: 0 0 8px; color: #fffc; }
+.lg-demo.demo b { color: #fff; }
+.lg-demo .chips { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.lg-demo .chips button { border: 0; background: none; padding: 0; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.lg-demo .chips button:hover { text-decoration: underline; }
+.lg-rodape { position: absolute; left: 0; right: 0; bottom: 18px; margin: 0; padding: 0 16px; text-align: center; color: #ffffffc7; font-size: 12.5px; }
+.lg-rodape.escuro { color: #8a948e; }
+@media (max-width: 820px) {
+  .lg-fundo { padding: 0; place-items: stretch; }
+  .lg-tela { width: 100%; height: auto; min-height: 100vh; border-radius: 0; grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .lg-marca { border-right: 0; border-bottom: 1px solid #e5e8e5; padding: 28px 24px; }
+  .lg-logo svg { width: min(220px, 60%); }
+  .lg-servicos, .lg-rodape.escuro { display: none; }
+  .lg-acesso { align-items: flex-start; padding: 32px 16px 64px; }
+}

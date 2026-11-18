@@ -441,44 +441,42 @@ const heroArt = `
   </g>
 </svg>`;
 
+const LOGO_NATULAB = `<svg viewBox="0 0 399.96 156.55" xmlns="http://www.w3.org/2000/svg"><path fill="#73bc25" d="M25.88,64.16l17.08,37.59c2.32,5.08,4.21,5.8,9.93,5.8h9.62v-56.25h-9.46l.07,45.29h-.98c-1.46,0-1.93-.9-2.43-1.85l-17.11-37.64c-2.31-5.04-4.29-5.8-9.93-5.8h-9.62v56.25h10.13l-.2-45.19h.98c1.09,0,1.64,1.21,1.9,1.8Z"></path><path fill="#73bc25" d="M86.31,95.08c.35-.91.99-1.36,1.95-1.36h21.26c.96,0,1.6.45,1.95,1.37l4.03,10.26c.54,1.46,1.66,2.2,3.34,2.2h8.98l-22.85-54.2c-.64-1.56-1.58-2.22-3.13-2.22h-5.89c-1.57,0-2.48.64-3.13,2.21l-22.93,54.21h8.97c1.68,0,2.81-.73,3.34-2.18l4.11-10.29ZM90.62,83.44l7.32-20.02h1.81l7.32,20.01c.19.54.14,1.05-.14,1.46-.27.38-.71.6-1.22.6h-13.73c-.51,0-.96-.22-1.22-.6-.28-.4-.33-.92-.14-1.45Z"></path><path fill="#73bc25" d="M171.82,51.3h-46.87l.89,6.59c.24,1.87.88,2.47,2.62,2.47h14.78v47.19h10.29v-47.19h14.85c1.74,0,2.37-.6,2.61-2.46l.83-6.6Z"></path><path fill="#73bc25" d="M226.71,51.3h-10.29v35.95c0,8.34-3.75,11.9-12.54,11.9h-2.46c-8.79,0-12.54-3.56-12.54-11.9v-35.95h-10.29v35.54c0,14.84,6.99,21.46,22.67,21.46h2.83c15.63,0,22.6-6.62,22.6-21.46v-35.54Z"></path><path fill="#73bc25" d="M313.08,17.84c-2.02-2.47-5-3.89-8.2-3.89-2.42,0-4.8.85-6.68,2.38-2.19,1.79-3.55,4.32-3.83,7.13-.1,1.01-.06,2.03.12,3,.49,2.65-.35,5.38-2.25,7.3-1.56,1.58-3.68,2.45-5.86,2.45-.47,0-.94-.04-1.41-.12-.66-.11-1.33-.17-1.99-.17-2.77,0-5.33.95-7.62,2.81-5.64,4.6-6.62,12.75-2.2,18.18,2.36,2.9,5.92,4.56,9.74,4.56.56,0,1.4-.12,1.75-.12,2.09,0,4.02,1.11,5.16,2.85,1.14,1.75,1.35,3.94.55,5.87-.81,1.94-.82,4.09-.05,6.05,1.22,3.11,4.18,5.12,7.52,5.13,1.01,0,2.01-.19,2.96-.56,4.15-1.63,6.19-6.33,4.56-10.48-1.1-2.8-3.53-4.69-6.49-5.06-2.05-.25-3.85-1.5-4.81-3.33-.96-1.83-.96-4.02,0-5.85.05-.09.09-.19.14-.29.62-1.14,1.62-4.17,1.72-5.74.09-1.44-.07-2.88-.49-4.3-.78-2.61-.22-5.44,1.5-7.56,1.57-1.94,3.93-3.05,6.4-3.05.23,0,.46,0,.69.03.29.02.59.04.89.04,2.42,0,4.79-.85,6.68-2.38,4.52-3.68,5.19-10.36,1.51-14.87Z"></path><g fill="#2a4a18"><path d="M65.23,140.97c-.68,0-1.03-.34-1.03-1.03v-11.7c0-1.26.29-2.17.88-2.73.59-.55,1.55-.83,2.91-.83h6.46c.68,0,1.03.34,1.02,1.03v.49c0,.69-.34,1.03-1.02,1.03h-6.16c-1.11,0-1.4.39-1.4,1.21v3.05h6.62c.69,0,1.03.34,1.03,1.03v.49c0,.68-.34,1.03-1.03,1.03h-6.62v5.91c0,.68-.34,1.03-1.03,1.03h-.65Z"></path><path d="M98.53,140.97c-.6,0-.99-.28-1.15-.86l-1.13-3.71h-7.78l-1.14,3.71c-.16.58-.55.86-1.16.86h-.66c-.73,0-1.08-.44-.84-1.16l3.56-11.58c.43-1.38.94-2.35,1.57-2.92.61-.57,1.47-.86,2.56-.86s1.98.28,2.61.86,1.14,1.54,1.53,2.92l3.57,11.58c.21.72-.12,1.16-.86,1.16h-.67ZM89.23,133.91h6.25l-1.64-5.35c-.39-1.27-.76-1.65-1.49-1.65s-1.09.38-1.48,1.65l-1.64,5.35Z"></path><path d="M123.18,139.74c.44.72.16,1.24-.67,1.24h-1.04c-.55,0-.95-.23-1.22-.71l-3.48-6.07h-2.97v5.75c0,.68-.34,1.03-1.03,1.03h-.65c-.68,0-1.03-.34-1.03-1.03v-11.7c0-1.26.29-2.17.88-2.73.59-.55,1.55-.83,2.91-.83h1.97c2.15,0,3.68.29,4.87,1.02,1.18.72,1.77,1.96,1.77,3.73,0,2.64-1.32,4.04-3.9,4.54l3.59,5.76ZM113.79,131.66h3.3c1.36,0,2.31-.18,2.86-.54.55-.36.83-.92.83-1.69s-.27-1.33-.82-1.69c-.55-.35-1.52-.53-2.88-.53h-2.17c-.88,0-1.14.47-1.14,1.21v3.23Z"></path><path d="M135.08,140.97c-.7,0-1.05-.39-.97-1.09l1.53-12.4c.26-2.19,1.09-3.04,2.84-3.04.87,0,1.53.23,1.98.69.45.47.78,1.25,1.02,2.35l2.09,10.31c.06.38.2.56.4.56.2,0,.33-.18.39-.56l2.09-10.31c.23-1.1.58-1.88,1.03-2.35.45-.45,1.1-.69,1.97-.69,1.76,0,2.57.84,2.85,3.04l1.53,12.4c.09.7-.27,1.09-.97,1.09h-.7c-.65,0-1-.32-1.08-.97l-1.48-12.39c-.02-.15-.11-.22-.26-.22-.13,0-.22.06-.26.2l-2.28,11.17c-.31,1.55-1.21,2.2-2.85,2.2s-2.53-.65-2.86-2.2l-2.28-11.17c-.02-.13-.11-.2-.27-.2-.13,0-.22.07-.25.22l-1.49,12.39c-.07.65-.43.97-1.08.97h-.67Z"></path><path d="M177.69,140.97c-.6,0-.99-.28-1.15-.86l-1.13-3.71h-7.78l-1.14,3.71c-.16.58-.55.86-1.16.86h-.66c-.73,0-1.08-.44-.84-1.16l3.56-11.58c.43-1.38.94-2.35,1.57-2.92.61-.57,1.47-.86,2.56-.86s1.98.28,2.61.86,1.14,1.54,1.53,2.92l3.57,11.58c.21.72-.12,1.16-.86,1.16h-.67ZM168.39,133.91h6.25l-1.64-5.35c-.39-1.27-.76-1.65-1.49-1.65s-1.09.38-1.48,1.65l-1.64,5.35Z"></path><path d="M199.83,124.91c.59.16.88.54.88,1.16v.5c0,.72-.45,1.05-1.2.87-5.65-1.31-7.66.77-7.65,5.37-.01,4.63,1.99,6.67,7.65,5.39.73-.18,1.2.13,1.2.86v.5c0,.62-.32,1.03-.97,1.19-4.41,1.08-7.65.16-9.41-2.64-.89-1.41-1.33-3.17-1.33-5.29.01-6.44,4.22-9.64,10.83-7.91Z"></path><path d="M222.81,138.43c.68,0,1.03.34,1.03,1.03v.49c0,.68-.34,1.03-1.03,1.03h-6.93c-1.36,0-2.33-.28-2.91-.84-.59-.55-.88-1.46-.88-2.72v-9.17c0-1.26.29-2.17.88-2.73.59-.55,1.55-.83,2.91-.83h6.46c.68,0,1.03.34,1.02,1.03v.49c0,.69-.34,1.03-1.02,1.03h-6.16c-1.11,0-1.4.39-1.4,1.21v3.05h6.29c.68,0,1.03.34,1.03,1.03v.48c0,.69-.34,1.03-1.03,1.03h-6.29v3.19c0,.82.28,1.21,1.4,1.21h6.62ZM218.32,121.73l-2.51,1.1c-.59.26-1.03.15-1.33-.36-.29-.48-.13-.89.48-1.25l2.64-1.44c.47-.26.93-.27,1.41-.01l2.68,1.46c.61.34.77.76.48,1.25-.31.5-.76.61-1.33.36l-2.51-1.1Z"></path><path d="M248.18,124.68c.68,0,1.03.34,1.03,1.03v8.79c0,2.29-.54,3.98-1.63,5.07s-2.86,1.63-5.35,1.63-4.26-.55-5.34-1.64c-1.09-1.09-1.63-2.77-1.63-5.06v-8.79c0-.68.34-1.03,1.03-1.03h.65c.69,0,1.03.34,1.03,1.03v8.98c0,2.73,1.29,3.95,4.26,3.95s4.27-1.22,4.27-3.95v-8.98c0-.68.34-1.03,1.03-1.03h.65Z"></path><path d="M272.63,124.68c.69,0,1.03.34,1.03,1.03v.5c0,.69-.34,1.03-1.03,1.03h-4.45v12.7c0,.68-.34,1.03-1.03,1.03h-.67c-.69,0-1.03-.34-1.03-1.03v-12.7h-4.45c-.69,0-1.03-.34-1.03-1.03v-.5c0-.68.34-1.03,1.03-1.03h11.64Z"></path><path d="M285.75,140.97c-.68,0-1.03-.34-1.03-1.03v-14.24c0-.68.34-1.03,1.03-1.03h.66c.69,0,1.03.34,1.03,1.03v14.24c0,.68-.34,1.03-1.03,1.03h-.66Z"></path><path d="M310.25,124.91c.59.16.88.54.88,1.16v.5c0,.72-.45,1.05-1.2.87-5.65-1.31-7.66.77-7.65,5.37-.01,4.63,1.99,6.67,7.65,5.39.73-.18,1.2.13,1.2.86v.5c0,.62-.32,1.03-.97,1.19-4.41,1.08-7.65.16-9.41-2.64-.89-1.41-1.33-3.17-1.33-5.29.01-6.44,4.22-9.64,10.83-7.91Z"></path><path d="M335.35,140.97c-.6,0-.99-.28-1.15-.86l-1.13-3.71h-7.78l-1.14,3.71c-.16.58-.55.86-1.16.86h-.66c-.73,0-1.08-.44-.84-1.16l3.56-11.58c.43-1.38.94-2.35,1.57-2.92.61-.57,1.47-.86,2.56-.86s1.98.28,2.61.86,1.14,1.54,1.53,2.92l3.57,11.58c.21.72-.12,1.16-.86,1.16h-.67ZM326.05,133.91h6.25l-1.64-5.35c-.39-1.27-.76-1.65-1.49-1.65s-1.09.38-1.48,1.65l-1.64,5.35Z"></path></g><path fill="#2a4a18" d="M275.38,107.64h-26.51c-8.96,0-13.29-4.81-13.29-14.51v-41.84h11.84v40.8c0,3.69,1.23,4.89,4.98,4.89h18.56c2.17,0,3.18.96,3.47,3.21l.94,7.45Z"></path><path fill="#2a4a18" d="M378.85,78.06v-.56c3.83-1.68,5.92-5.29,5.92-9.86v-2.16c0-9.14-5.2-14.19-15.67-14.19h-30.33v56.35h31.56c12.06,0,16.61-6.33,16.61-14.67v-2.81c0-6.57-2.82-10.74-8.09-12.1ZM368.45,61.95c3.39,0,4.98,1.6,4.98,5.05v1.76c0,3.45-1.59,5.05-4.98,5.05h-17.84v-11.86h17.84ZM375.09,91.77c0,3.53-1.52,5.21-5.27,5.21h-19.21v-13.14h19.21c3.76,0,5.27,1.76,5.27,5.21v2.73Z"></path><path fill="#2a4a18" d="M314.81,53.35c-.64-1.56-1.58-2.22-3.13-2.22h-8.41l12.18,32.3c.19.54.14,1.05-.14,1.46-.27.38-.71.6-1.22.6l-21.76-.2c-2.81-.03-5.35,1.64-6.44,4.23l-7.63,18.04h8.97c1.68,0,2.81-.73,3.34-2.18l4.11-10.29c.35-.91.99-1.36,1.95-1.36h21.26c.96,0,1.6.45,1.95,1.37l4.03,10.26c.54,1.46,1.66,2.2,3.34,2.2h8.98l-21.38-54.2Z"></path></svg>`;
+
 function renderLogin() {
   app().innerHTML = `
-  <div class="login-wrap"><div class="login">
-    <section class="login-hero">
-      <h1>Mobilab</h1>
-      <div class="sub">Táxi e Moto Táxi corporativo</div>
-      <div class="art">${heroArt}</div>
-      <div class="hero-foot">
-        <div class="contact"><span><b>SAC</b> 0800 730 7370</span><span>|</span><b>natulab.com.br</b></div>
-        <div class="hero-tag">Bem-estar todos os dias</div>
-        <div class="hero-bottom">
-          <div class="lead">Solicite, acompanhe e organize seus deslocamentos entre os sites.</div>
-          <span class="hero-pill">Natulab</span>
-        </div>
+  <div class="lg-fundo"><div class="lg-tela">
+    <section class="lg-marca" aria-label="Natulab">
+      <div class="lg-logo">${LOGO_NATULAB}</div>
+      <div class="lg-servicos">
+        <p class="lg-frase">Táxi e Moto Táxi corporativo da Natulab.</p>
+        <ul><li><b>Mobilab</b><small>Solicite, acompanhe e organize seus deslocamentos entre os sites.</small></li></ul>
       </div>
+      <p class="lg-rodape escuro">Copyright © ${new Date().getFullYear()} Mobilab · Natulab · SAC 0800 730 7370</p>
     </section>
-    <section class="login-form">
-      <div class="login-top">${brand}<span class="chip-brand"><i></i>Mobilab</span></div>
-      <h2>Bem-vindo de volta</h2>
-      <p class="hint">Informe suas credenciais abaixo para acessar sua conta.</p>
-      <form id="lf" novalidate>
-        <div class="field"><label for="em">E-mail</label><input class="input" id="em" type="email" placeholder="seuemail@exemplo.com" autocomplete="username"></div>
-        <div class="field"><label for="pw">Senha</label><div class="pw"><input class="input" id="pw" type="password" placeholder="Digite sua senha" autocomplete="current-password">
-          <button type="button" id="eye" aria-label="Mostrar senha"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
-        <div class="row-between"><label class="check"><input type="checkbox" checked> Lembrar de mim</label><a class="link-strong" href="#" id="forgot">Esqueci minha senha</a></div>
-        <button class="btn-primary" type="submit">Entrar</button>
-        <div id="lerr" class="err" hidden></div>
-      </form>
-      <div class="demo">
-        <p><b>Simulação:</b> qualquer senha funciona. Entre como:</p>
-        <div class="chips">
-          <button data-em="colaborador@natulab.com.br">Colaborador</button>
-          <button data-em="ricardo.alves@natulab.com.br">Gestor</button>
-          <button data-em="facilities@natulab.com.br">Facilities</button>
-          <button data-em="ti@natulab.com.br">TI / Administração</button>
+    <section class="lg-acesso">
+      <div class="lg-form">
+        <h1>Mobilab</h1>
+        <p class="lg-sub">Informe suas credenciais abaixo para acessar sua conta.</p>
+        <form id="lf" novalidate>
+          <div class="lg-campo"><label for="em">E-mail</label><input class="lg-input" id="em" type="email" placeholder="seuemail@exemplo.com" autocomplete="username"></div>
+          <div class="lg-campo"><label for="pw">Senha</label><div class="lg-senha"><input class="lg-input" id="pw" type="password" placeholder="Digite sua senha" autocomplete="current-password">
+            <button type="button" id="eye" aria-label="Mostrar senha"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div></div>
+          <div class="lg-linha"><label class="lg-lembrar"><input type="checkbox" checked> Lembrar de mim</label><a class="lg-link" href="#" id="forgot">Esqueci minha senha</a></div>
+          <button class="btn-primary lg-entrar" type="submit">Entrar</button>
+          <div id="lerr" class="lg-erro" hidden></div>
+        </form>
+        <div class="demo lg-demo">
+          <p><b>Simulação:</b> qualquer senha funciona. Entre como:</p>
+          <div class="chips">
+            <button data-em="colaborador@natulab.com.br">Colaborador</button>
+            <button data-em="ricardo.alves@natulab.com.br">Gestor</button>
+            <button data-em="facilities@natulab.com.br">Facilities</button>
+            <button data-em="ti@natulab.com.br">TI / Administração</button>
+          </div>
         </div>
       </div>
-      <div class="login-foot">Copyright © ${new Date().getFullYear()} Mobilab · Natulab</div>
+      <p class="lg-rodape">natulab.com.br · Bem-estar todos os dias</p>
     </section>
   </div></div>`;
   $('#eye').onclick = () => { const p = $('#pw'); p.type = p.type === 'password' ? 'text' : 'password'; };
