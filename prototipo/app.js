@@ -525,7 +525,8 @@ const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sáb
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const SITE_CURTO = { MED: 'Medicamentos', CD: 'CD', SUP: 'Suplementos' };
 const curto = (c) => SITE_CURTO[c] || siteName(c);
-const UI = { per: 'todos', view: 'grade', sel: null }; // estado só da tela (não persiste)
+const UI = { per: 'todos', view: 'grade', sel: null, faixa: 'semana', dia: null, mes: 0 }; // estado só da tela (não persiste)
+const proxUtil = (d, passo = 1) => { let x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); while (!isWeekday(x)) x = addDays(x, passo); return x; };
 
 function weekLabel(a, b) {
   if (a.getMonth() === b.getMonth()) return `${pad(a.getDate())} – ${pad(b.getDate())} de ${MESES[b.getMonth()]}, ${b.getFullYear()}`;
@@ -582,8 +583,25 @@ function painelSlot(sel, min, mine) {
 }
 
 function renderAgenda(page) {
-  const base = addDays(mondayOf(new Date()), S.week * 7);
-  const days = [0, 1, 2, 3, 4].map((i) => addDays(base, i));
+  const hojeD = new Date();
+  let days, navTit, navTxt;
+  if (UI.faixa === 'dia') {
+    const d = UI.dia ? at(UI.dia, '00:00') : proxUtil(hojeD);
+    days = [d];
+    navTit = ymd(d) === ymd(hojeD) ? 'Hoje' : 'Dia';
+    navTxt = `${DIAS[d.getDay()]}, ${pad(d.getDate())} de ${MESES[d.getMonth()]}`;
+  } else if (UI.faixa === 'mes') {
+    const m0 = new Date(hojeD.getFullYear(), hojeD.getMonth() + UI.mes, 1);
+    days = [];
+    for (let d = m0; d.getMonth() === m0.getMonth(); d = addDays(d, 1)) if (isWeekday(d)) days.push(d);
+    navTit = UI.mes === 0 ? 'Mês atual' : UI.mes < 0 ? 'Mês anterior' : 'Próximo mês';
+    navTxt = `${MESES[m0.getMonth()].replace(/^./, (c) => c.toUpperCase())} de ${m0.getFullYear()}`;
+  } else {
+    const base = addDays(mondayOf(hojeD), S.week * 7);
+    days = [0, 1, 2, 3, 4].map((i) => addDays(base, i));
+    navTit = S.week === 0 ? 'Semana atual' : S.week < 0 ? 'Semana anterior' : 'Próxima semana';
+    navTxt = weekLabel(days[0], days[4]);
+  }
   const min = minAllowedGrade();
   const off = offHoursTarget();
   const todayStr = ymd(new Date());
@@ -623,7 +641,24 @@ function renderAgenda(page) {
       return `<tr class="sc s-${i.cls}${sel ? ' sel' : ''}" data-d="${ds}" data-h="${s.hora}" tabindex="0"><td>${DIAS[d.getDay()]} <small>${fmtDate(ds)}</small></td><td><b>${s.hora}</b></td>
         <td>${esc(s.paradas.map(curto).join(' → '))}</td><td>${vagasTxt(i.livres)}</td><td><span class="sp sp-${i.cls}"><i></i>${esc(i.lbl)}</span></td></tr>`;
     }).join('')).join('')}</tbody></table></div></div>`;
+  // Mês: um quadradinho por dia útil com o que ainda dá para solicitar; clicar abre o dia
+  const mesGrid = () => {
+    const vazios = (days[0].getDay() + 6) % 7; // segunda = 0
+    const cel = (d) => {
+      const ds = ymd(d), vis = g.filter((s) => aberto(ds, s));
+      const meus = mine.filter((r) => r.tipo === 'grade' && r.data === ds && ATIVOS.includes(r.status)).length;
+      const vagas = vis.reduce((n, s) => n + slotInfo(ds, s, min, mine).livres, 0);
+      const enc = g.length && !vis.length;
+      return `<button class="mc${ds === todayStr ? ' today' : ''}${enc ? ' encerrado' : ''}" data-dia="${ds}">
+        <span class="mc-d">${pad(d.getDate())}${ds === todayStr ? ' <span class="hoje">Hoje</span>' : ''}</span>
+        ${enc ? '<small>Encerrado</small>' : `<b>${vis.length} ${vis.length === 1 ? 'horário' : 'horários'}</b><small>${vagasTxt(vagas)}</small>`}
+        ${meus ? `<span class="tag">${meus} ${meus === 1 ? 'minha viagem' : 'minhas viagens'}</span>` : ''}</button>`;
+    };
+    return `<div class="mes">${['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'].map((x) => `<div class="mes-h">${x}</div>`).join('')}
+      ${'<div></div>'.repeat(vazios)}${days.map(cel).join('')}</div>`;
+  };
   const seg = (k, l) => `<button class="seg-b${UI.per === k ? ' on' : ''}" data-per="${k}">${l}</button>`;
+  const segF = (k, l) => `<button class="seg-b${UI.faixa === k ? ' on' : ''}" data-faixa="${k}">${l}</button>`;
 
   shell(page, `
     <div class="hero">
@@ -639,25 +674,33 @@ function renderAgenda(page) {
     ${off ? `<div class="banner warn">${ico('clock', 18)}<div><b>Fora do expediente do Facilities.</b> Solicitações da grade feitas agora vão para o <b>2º horário do próximo dia útil: ${esc(fmtDT(off.data, off.hora))}</b>.</div></div>` : ''}
     <div class="toolbar">
       <div class="wk">
-        <button class="icon-btn" id="prev" aria-label="Semana anterior">${ico('left')}</button>
-        <div class="wk-box">${ico('cal', 18)}<span><small>${S.week === 0 ? 'Semana atual' : S.week < 0 ? 'Semana anterior' : 'Próxima semana'}</small><b>${weekLabel(days[0], days[4])}</b></span></div>
-        <button class="icon-btn" id="next" aria-label="Próxima semana">${ico('right')}</button>
+        <button class="icon-btn" id="prev" aria-label="Anterior">${ico('left')}</button>
+        <div class="wk-box">${ico('cal', 18)}<span><small>${navTit}</small><b>${navTxt}</b></span></div>
+        <button class="icon-btn" id="next" aria-label="Próximo">${ico('right')}</button>
         <button class="btn" id="hoje">Hoje</button>
       </div>
       <div class="wk">
         <span class="lbl">${ico('filter', 16)} Período</span>
         <div class="seg">${seg('todos', 'Todos')}${seg('Manhã', 'Manhã')}${seg('Tarde', 'Tarde')}</div>
+        <div class="seg">${segF('dia', 'Dia')}${segF('semana', 'Semana')}${segF('mes', 'Mês')}</div>
         <div class="seg view"><button class="seg-b${UI.view === 'grade' ? ' on' : ''}" data-view="grade" aria-label="Ver em grade">${ico('grid', 16)}</button><button class="seg-b${UI.view === 'lista' ? ' on' : ''}" data-view="lista" aria-label="Ver em lista">${ico('list', 16)}</button></div>
       </div>
     </div>
     <div class="ag-body">
-      <div class="ag-main">${UI.view === 'grade' ? `<div class="cal-scroll"><div class="week">${days.map(col).join('')}</div></div>` : lista()}</div>
+      <div class="ag-main">${UI.view !== 'grade' ? lista() : UI.faixa === 'mes' ? mesGrid() : `<div class="cal-scroll"><div class="week${UI.faixa === 'dia' ? ' um' : ''}">${days.map(col).join('')}</div></div>`}</div>
       <aside class="det" id="det">${painelSlot(UI.sel, min, mine)}</aside>
     </div>`);
 
-  $('#prev').onclick = () => { S.week -= 1; save(); route(); };
-  $('#next').onclick = () => { S.week += 1; save(); route(); };
-  $('#hoje').onclick = () => { S.week = 0; save(); route(); };
+  const andar = (n) => {
+    if (UI.faixa === 'dia') { const d = proxUtil(addDays(days[0], n), n); UI.dia = ymd(d); route(); }
+    else if (UI.faixa === 'mes') { UI.mes += n; route(); }
+    else { S.week += n; save(); route(); }
+  };
+  $('#prev').onclick = () => andar(-1);
+  $('#next').onclick = () => andar(1);
+  $('#hoje').onclick = () => { S.week = 0; UI.dia = null; UI.mes = 0; save(); route(); };
+  document.querySelectorAll('[data-faixa]').forEach((b) => { b.onclick = () => { UI.faixa = b.dataset.faixa; route(); }; });
+  document.querySelectorAll('.mc').forEach((b) => { b.onclick = () => { UI.faixa = 'dia'; UI.dia = b.dataset.dia; route(); }; });
   $('#avulsa').onclick = openAvulsa;
   document.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { UI.per = b.dataset.per; route(); }; });
   document.querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => { UI.view = b.dataset.view; route(); }; });
