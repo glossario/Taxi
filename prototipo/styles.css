@@ -194,6 +194,7 @@ main { padding: 24px 0; width: 98%; margin: 0 auto; } /* usa 98% da largura da t
 .week { display: grid; grid-template-columns: repeat(5, minmax(158px, 1fr)); gap: 10px; min-width: 820px; }
 .day { background: #eaede4; border: 1.5px solid transparent; border-radius: 14px; overflow: hidden; }
 .day.today { border-color: #8cc56a; background: #e6eedc; }
+.day.encerrado { background: repeating-linear-gradient(-45deg, #eef0ea 0 10px, #e4e7df 10px 20px); }
 .day-h { background: #fff; padding: 12px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
 .day.today .day-h { background: #f3f9ec; }
 .day-h b { color: var(--navy-ink); font-size: 14px; }

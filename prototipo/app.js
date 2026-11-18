@@ -603,19 +603,22 @@ function renderAgenda(page) {
       <span class="sc-m"><span>${via ? `via ${esc(via)}` : 'direto'}</span><span>${i.veic}</span></span>
       <span class="bar"><i style="width:${i.pct}%"></i></span></button>`;
   };
+  const aberto = (ds, s) => slotInfo(ds, s, min, mine).cls !== 'indisp'; // a viagem já marcada pela pessoa continua aparecendo
   const col = (d) => {
     const ds = ymd(d), hoje = ds === todayStr;
-    let html = `<section class="day${hoje ? ' today' : ''}"><div class="day-h"><b>${DIAS[d.getDay()]}</b>${hoje ? '<span class="hoje">Hoje</span>' : ''}<small>${pad(d.getDate())} ${MESES[d.getMonth()].slice(0, 3)}</small></div><div class="day-b">`;
+    const vis = g.filter((s) => aberto(ds, s)); // horário que já passou (não dá mais para solicitar) some da agenda
+    const encerrado = g.length && !vis.length;
+    let html = `<section class="day${hoje ? ' today' : ''}${encerrado ? ' encerrado' : ''}"><div class="day-h"><b>${DIAS[d.getDay()]}</b>${hoje ? '<span class="hoje">Hoje</span>' : ''}<small>${pad(d.getDate())} ${MESES[d.getMonth()].slice(0, 3)}</small></div><div class="day-b">`;
     if (!g.length) html += '<div class="empty">Nenhum horário.</div>';
     ['Manhã', 'Tarde', 'Noite'].forEach((per) => {
-      const ss = g.filter((s) => periodo(s.hora) === per);
+      const ss = vis.filter((s) => periodo(s.hora) === per);
       if (!ss.length) return;
       html += `<div class="per"><span>${per}</span><small>${ss.length} ${ss.length === 1 ? 'horário' : 'horários'}</small></div>${ss.map((s) => card(ds, s)).join('')}`;
     });
     return html + '</div></section>';
   };
   const lista = () => `<div class="card lst-wrap"><div class="table-wrap"><table class="lst"><thead><tr><th>Dia</th><th>Horário</th><th>Rota</th><th>Vagas</th><th>Situação</th></tr></thead><tbody>
-    ${days.map((d) => g.map((s) => {
+    ${days.map((d) => g.filter((s) => aberto(ymd(d), s)).map((s) => {
       const ds = ymd(d), i = slotInfo(ds, s, min, mine), sel = UI.sel && UI.sel.d === ds && UI.sel.h === s.hora;
       return `<tr class="sc s-${i.cls}${sel ? ' sel' : ''}" data-d="${ds}" data-h="${s.hora}" tabindex="0"><td>${DIAS[d.getDay()]} <small>${fmtDate(ds)}</small></td><td><b>${s.hora}</b></td>
         <td>${esc(s.paradas.map(curto).join(' → '))}</td><td>${vagasTxt(i.livres)}</td><td><span class="sp sp-${i.cls}"><i></i>${esc(i.lbl)}</span></td></tr>`;
@@ -2420,8 +2423,8 @@ function renderAprovacoes(page) {
     };
   });
 }
-// Visão geral se atualiza sozinha a cada minuto (se nenhuma janela estiver aberta).
-if (typeof setInterval === 'function') setInterval(() => { if (S && S.user && route.page === 'visao' && $('#modal').hidden) route(); }, 60000);
+// Visão geral e Agenda se atualizam sozinhas a cada minuto (se nenhuma janela estiver aberta): na Agenda, o horário que passou some.
+if (typeof setInterval === 'function') setInterval(() => { if (S && S.user && ['visao', 'agenda'].includes(route.page) && $('#modal').hidden) route(); }, 60000);
 
 // ---------------- Boot ----------------
 if (window.MOBILAB_API) Srv.iniciar();
