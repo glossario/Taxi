@@ -486,14 +486,14 @@ function renderLogin() {
   const TESTE_SRV = { 'colaborador@natulab.com.br': 'colaborador', 'ricardo.alves@natulab.com.br': 'gestor', 'facilities@natulab.com.br': 'facilities', 'ti@natulab.com.br': 'ti' };
   if (window.MOBILAB_API) {
     const dm = $('.demo');
-    if (!Srv.teste) dm.hidden = true; else dm.querySelector('p').innerHTML = '<b>Modo de teste</b> (AD ainda não ligado): a senha não é conferida. Entre como:';
+    if (!Srv.teste) dm.hidden = true; else dm.querySelector('p').innerHTML = '<b>Modo de teste</b> (AD ainda não ligado): a senha não é conferida. Digite o login ou e-mail de <b>qualquer usuário do AD</b>, ou entre como:';
   }
   document.querySelectorAll('.demo button').forEach((b) => { b.onclick = () => { $('#em').value = window.MOBILAB_API ? TESTE_SRV[b.dataset.em] : b.dataset.em; $('#pw').value = 'demo'; $('#lf').requestSubmit(); }; });
   $('#lf').onsubmit = async (e) => {
     e.preventDefault();
     if (window.MOBILAB_API) {
       const err = $('#lerr'), bt = $('#lf .btn-primary');
-      if (!$('#em').value.trim() || !$('#pw').value) { err.textContent = 'Informe usuário (ou e-mail) e senha.'; err.hidden = false; return; }
+      if (!$('#em').value.trim() || (!$('#pw').value && !Srv.teste)) { err.textContent = 'Informe usuário (ou e-mail) e senha.'; err.hidden = false; return; }
       bt.disabled = true; err.hidden = true;
       try { location.hash = ''; await Srv.entrar($('#em').value.trim(), $('#pw').value); } catch (ex) { err.textContent = ex.message; err.hidden = false; bt.disabled = false; }
       return;

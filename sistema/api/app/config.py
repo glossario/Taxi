@@ -19,6 +19,8 @@ NOREPLY_PATH = os.getenv('NOREPLY_PATH', '/run/secrets/noreply')
 SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.office365.com')
 SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
 SMTP_ENVIAR = os.getenv('SMTP_ENVIAR', '1') == '1'
+# Testes com usuários reais: todo e-mail vai para este endereço (o assunto mostra quem receberia). Vazio = envio normal.
+EMAIL_REDIRECIONAR = os.getenv('EMAIL_REDIRECIONAR', '').strip().lower()
 
 LDAP_SERVER = os.getenv('LDAP_SERVER', '').strip()
 LDAP_DOMAIN = os.getenv('LDAP_DOMAIN', 'natulab.com.br').strip()

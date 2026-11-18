@@ -45,6 +45,11 @@ class Pessoa(Base):
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
     ultimo_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cc: Mapped[str] = mapped_column(String(200), default='')
+    login: Mapped[str] = mapped_column(String(100), default='', index=True)
+    cargo: Mapped[str] = mapped_column(String(200), default='')
+    gestor_email: Mapped[str] = mapped_column(String(200), default='')
+    gestor_nome: Mapped[str] = mapped_column(String(200), default='')
+    ou: Mapped[str] = mapped_column(String(300), default='')
 
 
 PERFIS = ('colaborador', 'facilities', 'ti')
@@ -54,7 +59,9 @@ def migrar():
     """Colunas novas em tabelas que já existiam (create_all não altera tabela existente)."""
     from .db import engine
     with engine.begin() as c:
-        for col in ("perfil varchar(15)", "ativo boolean not null default true", "ultimo_login timestamptz", "cc varchar(200) not null default ''"):
+        for col in ("perfil varchar(15)", "ativo boolean not null default true", "ultimo_login timestamptz", "cc varchar(200) not null default ''",
+                    "login varchar(100) not null default ''", "cargo varchar(200) not null default ''", "gestor_email varchar(200) not null default ''",
+                    "gestor_nome varchar(200) not null default ''", "ou varchar(300) not null default ''"):
             c.execute(text(f'alter table pessoas add column if not exists {col}'))
 
 
@@ -136,7 +143,10 @@ async def api_login(request: Request):
     try:
         u = auth.login(str(corpo.get('usuario', '')), str(corpo.get('senha', '')))
     except auth.LoginInvalido as ex:
-        return JSONResponse({'erro': str(ex)}, status_code=401)
+        u = _teste_usuario_ad(str(corpo.get('usuario', ''))) if config.LOGIN_TESTE else None
+        if not u:
+            return JSONResponse({'erro': 'Modo de teste: digite o login ou o e-mail de um usuário importado do AD (ou use os botões abaixo).'
+                                 if config.LOGIN_TESTE else str(ex)}, status_code=401)
     with Sessao() as s:
         p = s.get(Pessoa, u['email'])
         if p and not p.ativo:
@@ -146,7 +156,8 @@ async def api_login(request: Request):
             p.perfil = u['perfil']  # registra o perfil vindo da configuração para aparecer certo na lista
         dados = _estado(s).dados or {}
         if not u.get('gestor_de'):
-            u['gestor_de'] = any((r.get('gestor') or {}).get('email', '').lower() == u['email'] for r in dados.get('reqs', []))
+            u['gestor_de'] = any((r.get('gestor') or {}).get('email', '').lower() == u['email'] for r in dados.get('reqs', [])) or \
+                bool(s.scalar(select(func.count()).select_from(Pessoa).where(Pessoa.gestor_email == u['email'], Pessoa.ativo.is_(True))))
         conhecer(s, u)
         auditar(s, u['email'], 'Login', '', '', 'AD' if config.LDAP_SERVER else 'teste')
         s.commit()
@@ -376,7 +387,7 @@ def _ti(request):
 
 
 def _linha_usuario(p):
-    return {'email': p.email, 'nome': p.nome, 'cc': p.cc, 'origem': p.origem, 'ativo': p.ativo,
+    return {'email': p.email, 'nome': p.nome, 'cc': p.cc, 'origem': p.origem, 'ativo': p.ativo, 'cargo': p.cargo, 'gestor': p.gestor_nome,
             'perfil': p.perfil or '', 'padrao': config.perfil_de(p.email),
             'ultimo_login': p.ultimo_login.astimezone(config.FUSO).strftime('%d/%m/%Y %H:%M') if p.ultimo_login else ''}
 
@@ -420,3 +431,41 @@ async def salvar_usuario(request: Request):
         auditar(s, u['email'], 'Usuário alterado' if antes else 'Usuário cadastrado', email, antes, _linha_usuario(p))
         s.commit()
         return {'usuario': _linha_usuario(p)}
+
+
+# ---------------- testes com usuários reais (só com LOGIN_TESTE=1 e sem LDAP) ----------------
+def _teste_usuario_ad(chave):
+    """Entra como um usuário importado do AD, sem senha. Só existe no modo de teste."""
+    chave = chave.strip().lower()
+    if not chave or config.LDAP_SERVER:
+        return None
+    with Sessao() as s:
+        p = s.get(Pessoa, chave) or s.scalars(select(Pessoa).where(func.lower(Pessoa.login) == chave.split('@')[0])).first()
+        if not p or p.origem not in ('ad', 'login') or not p.login:
+            return None
+        return {'email': p.email, 'nome': p.nome, 'cc': p.cc, 'perfil': p.perfil or config.perfil_de(p.email),
+                'gestor': {'nome': p.gestor_nome, 'email': p.gestor_email}}
+
+
+def importar_ad(lista):
+    """Importa/atualiza usuários vindos do AD. Não mexe em perfil nem em bloqueio feito pela TI."""
+    novos = atualizados = 0
+    with Sessao() as s:
+        for x in lista:
+            email = str(x.get('email', '')).strip().lower()
+            if '@' not in email:
+                continue
+            p = s.get(Pessoa, email)
+            if not p:
+                p = Pessoa(email=email, ativo=True)
+                s.add(p)
+                novos += 1
+            else:
+                atualizados += 1
+            p.nome, p.login, p.cc, p.cargo = x.get('nome') or p.nome, x.get('login', ''), x.get('setor', ''), x.get('cargo', '')
+            p.gestor_email, p.gestor_nome, p.ou = str(x.get('gestor_email', '')).lower(), x.get('gestor_nome', ''), x.get('ou', '')
+            if p.origem != 'login':
+                p.origem = 'ad'
+        auditar(s, 'sistema', 'Importação do AD', '', '', f'{novos} novos, {atualizados} atualizados')
+        s.commit()
+    return novos, atualizados

@@ -24,6 +24,8 @@ def enviar(email_id: int, para: str, assunto: str, texto: str, html: str):
     else:
         try:
             user, senha = _credenciais()
+            if config.EMAIL_REDIRECIONAR:  # testes com usuários reais: ninguém de verdade recebe
+                assunto, para = f'[TESTE → {para}] {assunto}', config.EMAIL_REDIRECIONAR
             m = EmailMessage()
             m['From'] = f'Mobilab · Natulab <{user}>'
             m['To'] = para
