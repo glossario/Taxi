@@ -51,6 +51,8 @@ class Pessoa(Base):
     gestor_nome: Mapped[str] = mapped_column(String(200), default='')
     ou: Mapped[str] = mapped_column(String(300), default='')
     travado: Mapped[bool] = mapped_column(Boolean, default=False)  # editado pela TI: o AD não sobrescreve nome/setor/cargo/gestor
+    matricula: Mapped[str] = mapped_column(String(30), default='', index=True)  # base do RH: setor e gestor vêm do RH
+    sem_email: Mapped[bool] = mapped_column(Boolean, default=False)  # conta sem caixa de e-mail (identificada pelo UPN)
 
 
 PERFIS = ('colaborador', 'facilities', 'ti')
@@ -62,7 +64,8 @@ def migrar():
     with engine.begin() as c:
         for col in ("perfil varchar(15)", "ativo boolean not null default true", "ultimo_login timestamptz", "cc varchar(200) not null default ''",
                     "login varchar(100) not null default ''", "cargo varchar(200) not null default ''", "gestor_email varchar(200) not null default ''",
-                    "gestor_nome varchar(200) not null default ''", "ou varchar(300) not null default ''", "travado boolean not null default false"):
+                    "gestor_nome varchar(200) not null default ''", "ou varchar(300) not null default ''", "travado boolean not null default false",
+                    "matricula varchar(30) not null default ''", "sem_email boolean not null default false"):
             c.execute(text(f'alter table pessoas add column if not exists {col}'))
 
 
@@ -109,7 +112,7 @@ def conhecer(s, u):
     s.flush()
     p = s.get(Pessoa, u['email'])
     g = u.get('gestor') or {}
-    if not p.travado:  # sem edição manual: o que veio do AD atualiza o cadastro
+    if not p.travado and not p.matricula:  # sem edição manual e fora da base do RH: o que veio do AD atualiza o cadastro
         p.nome, p.cc = u['nome'] or p.nome, u.get('cc') or p.cc
         if g.get('email'):
             p.gestor_email, p.gestor_nome = g['email'].lower(), g.get('nome') or p.gestor_nome
@@ -266,17 +269,22 @@ def _novos_emails(s, antigo, novo):
         ref = (m.get('refs') or [''])[0]
         env = Envio(id=m['id'], para=para, assunto=str(m.get('assunto', ''))[:300], kind=m.get('kind') or 'confirmacao', ref=ref)
         s.add(env)
-        if not s.get(Pessoa, para):
+        pd = s.get(Pessoa, para)
+        if not pd:
             env.situacao, env.erro = 'bloqueado', 'Destinatário desconhecido (ainda não entrou no sistema nem é gestor de quem entrou).'
+            continue
+        if pd.sem_email:
+            env.situacao, env.erro = 'sem_email', 'Pessoa sem caixa de e-mail: vê o aviso só no Mobilab.'
             continue
         if m.get('kind') == 'aprovacao':
             r = reqs.get(ref)
             if not r or r.get('status') != 'gestor':
                 env.situacao = 'bloqueado'
                 continue
-            para = env.para = str((r.get('gestor') or {}).get('email', '')).lower()  # vale o gestor do AD, não o que a tela mandou
-            if not s.get(Pessoa, para):
-                env.situacao = 'bloqueado'
+            para = env.para = str((r.get('gestor') or {}).get('email', '')).lower()  # vale o gestor do cadastro, não o que a tela mandou
+            pg = s.get(Pessoa, para)
+            if not pg or pg.sem_email:
+                env.situacao = 'bloqueado' if not pg else 'sem_email'
                 continue
             ult = s.scalars(select(Envio).where(Envio.ref == ref, Envio.kind == 'aprovacao', Envio.situacao == 'enviado')
                             .order_by(Envio.criado_em.desc())).first()
@@ -396,7 +404,7 @@ def _ti(request):
 
 def _linha_usuario(p):
     return {'email': p.email, 'nome': p.nome, 'cc': p.cc, 'origem': p.origem, 'ativo': p.ativo, 'cargo': p.cargo, 'gestor': p.gestor_nome,
-            'gestor_email': p.gestor_email, 'login': p.login, 'travado': p.travado,
+            'gestor_email': p.gestor_email, 'login': p.login, 'travado': p.travado, 'matricula': p.matricula, 'sem_email': p.sem_email,
             'perfil': p.perfil or '', 'padrao': config.perfil_de(p.email),
             'ultimo_login': p.ultimo_login.astimezone(config.FUSO).strftime('%d/%m/%Y %H:%M') if p.ultimo_login else ''}
 
@@ -471,7 +479,7 @@ def _teste_usuario_ad(chave):
         return None
     with Sessao() as s:
         p = s.get(Pessoa, chave) or s.scalars(select(Pessoa).where(func.lower(Pessoa.login) == chave.split('@')[0])).first()
-        if not p or p.origem not in ('ad', 'login') or not p.login:
+        if not p or p.origem not in ('ad', 'rh', 'login') or not p.login:
             return None
         return {'email': p.email, 'nome': p.nome, 'cc': p.cc, 'perfil': p.perfil or config.perfil_de(p.email),
                 'gestor': {'nome': p.gestor_nome, 'email': p.gestor_email}}
@@ -493,7 +501,7 @@ def importar_ad(lista):
             else:
                 atualizados += 1
             p.login, p.ou = x.get('login', '') or p.login, x.get('ou', '')
-            if not p.travado:  # editado pela TI no Mobilab: mantém
+            if not p.travado and not p.matricula:  # editado pela TI ou vindo do RH: mantém
                 p.nome, p.cc, p.cargo = x.get('nome') or p.nome, x.get('setor', ''), x.get('cargo', '')
                 p.gestor_email, p.gestor_nome = str(x.get('gestor_email', '')).lower(), x.get('gestor_nome', '')
             if p.origem != 'login':
@@ -501,3 +509,52 @@ def importar_ad(lista):
         auditar(s, 'sistema', 'Importação do AD', '', '', f'{novos} novos, {atualizados} atualizados')
         s.commit()
     return novos, atualizados
+
+
+def setor_bonito(t):
+    """'GARANTIA DA QUALIDADE' → 'Garantia da Qualidade' (mantém siglas curtas como P & D)."""
+    pal = str(t or '').split()
+    return ' '.join(w.lower() if w.lower() in ('de', 'da', 'do', 'das', 'dos', 'e') and i else (w if len(w) <= 2 else w.capitalize())
+                    for i, w in enumerate(pal))
+
+
+def importar_rh(lista, remover_fora=True):
+    """Importa a lista conferida (base do RH + contas do AD). Setor e gestor vêm do RH.
+    remover_fora: apaga quem foi importado antes só pelo AD e não está na lista (nunca entrou, não foi editado)."""
+    novos = atualizados = removidos = 0
+    emails = set()
+    with Sessao() as s:
+        for x in lista:
+            email = str(x['email']).strip().lower()
+            emails.add(email)
+            p = s.get(Pessoa, email)
+            if not p:
+                p = Pessoa(email=email, ativo=True)
+                s.add(p)
+                novos += 1
+            else:
+                atualizados += 1
+            p.login, p.ou, p.sem_email = x.get('login') or p.login, x.get('ou', ''), bool(x.get('sem_email'))
+            p.matricula = str(x.get('matricula') or p.matricula or '')
+            if not p.travado:
+                p.nome = x.get('nome') or p.nome
+                p.cc = setor_bonito(x['setor']) if x.get('matricula') else (x.get('setor') or p.cc)
+                p.cargo = x.get('cargo') or p.cargo
+                if x.get('gestor_email') != email:
+                    p.gestor_email = str(x.get('gestor_email') or '').lower()
+            if p.origem not in ('login', 'cadastro-ti'):
+                p.origem = 'rh' if x.get('matricula') else 'ad'
+        s.flush()
+        nomes = {p.email: p.nome for p in s.scalars(select(Pessoa)).all()}
+        for p in s.scalars(select(Pessoa).where(Pessoa.email.in_(emails))).all():
+            p.gestor_nome = nomes.get(p.gestor_email, '') if p.gestor_email in nomes else ''
+            if p.gestor_email and p.gestor_email not in nomes:
+                p.gestor_email = ''
+        if remover_fora:
+            for p in s.scalars(select(Pessoa).where(Pessoa.origem == 'ad', Pessoa.ultimo_login.is_(None), Pessoa.travado.is_(False))).all():
+                if p.email not in emails:
+                    s.delete(p)
+                    removidos += 1
+        auditar(s, 'sistema', 'Importação RH + AD', '', '', f'{novos} novos, {atualizados} atualizados, {removidos} removidos')
+        s.commit()
+    return novos, atualizados, removidos
