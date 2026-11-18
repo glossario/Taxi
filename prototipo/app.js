@@ -2287,6 +2287,14 @@ const Usr = {
     let u = S.usuarios.find((x) => x.email === email);
     if (!u) { u = { email, nome: dados.nome || email, cc: '', perfil: '', padrao: 'colaborador', ativo: true, origem: 'cadastro-ti', ultimo_login: '' }; S.usuarios.push(u); }
     if (dados.nome) u.nome = dados.nome;
+    ['cc', 'cargo', 'login'].forEach((k) => { if (dados[k] !== undefined) u[k] = dados[k]; });
+    if (dados.gestor_email !== undefined) {
+      if (dados.gestor_email === email) throw new Error('A pessoa não pode ser gestora de si mesma.');
+      const g = S.usuarios.find((x) => x.email === dados.gestor_email);
+      if (dados.gestor_email && !g) throw new Error('Gestor não encontrado. Escolha alguém da lista de usuários.');
+      u.gestor_email = dados.gestor_email; u.gestor = g ? g.nome : '';
+    }
+    if (dados.travado !== undefined) u.travado = dados.travado;
     if (dados.perfil !== undefined) u.perfil = dados.perfil;
     if (dados.ativo !== undefined) u.ativo = dados.ativo;
     audit('Usuário alterado', email, '', `${u.perfil || 'padrão'} · ${u.ativo ? 'ativo' : 'bloqueado'}`); save();
@@ -2294,7 +2302,7 @@ const Usr = {
   },
 };
 const PERFIL_L = { colaborador: 'Colaborador', facilities: 'Facilities', ti: 'TI / Administração' };
-const ORIGEM_L = { login: 'Já entrou', 'gestor-ad': 'Gestor (AD)', 'cadastro-ti': 'Cadastrado pela TI' };
+const ORIGEM_L = { login: 'Já entrou', ad: 'Importado do AD', 'gestor-ad': 'Gestor (AD)', 'cadastro-ti': 'Cadastrado pela TI' };
 async function renderUsuarios(page) {
   shell(page, `<div class="pg-head"><div><nav class="crumb"><span>Administração</span>${ico('right', 12)}<b>Usuários</b></nav><h1>Usuários</h1>
       <p>Quem acessa o Mobilab e com qual perfil. O login é pelo AD; aqui a TI define o perfil e pode bloquear o acesso.</p></div></div>
@@ -2315,13 +2323,15 @@ async function renderUsuarios(page) {
       <label class="search">${ico('search', 16)}<input id="uq" placeholder="Buscar nome, e-mail ou setor…" value="${esc(renderUsuarios.q || '')}" aria-label="Buscar usuário"></label>
       <button class="btn green" id="unovo">${ico('userplus', 16)} Novo usuário</button>
     </div>
-    <div class="card"><div class="table-wrap"><table class="tbl-ap usr-t"><thead><tr><th>Nome</th><th>E-mail</th><th>Setor</th><th>Perfil</th><th>Acesso</th><th>Origem</th><th>Último acesso</th></tr></thead><tbody>
-      ${lista.map((u) => `<tr class="${u.ativo ? '' : 'bloq'}"><td><b>${esc(u.nome || '—')}</b></td><td>${esc(u.email)}</td><td>${esc(u.cc || '—')}</td>
+    <div class="card"><div class="table-wrap"><table class="tbl-ap usr-t"><thead><tr><th>Nome</th><th>E-mail</th><th>Setor</th><th>Gestor imediato</th><th>Perfil</th><th>Acesso</th><th>Origem</th><th>Último acesso</th><th></th></tr></thead><tbody>
+      ${lista.map((u) => `<tr class="${u.ativo ? '' : 'bloq'}"><td><b>${esc(u.nome || '—')}</b>${u.travado ? ' <span class="tag-ed" title="Editado no Mobilab — a importação do AD não altera estes dados">editado</span>' : ''}${u.cargo ? `<br><small>${esc(u.cargo)}</small>` : ''}</td>
+        <td>${esc(u.email)}</td><td>${esc(u.cc || '—')}</td><td>${esc(u.gestor || '—')}</td>
         <td><select class="uperf" data-e="${esc(u.email)}" aria-label="Perfil de ${esc(u.nome)}">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}" ${ef(u) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
         <td><button class="btn-mini uat ${u.ativo ? '' : 'off'}" data-e="${esc(u.email)}">${u.ativo ? 'Ativo' : 'Bloqueado'}</button></td>
-        <td><small>${esc(ORIGEM_L[u.origem] || u.origem || '—')}</small></td><td><small>${esc(u.ultimo_login || '—')}</small></td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nenhum usuário neste filtro.</td></tr>'}
+        <td><small>${esc(ORIGEM_L[u.origem] || u.origem || '—')}</small></td><td><small>${esc(u.ultimo_login || '—')}</small></td>
+        <td><button class="btn sm uedit" data-e="${esc(u.email)}">Editar</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">Nenhum usuário neste filtro.</td></tr>'}
     </tbody></table></div>
-    <p class="section-s" style="margin-top:10px">Mudança de perfil ou bloqueio vale no próximo login da pessoa. Gestor não é perfil: quem é gestor imediato no AD vê a aba Aprovações automaticamente.</p></div>`;
+    <p class="section-s" style="margin-top:10px">Mudanças valem no próximo login da pessoa. Quem foi <b>editado</b> aqui não é alterado pela importação do AD (o Mobilab é a referência). Gestor não é perfil: quem é gestor imediato no AD vê a aba Aprovações automaticamente.</p></div>`;
   const salvar = async (dados, msg) => { try { await Usr.salvar(dados); toast(msg); } catch (e) { toast(e.message || 'Não foi possível salvar.'); } route(); };
   document.querySelectorAll('[data-uf]').forEach((b) => { b.onclick = () => { renderUsuarios.f = b.dataset.uf; route(); }; });
   $('#uq').oninput = (e) => { renderUsuarios.q = e.target.value; clearTimeout(renderUsuarios.t); renderUsuarios.t = setTimeout(() => { route(); setTimeout(() => { const i = $('#uq'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, 300); };
@@ -2333,18 +2343,45 @@ async function renderUsuarios(page) {
       salvar({ email: b.dataset.e, ativo: !bloquear }, bloquear ? 'Acesso bloqueado.' : 'Acesso liberado.');
     };
   });
-  $('#unovo').onclick = () => {
-    openModal(`<h3>Novo usuário</h3><p class="sub">Cadastre antes do primeiro login para já definir o perfil (ex.: alguém do Facilities). O nome e o setor são atualizados pelo AD quando a pessoa entrar.</p>
-      <div class="form-grid"><div class="f full"><label>E-mail corporativo</label><input class="input" id="nue" placeholder="nome.sobrenome@natulab.com.br"></div>
-        <div class="f full"><label>Nome</label><input class="input" id="nun"></div>
-        <div class="f full"><label>Perfil</label><select class="input" id="nup">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div></div>
-      <div id="numsg"></div><div class="modal-acts"><button class="btn" id="nuc">Cancelar</button><button class="btn green" id="nuok">Cadastrar</button></div>`);
-    $('#nuc').onclick = closeModal;
-    $('#nuok').onclick = async () => {
-      try { await Usr.salvar({ email: $('#nue').value, nome: $('#nun').value.trim(), perfil: $('#nup').value }); closeModal(); toast('Usuário cadastrado.'); route(); }
-      catch (e) { $('#numsg').innerHTML = `<div class="msg-box bad">${esc(e.message)}</div>`; }
+  const editor = (u) => {
+    const novo = !u;
+    u = u || { email: '', nome: '', login: '', cc: '', cargo: '', gestor_email: '', gestor: '', perfil: 'colaborador', ativo: true, travado: true };
+    const setores = [...new Set(us.map((x) => x.cc).filter(Boolean))].sort((x, y) => x.localeCompare(y));
+    const gtxt = (x) => `${x.nome} <${x.email}>`;
+    const g0 = us.find((x) => x.email === u.gestor_email);
+    openModal(`<h3>${novo ? 'Novo usuário' : 'Editar usuário'}</h3>
+      <p class="sub">${novo ? 'Cadastre antes do primeiro login ou para quem não está no AD.' : 'Ajuste setor, cargo, gestor e perfil quando houver mudança.'} Os dados editados aqui valem mais que os do AD.</p>
+      <div class="form-grid">
+        <div class="f full"><label>E-mail corporativo</label><input class="input" id="ue_email" value="${esc(u.email)}" ${novo ? '' : 'readonly'} placeholder="nome.sobrenome@natulab.com.br"></div>
+        <div class="f"><label>Nome</label><input class="input" id="ue_nome" value="${esc(u.nome)}"></div>
+        <div class="f"><label>Login de rede</label><input class="input" id="ue_login" value="${esc(u.login || '')}" placeholder="nome.sobrenome"></div>
+        <div class="f"><label>Setor</label><input class="input" id="ue_cc" list="ue_setores" value="${esc(u.cc || '')}"><datalist id="ue_setores">${setores.map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
+        <div class="f"><label>Cargo</label><input class="input" id="ue_cargo" value="${esc(u.cargo || '')}"></div>
+        <div class="f full"><label>Gestor imediato <small>(aprova as viagens intermunicipais)</small></label>
+          <input class="input" id="ue_gestor" list="ue_gestores" value="${g0 ? esc(gtxt(g0)) : ''}" placeholder="Digite o nome e escolha na lista">
+          <datalist id="ue_gestores">${us.filter((x) => x.email !== u.email && x.ativo).map((x) => `<option value="${esc(gtxt(x))}">`).join('')}</datalist></div>
+        <div class="f"><label>Perfil</label><select class="input" id="ue_perfil">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}" ${(u.perfil || u.padrao || 'colaborador') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="f"><label>Acesso</label><select class="input" id="ue_ativo"><option value="1" ${u.ativo ? 'selected' : ''}>Ativo</option><option value="0" ${u.ativo ? '' : 'selected'}>Bloqueado</option></select></div>
+        <div class="f full"><label class="check"><input type="checkbox" id="ue_trava" ${u.travado ? 'checked' : ''}> <span>Manter estes dados mesmo se o AD mudar <small>(a importação do AD não altera nome, setor, cargo e gestor)</small></span></label></div>
+      </div>
+      <div id="uemsg"></div><div class="modal-acts"><button class="btn" id="uec">Cancelar</button><button class="btn green" id="ueok">${novo ? 'Cadastrar' : 'Salvar'}</button></div>`);
+    // mexeu em nome/setor/cargo/gestor: já marca para o AD não desfazer
+    ['#ue_nome', '#ue_cc', '#ue_cargo', '#ue_gestor'].forEach((id) => $(id).addEventListener('input', () => { $('#ue_trava').checked = true; }));
+    $('#uec').onclick = closeModal;
+    $('#ueok').onclick = async () => {
+      const gv = $('#ue_gestor').value.trim();
+      const gm = gv.match(/<([^>]+)>/);
+      const ge = gv ? (gm ? gm[1] : gv).trim().toLowerCase() : '';
+      if (gv && !us.some((x) => x.email === ge)) { $('#uemsg').innerHTML = '<div class="msg-box bad">Escolha o gestor na lista (digite o nome e clique na sugestão).</div>'; return; }
+      const dados = { email: $('#ue_email').value.trim().toLowerCase(), nome: $('#ue_nome').value.trim(), login: $('#ue_login').value.trim(),
+        cc: $('#ue_cc').value.trim(), cargo: $('#ue_cargo').value.trim(), gestor_email: ge, perfil: $('#ue_perfil').value,
+        ativo: $('#ue_ativo').value === '1', travado: $('#ue_trava').checked };
+      try { await Usr.salvar(dados); closeModal(); toast(novo ? 'Usuário cadastrado.' : 'Usuário atualizado.'); route(); }
+      catch (e) { $('#uemsg').innerHTML = `<div class="msg-box bad">${esc(e.message)}</div>`; }
     };
   };
+  $('#unovo').onclick = () => editor(null);
+  document.querySelectorAll('.uedit').forEach((b) => { b.onclick = () => editor(us.find((x) => x.email === b.dataset.e)); });
 }
 
 function renderAprovacoes(page) {

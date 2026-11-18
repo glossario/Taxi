@@ -50,6 +50,7 @@ class Pessoa(Base):
     gestor_email: Mapped[str] = mapped_column(String(200), default='')
     gestor_nome: Mapped[str] = mapped_column(String(200), default='')
     ou: Mapped[str] = mapped_column(String(300), default='')
+    travado: Mapped[bool] = mapped_column(Boolean, default=False)  # editado pela TI: o AD não sobrescreve nome/setor/cargo/gestor
 
 
 PERFIS = ('colaborador', 'facilities', 'ti')
@@ -61,7 +62,7 @@ def migrar():
     with engine.begin() as c:
         for col in ("perfil varchar(15)", "ativo boolean not null default true", "ultimo_login timestamptz", "cc varchar(200) not null default ''",
                     "login varchar(100) not null default ''", "cargo varchar(200) not null default ''", "gestor_email varchar(200) not null default ''",
-                    "gestor_nome varchar(200) not null default ''", "ou varchar(300) not null default ''"):
+                    "gestor_nome varchar(200) not null default ''", "ou varchar(300) not null default ''", "travado boolean not null default false"):
             c.execute(text(f'alter table pessoas add column if not exists {col}'))
 
 
@@ -107,7 +108,14 @@ def conhecer(s, u):
             s.add(Pessoa(email=email.lower(), nome=nome or '', origem=origem, ativo=True))
     s.flush()
     p = s.get(Pessoa, u['email'])
-    p.ultimo_login, p.nome, p.cc = agora(), u['nome'] or p.nome, u.get('cc') or p.cc
+    g = u.get('gestor') or {}
+    if not p.travado:  # sem edição manual: o que veio do AD atualiza o cadastro
+        p.nome, p.cc = u['nome'] or p.nome, u.get('cc') or p.cc
+        if g.get('email'):
+            p.gestor_email, p.gestor_nome = g['email'].lower(), g.get('nome') or p.gestor_nome
+    p.ultimo_login = agora()
+    u['nome'], u['cc'] = p.nome or u['nome'], p.cc or u.get('cc', '')
+    u['gestor'] = {'nome': p.gestor_nome, 'email': p.gestor_email} if p.gestor_email else g
     if not p.perfil and u.get('perfil') in ('facilities', 'ti'):
         p.perfil = u['perfil']
     if p.origem != 'login':
@@ -388,6 +396,7 @@ def _ti(request):
 
 def _linha_usuario(p):
     return {'email': p.email, 'nome': p.nome, 'cc': p.cc, 'origem': p.origem, 'ativo': p.ativo, 'cargo': p.cargo, 'gestor': p.gestor_nome,
+            'gestor_email': p.gestor_email, 'login': p.login, 'travado': p.travado,
             'perfil': p.perfil or '', 'padrao': config.perfil_de(p.email),
             'ultimo_login': p.ultimo_login.astimezone(config.FUSO).strftime('%d/%m/%Y %H:%M') if p.ultimo_login else ''}
 
@@ -420,6 +429,27 @@ async def salvar_usuario(request: Request):
             s.add(p)
         if 'nome' in c and str(c['nome']).strip():
             p.nome = str(c['nome']).strip()[:200]
+        dados_mudaram = False
+        for campo, tam in (('cc', 200), ('cargo', 200), ('login', 100)):
+            if campo in c:
+                v = str(c[campo] or '').strip()[:tam]
+                dados_mudaram |= v != getattr(p, campo)
+                setattr(p, campo, v)
+        if 'gestor_email' in c:
+            ge = str(c['gestor_email'] or '').strip().lower()
+            if ge == email:
+                s.rollback()
+                return JSONResponse({'erro': 'A pessoa não pode ser gestora de si mesma.'}, status_code=400)
+            gp = s.get(Pessoa, ge) if ge else None
+            if ge and not gp:
+                s.rollback()
+                return JSONResponse({'erro': 'Gestor não encontrado. Escolha alguém da lista de usuários.'}, status_code=400)
+            dados_mudaram |= ge != p.gestor_email
+            p.gestor_email, p.gestor_nome = ge, (gp.nome if gp else '')
+        if 'travado' in c:
+            p.travado = bool(c['travado'])
+        elif dados_mudaram or ('nome' in c and antes and c['nome'] != antes.get('nome')):
+            p.travado = True  # editou à mão: a próxima importação do AD não desfaz
         if perfil is not None:
             p.perfil = perfil or None
         if 'ativo' in c:
@@ -462,8 +492,10 @@ def importar_ad(lista):
                 novos += 1
             else:
                 atualizados += 1
-            p.nome, p.login, p.cc, p.cargo = x.get('nome') or p.nome, x.get('login', ''), x.get('setor', ''), x.get('cargo', '')
-            p.gestor_email, p.gestor_nome, p.ou = str(x.get('gestor_email', '')).lower(), x.get('gestor_nome', ''), x.get('ou', '')
+            p.login, p.ou = x.get('login', '') or p.login, x.get('ou', '')
+            if not p.travado:  # editado pela TI no Mobilab: mantém
+                p.nome, p.cc, p.cargo = x.get('nome') or p.nome, x.get('setor', ''), x.get('cargo', '')
+                p.gestor_email, p.gestor_nome = str(x.get('gestor_email', '')).lower(), x.get('gestor_nome', '')
             if p.origem != 'login':
                 p.origem = 'ad'
         auditar(s, 'sistema', 'Importação do AD', '', '', f'{novos} novos, {atualizados} atualizados')
