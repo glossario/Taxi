@@ -302,7 +302,9 @@ function closeModal() { $('#modal').hidden = true; }
 $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if ($('#modal').hidden && UI.vx && route.page === 'visao') { UI.vx = null; route(); } else closeModal();
+  if ($('#modal').hidden && UI.vx && route.page === 'visao') { UI.vx = null; route(); }
+  else if ($('#modal').hidden && UI.sel && route.page === 'agenda') { UI.sel = null; route(); }
+  else closeModal();
 });
 document.addEventListener('click', (e) => { const m = $('#menu'); if (m && !m.hidden && !e.target.closest('.user-wrap')) m.hidden = true; });
 const pill = (st) => `<span class="pill st-${esc(st)}">${esc(STATUS[st] || st)}</span>`;
@@ -557,27 +559,110 @@ function painelSlot(sel, min, mine) {
   const p = slot.paradas;
   const stops = p.map((c, i) => `<li class="${i === 0 ? 'ini' : i === p.length - 1 ? 'fim' : 'mid'}">
       <small>${i === 0 ? 'Saída' : i === p.length - 1 ? 'Destino' : 'Parada'}</small><b>${esc(siteName(c))}</b>${i === 0 ? `<span>${esc(sel.h)}</span>` : i === p.length - 1 && chegadaDe(sel.h) ? `<span>chega até ${esc(chegadaDe(sel.h))}</span>` : ''}</li>`).join('');
+  const res = rascunho(sel);
+  const reservando = !inf.my && !['indisp', 'lotado'].includes(inf.cls);
+  const pax = 1 + res.acomp.length;
+  const capN = reservando ? capSlot(inf.occ + pax) : inf.cap; // passou de 4: a viagem vai de Spin
+  const ficam = capN - inf.occ - pax;
+  const barra = Array.from({ length: capN }, (_, i) => `<i class="${i < inf.occ ? 'oc' : reservando && i < inf.occ + pax ? 'eu' : ''}"></i>`).join('');
   let acao;
   if (inf.my) acao = `<button class="btn-cta" id="go" data-act="ver">Ver minha solicitação</button>`;
   else if (inf.cls === 'indisp') acao = `<button class="btn-cta" disabled>Fora do prazo de solicitação</button><p class="cta-note">Antecedência mínima de 1 h ou regra de expediente.</p>`;
   else if (inf.cls === 'lotado') acao = `<button class="btn-cta" disabled>Horário lotado</button><p class="cta-note">Escolha outro horário ou use a solicitação avulsa.</p>`;
-  else acao = `<button class="btn-cta" id="go" data-act="sol">Solicitar este horário</button>`;
+  else if (ficam < 0) acao = `<button class="btn-cta" disabled>Vagas insuficientes</button><p class="cta-note">Este horário não comporta ${pax} pessoas. Tire alguém da reserva ou escolha outro horário.</p>`;
+  else acao = `<button class="btn-cta" id="go" data-act="sol">${pax > 1 ? `Reservar ${pax} vagas` : 'Reservar minha vaga'}</button>`;
+  const pessoa = (x, i) => {
+    const d = ccPartes(x.cc);
+    return `<li><span class="rs-n"><b>${esc(x.nome)}${i < 0 ? ' <em>(você)</em>' : x.visitante ? ' <em>(visitante)</em>' : ''}</b><small>${esc(x.visitante ? 'Lançado no seu centro de custo' : d.dep || 'Sem departamento')}</small></span>
+      <span class="rs-cc">${x.visitante ? '' : esc(d.cod ? `CC ${d.cod}` : 'Departamento sem centro de custo')}</span>
+      ${i < 0 ? '<span></span>' : `<button type="button" class="rs-x" data-tira="${i}" aria-label="Tirar ${esc(x.nome)} da reserva">${ico('x', 14)}</button>`}</li>`;
+  };
+  const reserva = reservando ? `
+    <div class="rs">
+      <div class="rs-t">Sua reserva <span>(você e quem vai junto)</span></div>
+      <div class="rs-box">
+        <ul>${pessoa({ nome: S.user.nome, cc: S.user.cc }, -1)}${res.acomp.map(pessoa).join('')}</ul>
+        <div class="rs-add">
+          <div class="rs-busca"><input class="input" id="rsq" placeholder="Adicionar colega: digite o nome ou o departamento" autocomplete="off" aria-label="Adicionar colega"><div class="rs-sug" id="rssug" hidden></div></div>
+          <div class="rs-vis" id="rsvis" hidden><input class="input" id="rsvn" placeholder="Nome do visitante" maxlength="120"><button type="button" class="btn sm green" id="rsvok">Adicionar</button></div>
+          <div class="rs-dica"><small>Cada pessoa é lançada no centro de custo do seu departamento.</small><a href="#" id="rsv">Adicionar visitante</a></div>
+        </div>
+      </div>
+      <label class="check rs-carga"><input type="checkbox" id="rscg" ${res.carga ? 'checked' : ''}> <span>Vou levar carga no porta-malas</span></label>
+      ${res.carga ? `<div class="f"><label for="rscgt">O que vai levar</label><input class="input" id="rscgt" value="${esc(res.cargaTxt)}" placeholder="Ex.: caixa de amostras" maxlength="200"></div>` : ''}
+    </div>` : '';
   return `
-    <div class="det-h"><div><span class="eyebrow">Detalhes do transporte</span><div class="det-t">${esc(sel.h)}</div>
+    <div class="det-h"><div><span class="eyebrow">Horário fixo</span><div class="det-t">${esc(sel.h)}</div>
       <span class="sp sp-${inf.cls}"><i></i>${esc(inf.lbl)}</span></div>
       <button class="icon-btn" id="detx" aria-label="Fechar detalhes">${ico('x', 18)}</button></div>
-    <ol class="tl">${stops}</ol>
-    <div class="det-grid">
-      <div>${ico('cal', 18)}<span><small>Data</small>${esc(fmtDate(sel.d))}</span></div>
-      <div>${ico('users', 18)}<span><small>Disponibilidade</small>${inf.livres} de ${inf.cap} vagas</span></div>
-      <div>${ico('route', 18)}<span><small>Itinerário</small>${esc(p.map(curto).join(' → '))}</span></div>
-      <div>${ico('pin', 18)}<span><small>Veículo</small>${v ? `${esc(v.nome)} · ${esc(v.placa)}` : `${inf.veic} (previsto)`}</span></div>
+    <div class="det-corpo">
+      <ol class="tl">${stops}</ol>
+      <div class="det-cards">
+        <div><small>Data</small><b>${esc(diaRel(sel.d))}</b><span>${esc(fmtDate(sel.d))}</span></div>
+        <div><small>Vagas</small><b>${inf.livres} de ${inf.cap} livres</b><span>${reservando ? (ficam >= 0 ? `ficam ${ficam} com a sua reserva` : `faltam ${-ficam} para a sua reserva`) : esc(p.map(curto).join(' → '))}</span><div class="vg-bar">${barra}</div></div>
+        <div><small>Carro</small>${v ? `<b>${esc(v.nome)}</b><span>${esc(v.placa)}</span>` : `<em>A definir pelo aprovador</em><span>previsto: ${esc(veicPrevisto(reservando ? inf.occ + pax : inf.occ))}</span>`}</div>
+        <div><small>Motorista</small>${m ? `<b>${esc(m.nome)}</b>` : '<em>A definir pelo aprovador</em>'}</div>
+      </div>
+      ${reserva}
+      <div class="note">Chegue ao ponto de embarque pelo menos 5 minutos antes.</div>
+      <a href="#" class="det-link" id="pol">Ver política de transporte</a>
     </div>
-    <div class="drv"><span class="avatar ${m ? '' : 'off'}">${m ? esc(initials(m.nome)) : '?'}</span>
-      <span><small>Motorista</small>${m ? esc(m.nome) : 'Definido pelo Facilities na confirmação'}</span></div>
-    <div class="note">Chegue ao ponto de embarque com pelo menos 5 minutos de antecedência.</div>
-    ${acao}
-    <a href="#" class="det-link" id="pol">Ver política de transporte</a>`;
+    <div class="det-pe">${acao}</div>`;
+}
+
+// ---- Rascunho da reserva no painel (quem vai junto + carga). Fica só na tela até virar solicitação.
+function rascunho(sel) {
+  const k = `${sel.d}|${sel.h}`;
+  if (!UI.res || UI.res.k !== k) UI.res = { k, acomp: [], carga: false, cargaTxt: '' };
+  return UI.res;
+}
+const ccPartes = (cc) => { // "4010 – Tecnologia da Informação" → { cod: '4010', dep: 'Tecnologia da Informação' }
+  const t = String(cc || '').trim(), mm = t.match(/^(\d{3,})\s*[–-]?\s*(.*)$/);
+  return mm ? { cod: mm[1], dep: mm[2] || t } : { cod: '', dep: t };
+};
+const diaRel = (ds) => {
+  const hoje = ymd(new Date()), amanha = ymd(addDays(new Date(), 1));
+  return ds === hoje ? 'Hoje' : ds === amanha ? 'Amanhã' : DIAS[at(ds, '12:00').getDay()];
+};
+const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+// Lista de colegas para "Adicionar colega" (nome, e-mail e setor de quem está ativo)
+async function colegas() {
+  if (UI.colegas) return UI.colegas;
+  if (window.MOBILAB_API) {
+    const r = await fetch('/api/pessoas', { cache: 'no-store' }); const j = await r.json();
+    if (!r.ok) throw new Error(j.erro || 'Não foi possível carregar os colegas.');
+    UI.colegas = j.pessoas;
+  } else UI.colegas = (await Usr.listar()).filter((u) => u.ativo).map((u) => ({ nome: u.nome, email: u.email, cc: u.cc }));
+  return UI.colegas;
+}
+function ligarReserva() {
+  const q = $('#rsq');
+  if (!q) return;
+  const res = UI.res, sug = $('#rssug');
+  const redesenha = () => { const det = $('#det'), y = det && $('.det-corpo', det) ? $('.det-corpo', det).scrollTop : 0; route(); const c = $('#det .det-corpo'); if (c) c.scrollTop = y; };
+  document.querySelectorAll('[data-tira]').forEach((b) => { b.onclick = () => { res.acomp.splice(Number(b.dataset.tira), 1); redesenha(); }; });
+  let lista = [];
+  const mostra = async () => {
+    const t = semAcento(q.value.trim());
+    if (t.length < 2) { sug.hidden = true; return; }
+    let todos;
+    try { todos = await colegas(); } catch (e) { sug.innerHTML = `<div class="rs-vazio">${esc(e.message)}</div>`; sug.hidden = false; return; }
+    const ja = new Set([S.user.email, ...res.acomp.map((x) => x.email).filter(Boolean)]);
+    lista = todos.filter((x) => !ja.has(x.email) && semAcento(`${x.nome} ${x.cc}`).includes(t)).slice(0, 8);
+    sug.innerHTML = lista.length ? lista.map((x, i) => `<button type="button" data-i="${i}"><b>${esc(x.nome)}</b><small>${esc(ccPartes(x.cc).dep || '—')}</small></button>`).join('')
+      : '<div class="rs-vazio">Ninguém encontrado. Se não é da Natulab, use “Adicionar visitante”.</div>';
+    sug.hidden = false;
+    sug.querySelectorAll('[data-i]').forEach((b) => { b.onmousedown = (e) => { e.preventDefault(); const x = lista[Number(b.dataset.i)]; res.acomp.push({ nome: x.nome, email: x.email, cc: x.cc }); redesenha(); }; });
+  };
+  q.oninput = () => { clearTimeout(ligarReserva.t); ligarReserva.t = setTimeout(mostra, 150); };
+  q.onblur = () => setTimeout(() => { sug.hidden = true; }, 150);
+  q.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = sug.querySelector('[data-i]'); if (b) b.onmousedown(e); } };
+  $('#rsv').onclick = (e) => { e.preventDefault(); $('#rsvis').hidden = false; $('#rsvn').focus(); };
+  const addVis = () => { const n = $('#rsvn').value.trim(); if (!n) return; res.acomp.push({ nome: n, visitante: true, cc: S.user.cc }); redesenha(); };
+  $('#rsvok').onclick = addVis;
+  $('#rsvn').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); addVis(); } };
+  $('#rscg').onchange = (e) => { res.carga = e.target.checked; redesenha(); if (res.carga) { const i = $('#rscgt'); if (i) i.focus(); } };
+  const cg = $('#rscgt'); if (cg) cg.oninput = () => { res.cargaTxt = cg.value; };
 }
 
 function renderAgenda(page) {
@@ -686,7 +771,7 @@ function renderAgenda(page) {
     </div>
     <div class="ag-body">
       <div class="ag-main">${UI.view !== 'grade' ? lista() : UI.faixa === 'mes' ? mesGrid() : `<div class="cal-scroll"><div class="week${UI.faixa === 'dia' ? ' um' : ''}">${days.map(col).join('')}</div></div>`}</div>
-      <aside class="det" id="det">${painelSlot(UI.sel, min, mine)}</aside>
+      ${UI.sel ? `<div class="det-fundo" id="detf"></div><aside class="det gaveta" id="det" role="dialog" aria-label="Detalhes do horário">${painelSlot(UI.sel, min, mine)}</aside>` : ''}
     </div>`);
 
   const andar = (n) => {
@@ -703,19 +788,22 @@ function renderAgenda(page) {
   document.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { UI.per = b.dataset.per; route(); }; });
   document.querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => { UI.view = b.dataset.view; route(); }; });
   document.querySelectorAll('.notif .mail-row').forEach((b) => { b.onclick = () => openEmail(b.dataset.em); });
-  const pick = (el) => {
-    UI.sel = { d: el.dataset.d, h: el.dataset.h };
-    route();
-    const det = $('#det');
-    if (det && det.scrollIntoView && window.matchMedia && window.matchMedia('(max-width: 1180px)').matches) det.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  const pick = (el) => { UI.sel = { d: el.dataset.d, h: el.dataset.h }; route(); };
   document.querySelectorAll('.sc').forEach((el) => {
     el.onclick = () => pick(el);
     el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(el); } };
   });
   const go = $('#go');
-  if (go) go.onclick = () => openSlot(UI.sel.d, UI.sel.h); // com solicitação ativa, openSlot abre o detalhe dela
-  const x = $('#detx'); if (x) x.onclick = () => { UI.sel = null; route(); };
+  if (go) go.onclick = () => { // com solicitação ativa, openSlot abre o detalhe dela
+    const res = UI.res && UI.res.k === `${UI.sel.d}|${UI.sel.h}` ? UI.res : null;
+    if (go.dataset.act !== 'sol' || !res) return openSlot(UI.sel.d, UI.sel.h);
+    if (res.carga && !res.cargaTxt.trim()) { toast('Informe o que vai levar no porta-malas.'); const i = $('#rscgt'); if (i) i.focus(); return; }
+    openSlot(UI.sel.d, UI.sel.h, { pax: 1 + res.acomp.length, acomp: res.acomp.slice(), carga: res.carga ? res.cargaTxt.trim() : '', bag: res.carga ? 'media' : 'nenhuma' });
+  };
+  const fecha = () => { UI.sel = null; route(); };
+  const x = $('#detx'); if (x) x.onclick = fecha;
+  const fundo = $('#detf'); if (fundo) fundo.onclick = fecha;
+  ligarReserva();
   const pol = $('#pol'); if (pol) pol.onclick = (e) => { e.preventDefault(); openAjuda(); };
 }
 
@@ -786,7 +874,11 @@ function openSlot(data, hora, preset) {
       <div class="f full"><label for="tr">Trecho</label><select id="tr">${trechoOptions(slot.paradas, p.trecho)}</select></div>
       <div class="f"><label for="px">Passageiros</label><input id="px" type="number" min="1" max="${SLOT_CAP}" value="${esc(p.pax || 1)}"><small>Incluindo você. Até ${CAP_PADRAO}: carro · acima: Spin (máx. ${SLOT_CAP})</small></div>
       <div class="f"><label for="bg">Bagagem</label><select id="bg">${bagOptions(p.bag || 'nenhuma')}</select></div>
-      <div class="f full"><label for="nm">Nomes dos acompanhantes <small>(opcional)</small></label><input id="nm" value="${esc(p.nomes || '')}" placeholder="Ex.: Maria Santos, José Lima"></div>
+      ${p.acomp && p.acomp.length ? `<div class="f full"><label>Quem vai junto <small>(cada um no centro de custo do seu departamento)</small></label>
+        <div class="acomp-l">${p.acomp.map((x) => `<span>${esc(x.nome)}<small>${esc(x.visitante ? 'visitante · seu centro de custo' : ccPartes(x.cc).dep || '—')}</small></span>`).join('')}</div>
+        <input id="nm" type="hidden" value="${esc(p.acomp.map((x) => x.nome).join(', '))}"></div>`
+      : `<div class="f full"><label for="nm">Nomes dos acompanhantes <small>(opcional)</small></label><input id="nm" value="${esc(p.nomes || '')}" placeholder="Ex.: Maria Santos, José Lima"></div>`}
+      ${p.carga ? `<div class="f full"><label>Carga no porta-malas</label><input readonly value="${esc(p.carga)}"></div>` : ''}
       <div class="f full"><label for="js">Justificativa</label><textarea id="js" placeholder="Motivo do deslocamento">${esc(p.just || '')}</textarea></div>
       ${retornoHtml('grade')}
     </form>
@@ -848,6 +940,10 @@ function openSlot(data, hora, preset) {
     const form = { trecho: $('#tr').value, pax, bag: $('#bg').value, nomes: $('#nm').value.trim(), just: $('#js').value.trim() };
     const msg = $('#sfmsg');
     if (!Number.isInteger(pax) || pax < 1 || pax > SLOT_CAP) { msg.innerHTML = `<div class="msg-box bad">Informe entre 1 e ${SLOT_CAP} passageiros.</div>`; return; }
+    const nAc = p.acomp ? p.acomp.length : 0;
+    if (pax < 1 + nAc) { msg.innerHTML = `<div class="msg-box bad">São ${1 + nAc} pessoas na reserva (você + ${nAc}). Informe pelo menos ${1 + nAc} passageiros.</div>`; return; }
+    if (p.acomp) form.acomp = p.acomp;
+    if (p.carga) form.carga = p.carga;
     if (!form.just) { msg.innerHTML = '<div class="msg-box bad">Informe a justificativa.</div>'; return; }
     if (at(data, hora) < minAllowedGrade()) { msg.innerHTML = '<div class="msg-box bad">Este horário não respeita a antecedência mínima de 1 hora / regra de expediente.</div>'; return; }
     if (slotOcc(data, hora) + pax > SLOT_CAP) {
@@ -891,6 +987,8 @@ function openSlot(data, hora, preset) {
     const novo = (d, h, o, de) => ({
       id: newReqId(), tipo: 'grade', nome: S.user.nome, email: S.user.email, cc: S.user.cc, data: d, hora: h, origem: o, destino: de, pax, bag: form.bag,
       nomes: form.nomes, just: form.just, status: 'analise', veiculo: null, motorista: null, os: null, excecao: false, motivo: '', criado: nowStamp(),
+      ...(form.acomp && form.acomp.length ? { acomp: form.acomp.map((x) => ({ nome: x.nome, email: x.email || '', cc: x.visitante ? S.user.cc : x.cc || '', visitante: !!x.visitante })) } : {}),
+      ...(form.carga ? { carga: form.carga } : {}),
     });
     const r = novo(data, hora, origem, destino);
     S.reqs.push(r);
@@ -903,8 +1001,9 @@ function openSlot(data, hora, preset) {
       S.reqs.push(r2);
       audit('Solicitação criada (retorno)', r2.id, '', `${TIPOS[r2.tipo]} ${fmtDT(ret.data, ret.hora)} · retorno de ${r.id}`);
     }
+    UI.res = null; UI.sel = null;
     save(); closeModal(); route();
-    toast(ret ? `${r.id} (ida) e ${r.par} (retorno) enviadas — aguardando análise.` : `${r.id} enviada — aguardando análise do Facilities.`);
+    toast(ret ?`${r.id} (ida) e ${r.par} (retorno) enviadas — aguardando análise.` : `${r.id} enviada — aguardando análise do Facilities.`);
   };
 }
 
@@ -1057,7 +1156,8 @@ function openDetalhe(id) {
       ${r.tipo === 'moto' ? `
       <div class="f full"><label>O que será enviado</label><div>${esc(r.item)} — ${esc(r.vol)} volume(s), ${esc(ITEM_TAM[r.tam].l)}</div></div>
       <div class="f full"><label>Quem recebe</label><div>${esc(r.recebedor)}</div></div>` : `
-      <div class="f"><label>Passageiros</label><div>${esc(r.pax)}${r.nomes ? ` <small>(${esc(r.nomes)})</small>` : ''}</div></div>
+      <div class="f"><label>Passageiros</label><div>${esc(r.pax)}${r.acomp && r.acomp.length ? ` <small>(${r.acomp.map((x) => `${esc(x.nome)} — ${esc(x.visitante ? 'visitante' : ccPartes(x.cc).dep || 'sem setor')}`).join('; ')})</small>` : r.nomes ? ` <small>(${esc(r.nomes)})</small>` : ''}</div></div>
+      ${r.carga ? `<div class="f"><label>Carga no porta-malas</label><div>${esc(r.carga)}</div></div>` : ''}
       <div class="f"><label>Bagagem</label><div>${esc(BAG[r.bag].l)}</div></div>`}
       <div class="f"><label>Veículo</label><div>${v ? `${esc(v.nome)} · ${esc(v.placa)}` : '<small>A definir pelo Facilities</small>'}</div></div>
       <div class="f"><label>Motorista</label><div>${m ? esc(m.nome) : '<small>A definir pelo Facilities</small>'}</div></div>
@@ -2494,7 +2594,7 @@ function renderAprovacoes(page) {
   });
 }
 // Visão geral e Agenda se atualizam sozinhas a cada minuto (se nenhuma janela estiver aberta): na Agenda, o horário que passou some.
-if (typeof setInterval === 'function') setInterval(() => { if (S && S.user && ['visao', 'agenda'].includes(route.page) && $('#modal').hidden) route(); }, 60000);
+if (typeof setInterval === 'function') setInterval(() => { if (S && S.user && ['visao', 'agenda'].includes(route.page) && $('#modal').hidden && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#det'))) route(); }, 60000);
 
 // ---------------- Boot ----------------
 if (window.MOBILAB_API) Srv.iniciar();

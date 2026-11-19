@@ -474,6 +474,16 @@ async def salvar_usuario(request: Request):
         return {'usuario': _linha_usuario(p)}
 
 
+@rota.get('/api/pessoas')
+def listar_colegas(request: Request):
+    """Para 'Adicionar colega' na reserva: só nome, e-mail e setor de quem está ativo (qualquer usuário logado)."""
+    if not request.session.get('u'):
+        return JSONResponse({'erro': 'Faça login novamente.'}, status_code=401)
+    with Sessao() as s:
+        ps = s.scalars(select(Pessoa).where(Pessoa.ativo.is_(True), Pessoa.email != ADMIN_EMAIL).order_by(Pessoa.nome)).all()
+        return {'pessoas': [{'nome': p.nome or p.email, 'email': p.email, 'cc': p.cc} for p in ps]}
+
+
 @rota.post('/api/usuarios/senha')
 async def definir_senha(request: Request):
     """Só a TI (administrador) define a senha do Mobilab de um colaborador. A senha nunca é guardada nem registrada, só o hash."""
