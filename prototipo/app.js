@@ -2344,6 +2344,21 @@ const Usr = {
     audit('Usuário alterado', email, '', `${u.perfil || 'padrão'} · ${u.ativo ? 'ativo' : 'bloqueado'}`); save();
     return u;
   },
+  // só o administrador (TI) define a senha do Mobilab de um colaborador
+  async senha(email, senha) {
+    if (window.MOBILAB_API) {
+      const r = await fetch('/api/usuarios/senha', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, senha }) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.erro); return true;
+    }
+    if (senha.length < 8) throw new Error('A senha precisa ter de 8 a 128 caracteres.');
+    audit('Senha alterada pela TI', email, '', 'nova senha definida'); save();
+    return true;
+  },
+};
+const senhaAleatoria = () => {
+  const a = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789', v = new Uint32Array(12);
+  crypto.getRandomValues(v);
+  return Array.from(v, (n) => a[n % a.length]).join('').replace(/(.{4})(?=.)/g, '$1-');
 };
 const PERFIL_L = { colaborador: 'Colaborador', facilities: 'Facilities', ti: 'TI / Administração' };
 const ORIGEM_L = { login: 'Já entrou', ad: 'Importado do AD', rh: 'Base do RH + AD', 'gestor-ad': 'Gestor (AD)', 'cadastro-ti': 'Cadastrado pela TI' };
@@ -2407,12 +2422,22 @@ async function renderUsuarios(page) {
         <div class="f"><label>Perfil</label><select class="input" id="ue_perfil">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}" ${(u.perfil || u.padrao || 'colaborador') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
         <div class="f"><label>Acesso</label><select class="input" id="ue_ativo"><option value="1" ${u.ativo ? 'selected' : ''}>Ativo</option><option value="0" ${u.ativo ? '' : 'selected'}>Bloqueado</option></select></div>
         <div class="f full"><label class="check"><input type="checkbox" id="ue_trava" ${u.travado ? 'checked' : ''}> <span>Manter estes dados mesmo se o AD mudar <small>(a importação do AD não altera nome, setor, cargo e gestor)</small></span></label></div>
+        ${S.user.role === 'ti' ? `<div class="f full"><label for="ue_senha">Nova senha do Mobilab <small>(deixe em branco para manter a atual)</small></label>
+          <div style="display:flex;gap:8px"><div class="pw" style="flex:1"><input class="input" id="ue_senha" type="password" autocomplete="new-password" placeholder="Mínimo de 8 caracteres">
+            <button type="button" id="ue_olho" aria-label="Mostrar senha"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+            <button type="button" class="btn" id="ue_gerar">Gerar</button></div></div>` : ''}
       </div>
       <div id="uemsg"></div><div class="modal-acts"><button class="btn" id="uec">Cancelar</button><button class="btn green" id="ueok">${novo ? 'Cadastrar' : 'Salvar'}</button></div>`);
     // mexeu em nome/setor/cargo/gestor: já marca para o AD não desfazer
     ['#ue_nome', '#ue_cc', '#ue_cargo', '#ue_gestor'].forEach((id) => $(id).addEventListener('input', () => { $('#ue_trava').checked = true; }));
     $('#uec').onclick = closeModal;
+    if ($('#ue_senha')) {
+      $('#ue_olho').onclick = () => { const p = $('#ue_senha'); p.type = p.type === 'password' ? 'text' : 'password'; };
+      $('#ue_gerar').onclick = () => { const p = $('#ue_senha'); p.value = senhaAleatoria(); p.type = 'text'; p.select(); };
+    }
     $('#ueok').onclick = async () => {
+      const nsenha = $('#ue_senha') ? $('#ue_senha').value : '';
+      if (nsenha && (nsenha.length < 8 || nsenha.trim() !== nsenha)) { $('#uemsg').innerHTML = '<div class="msg-box bad">A senha precisa ter no mínimo 8 caracteres, sem espaço no início ou no fim.</div>'; return; }
       const gv = $('#ue_gestor').value.trim();
       const gm = gv.match(/<([^>]+)>/);
       const ge = gv ? (gm ? gm[1] : gv).trim().toLowerCase() : '';
@@ -2420,7 +2445,11 @@ async function renderUsuarios(page) {
       const dados = { email: $('#ue_email').value.trim().toLowerCase(), nome: $('#ue_nome').value.trim(), login: $('#ue_login').value.trim(),
         cc: $('#ue_cc').value.trim(), cargo: $('#ue_cargo').value.trim(), gestor_email: ge, perfil: $('#ue_perfil').value,
         ativo: $('#ue_ativo').value === '1', travado: $('#ue_trava').checked };
-      try { await Usr.salvar(dados); closeModal(); toast(novo ? 'Usuário cadastrado.' : 'Usuário atualizado.'); route(); }
+      try {
+        await Usr.salvar(dados);
+        if (nsenha) await Usr.senha(dados.email, nsenha);
+        closeModal(); toast((novo ? 'Usuário cadastrado.' : 'Usuário atualizado.') + (nsenha ? ' Senha alterada — passe para a pessoa por um canal seguro.' : '')); route();
+      }
       catch (e) { $('#uemsg').innerHTML = `<div class="msg-box bad">${esc(e.message)}</div>`; }
     };
   };

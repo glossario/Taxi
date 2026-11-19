@@ -474,6 +474,31 @@ async def salvar_usuario(request: Request):
         return {'usuario': _linha_usuario(p)}
 
 
+@rota.post('/api/usuarios/senha')
+async def definir_senha(request: Request):
+    """Só a TI (administrador) define a senha do Mobilab de um colaborador. A senha nunca é guardada nem registrada, só o hash."""
+    u = _ti(request)
+    if not u:
+        return JSONResponse({'erro': 'Só o administrador (TI) pode mudar senhas.'}, status_code=403)
+    c = await request.json()
+    email = str(c.get('email', '')).strip().lower()
+    senha = str(c.get('senha', ''))
+    if len(senha) < 8 or len(senha) > 128:
+        return JSONResponse({'erro': 'A senha precisa ter de 8 a 128 caracteres.'}, status_code=400)
+    if senha.strip() != senha:
+        return JSONResponse({'erro': 'A senha não pode começar nem terminar com espaço.'}, status_code=400)
+    with Sessao() as s:
+        p = s.get(Pessoa, email)
+        if not p:
+            return JSONResponse({'erro': 'Usuário não encontrado.'}, status_code=404)
+        p.senha_hash = gerar_hash(senha)
+        for chave in (p.email, (p.login or '').lower()):
+            _FALHAS.pop(chave, None)  # destrava quem errou demais
+        auditar(s, u['email'], 'Senha alterada pela TI', email, '', 'nova senha definida')
+        s.commit()
+    return {'ok': True}
+
+
 # ---------------- testes com usuários reais (só com LOGIN_TESTE=1 e sem LDAP) ----------------
 def _teste_usuario_ad(chave):
     """Entra como um usuário importado do AD, sem senha. Só existe no modo de teste."""
