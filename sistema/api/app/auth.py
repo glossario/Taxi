@@ -68,4 +68,5 @@ def login(usuario: str, senha: str) -> dict:
         return dict(USUARIOS_TESTE[usuario])
     if config.LOGIN_TESTE:
         raise LoginInvalido('Modo de teste: use os botões Colaborador, Gestor, Facilities ou TI abaixo.')
-    raise LoginInvalido('Login pelo AD ainda não configurado (LDAP_SERVER vazio).')
+    from .ponte import login_local  # senha do Mobilab (até ligar o login Microsoft/Entra)
+    return login_local(usuario, senha)

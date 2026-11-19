@@ -9,6 +9,7 @@ O servidor:
 """
 import copy
 import hashlib
+import hmac
 import secrets
 import time
 from datetime import datetime, timedelta
@@ -53,6 +54,7 @@ class Pessoa(Base):
     travado: Mapped[bool] = mapped_column(Boolean, default=False)  # editado pela TI: o AD não sobrescreve nome/setor/cargo/gestor
     matricula: Mapped[str] = mapped_column(String(30), default='', index=True)  # base do RH: setor e gestor vêm do RH
     sem_email: Mapped[bool] = mapped_column(Boolean, default=False)  # conta sem caixa de e-mail (identificada pelo UPN)
+    senha_hash: Mapped[str] = mapped_column(String(200), default='')  # login por senha do Mobilab (antes do Entra). Só o hash (scrypt).
 
 
 PERFIS = ('colaborador', 'facilities', 'ti')
@@ -65,7 +67,8 @@ def migrar():
         for col in ("perfil varchar(15)", "ativo boolean not null default true", "ultimo_login timestamptz", "cc varchar(200) not null default ''",
                     "login varchar(100) not null default ''", "cargo varchar(200) not null default ''", "gestor_email varchar(200) not null default ''",
                     "gestor_nome varchar(200) not null default ''", "ou varchar(300) not null default ''", "travado boolean not null default false",
-                    "matricula varchar(30) not null default ''", "sem_email boolean not null default false"):
+                    "matricula varchar(30) not null default ''", "sem_email boolean not null default false",
+                    "senha_hash varchar(200) not null default ''"):
             c.execute(text(f'alter table pessoas add column if not exists {col}'))
 
 
@@ -170,7 +173,7 @@ async def api_login(request: Request):
             u['gestor_de'] = any((r.get('gestor') or {}).get('email', '').lower() == u['email'] for r in dados.get('reqs', [])) or \
                 bool(s.scalar(select(func.count()).select_from(Pessoa).where(Pessoa.gestor_email == u['email'], Pessoa.ativo.is_(True))))
         conhecer(s, u)
-        auditar(s, u['email'], 'Login', '', '', 'AD' if config.LDAP_SERVER else 'teste')
+        auditar(s, u['email'], 'Login', '', '', 'AD' if config.LDAP_SERVER else ('teste' if config.LOGIN_TESTE else 'senha do Mobilab'))
         s.commit()
     request.session.clear()
     request.session['u'] = u
@@ -558,3 +561,66 @@ def importar_rh(lista, remover_fora=True):
         auditar(s, 'sistema', 'Importação RH + AD', '', '', f'{novos} novos, {atualizados} atualizados, {removidos} removidos')
         s.commit()
     return novos, atualizados, removidos
+
+
+# ---------------- senha do Mobilab (enquanto o login Microsoft/Entra não está ligado) ----------------
+_FALHAS = {}  # usuário -> [horários das tentativas erradas]; trava após 5 erros em 15 min
+ADMIN_EMAIL = 'admin@mobilab.local'
+
+
+def gerar_hash(senha):
+    sal = secrets.token_bytes(16)
+    h = hashlib.scrypt(senha.encode(), salt=sal, n=2 ** 14, r=8, p=1, dklen=32)
+    return f'scrypt${sal.hex()}${h.hex()}'
+
+
+def conferir_hash(senha, guardado):
+    try:
+        tipo, sal, h = guardado.split('$')
+        if tipo != 'scrypt':
+            return False
+        calc = hashlib.scrypt(senha.encode(), salt=bytes.fromhex(sal), n=2 ** 14, r=8, p=1, dklen=32)
+        return hmac.compare_digest(calc.hex(), h)
+    except (ValueError, AttributeError):
+        return False
+
+
+def login_local(usuario, senha):
+    chave = (usuario or '').strip().lower()
+    if not chave or not senha:
+        raise auth.LoginInvalido('Informe usuário (ou e-mail) e senha.')
+    t = time.time()
+    falhas = [x for x in _FALHAS.get(chave, []) if t - x < 900]
+    if len(falhas) >= 5:
+        raise auth.LoginInvalido('Muitas tentativas erradas. Aguarde 15 minutos ou fale com a TI.')
+    with Sessao() as s:
+        p = s.get(Pessoa, chave) or s.scalars(select(Pessoa).where(func.lower(Pessoa.login) == chave.split('@')[0])).first()
+        ok = bool(p and p.senha_hash and conferir_hash(senha, p.senha_hash))
+        if not ok:
+            _FALHAS[chave] = falhas + [t]
+            raise auth.LoginInvalido('Usuário ou senha inválidos.')
+        _FALHAS.pop(chave, None)
+        return {'email': p.email, 'nome': p.nome, 'cc': p.cc, 'perfil': p.perfil or config.perfil_de(p.email),
+                'gestor': {'nome': p.gestor_nome, 'email': p.gestor_email}}
+
+
+def senhas_aleatorias():
+    """Cria/atualiza a conta de administrador e troca a senha de TODOS por senhas aleatórias que ninguém conhece
+    (o texto não é guardado). Devolve só a senha do administrador."""
+    alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+    senha_admin = '-'.join(''.join(secrets.choice(alfabeto) for _ in range(5)) for _ in range(4))
+    with Sessao() as s:
+        adm = s.get(Pessoa, ADMIN_EMAIL)
+        if not adm:
+            adm = Pessoa(email=ADMIN_EMAIL)
+            s.add(adm)
+        adm.nome, adm.login, adm.perfil, adm.ativo, adm.origem = 'Administrador Mobilab', 'admin', 'ti', True, 'cadastro-ti'
+        adm.sem_email, adm.travado, adm.cc = True, True, 'Tecnologia da Informacao'
+        adm.senha_hash = gerar_hash(senha_admin)
+        n = 0
+        for p in s.scalars(select(Pessoa).where(Pessoa.email != ADMIN_EMAIL)).all():
+            p.senha_hash = gerar_hash(secrets.token_urlsafe(24))
+            n += 1
+        auditar(s, 'sistema', 'Senhas aleatórias', '', '', f'{n} usuários com senha aleatória; conta admin criada/atualizada')
+        s.commit()
+    return senha_admin, n

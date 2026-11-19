@@ -217,7 +217,7 @@ def fazer_login(request: Request, usuario: str = Form(''), senha: str = Form('')
     request.session.clear()
     with Sessao() as s:
         marcar_gestor(s, u)
-        auditar(s, u['email'], 'Login', '', '', 'AD' if config.LDAP_SERVER else 'teste')
+        auditar(s, u['email'], 'Login', '', '', 'AD' if config.LDAP_SERVER else ('teste' if config.LOGIN_TESTE else 'senha do Mobilab'))
         s.commit()
     request.session['u'] = u
     return RedirectResponse('/', status_code=303)  # gestor entra na mesma tela do colaborador; Aprovações é uma aba
