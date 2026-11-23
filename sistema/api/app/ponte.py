@@ -60,7 +60,8 @@ class Pessoa(Base):
     senha_hash: Mapped[str] = mapped_column(String(200), default='')  # login por senha do Mobilab (antes do Entra). Só o hash (scrypt).
 
 
-PERFIS = ('colaborador', 'facilities', 'ti')
+PERFIS = ('colaborador', 'facilities', 'ti', 'ti_jr')  # ti = Administrador, ti_jr = Admin Júnior; Super Admin = só a conta do Mobilab
+ADMINS = ('ti', 'ti_jr')
 
 
 def migrar():
@@ -106,8 +107,9 @@ def _h(t):
 
 def usuario_tela(u):
     """Usuário da sessão no formato que as telas usam (S.user)."""
-    cargo = {'facilities': 'Facilities', 'ti': 'TI / Administração do sistema'}.get(u['perfil'], 'Gestor' if u.get('gestor_de') else (u.get('cc') or 'Colaborador'))
-    return {'email': u['email'], 'nome': u['nome'], 'cargo': cargo, 'role': u['perfil'], 'cc': u.get('cc') or '',
+    sup = u['email'] == ADMIN_EMAIL
+    cargo = 'Super Admin' if sup else {'facilities': 'Facilities', 'ti': 'Administrador', 'ti_jr': 'Admin Júnior'}.get(u['perfil'], 'Gestor' if u.get('gestor_de') else (u.get('cc') or 'Colaborador'))
+    return {'email': u['email'], 'nome': u['nome'], 'cargo': cargo, 'role': u['perfil'], 'super': sup, 'cc': u.get('cc') or '',
             'gestor': bool(u.get('gestor_de')), 'chefe': u.get('gestor') or {'nome': '', 'email': ''}}
 
 
@@ -125,7 +127,7 @@ def conhecer(s, u):
     p.ultimo_login = agora()
     u['nome'], u['cc'] = p.nome or u['nome'], p.cc or u.get('cc', '')
     u['gestor'] = {'nome': p.gestor_nome, 'email': p.gestor_email} if p.gestor_email else g
-    if not p.perfil and u.get('perfil') in ('facilities', 'ti'):
+    if not p.perfil and u.get('perfil') in ('facilities', 'ti', 'ti_jr'):
         p.perfil = u['perfil']
     if p.origem != 'login':
         p.origem = 'login'
@@ -324,7 +326,7 @@ class Recusa(Exception):
 def _validar(u, antigo, novo, s):
     """Regras que as telas não podem burlar."""
     velhos = {r['id']: r for r in (antigo or {}).get('reqs', [])}
-    staff = u['perfil'] in ('facilities', 'ti')
+    staff = u['perfil'] in ('facilities', 'ti', 'ti_jr')
     for r in novo.get('reqs', []):
         r.pop('tok', None)  # token de aprovação nunca fica no estado compartilhado
         o = velhos.get(r.get('id'))
@@ -535,8 +537,15 @@ async def decidir_token(tok: str, request: Request, tarefas: BackgroundTasks):
 
 # ---------------- gestão de usuários (só TI) ----------------
 def _ti(request):
+    """Administrador ou Super Admin (altera). O Admin Júnior não passa aqui."""
     u = request.session.get('u')
     return u if u and u.get('perfil') == 'ti' else None
+
+
+def _ti_consulta(request):
+    """Qualquer nível de administração, inclusive o Admin Júnior (só consulta)."""
+    u = request.session.get('u')
+    return u if u and u.get('perfil') in ADMINS else None
 
 
 def _linha_usuario(p):
@@ -548,7 +557,7 @@ def _linha_usuario(p):
 
 @rota.get('/api/usuarios')
 def listar_usuarios(request: Request):
-    if not _ti(request):
+    if not _ti_consulta(request):
         return JSONResponse({'erro': 'Só a TI gerencia usuários.'}, status_code=403)
     with Sessao() as s:
         return {'usuarios': [_linha_usuario(p) for p in s.scalars(select(Pessoa).order_by(Pessoa.nome, Pessoa.email)).all()]}
@@ -567,9 +576,12 @@ async def salvar_usuario(request: Request):
     if perfil not in (None, '', *PERFIS):
         return JSONResponse({'erro': 'Perfil inválido.'}, status_code=400)
     if email == ADMIN_EMAIL and perfil not in (None, 'ti'):
-        return JSONResponse({'erro': 'A conta do Mobilab é sempre TI / Administração.'}, status_code=400)
+        return JSONResponse({'erro': 'A conta do Mobilab é sempre Super Admin.'}, status_code=400)
+    sou_super = u['email'] == ADMIN_EMAIL
     with Sessao() as s:
         p = s.get(Pessoa, email)
+        if not sou_super and (email == ADMIN_EMAIL or perfil in ADMINS or (p and perfil_efetivo(p, config.perfil_de(email)) in ADMINS)):
+            return JSONResponse({'erro': 'Só o Super Admin cria, altera ou rebaixa administradores.'}, status_code=403)
         antes = _linha_usuario(p) if p else {}
         if not p:
             p = Pessoa(email=email, nome=str(c.get('nome', '')).strip()[:200], origem='cadastro-ti', ativo=True)
@@ -630,6 +642,8 @@ async def definir_senha(request: Request):
     c = await request.json()
     email = str(c.get('email', '')).strip().lower()
     senha = str(c.get('senha', ''))
+    if u['email'] != ADMIN_EMAIL:
+        return JSONResponse({'erro': 'Só o Super Admin troca a senha da conta do Mobilab.'}, status_code=403)
     if email != ADMIN_EMAIL:
         return JSONResponse({'erro': 'A senha dos colaboradores é a da conta Microsoft (Entra ID). Só a conta do Mobilab tem senha aqui.'}, status_code=400)
     if len(senha) < 8 or len(senha) > 128:

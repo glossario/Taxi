@@ -295,7 +295,7 @@ def inicio(request: Request):
     u = logado(request)
     if not u:
         return RedirectResponse('/login', status_code=303)
-    staff = u['perfil'] in ('facilities', 'ti')
+    staff = u['perfil'] in ('facilities', 'ti', 'ti_jr')
     with Sessao() as s:
         q = select(Solicitacao).options(selectinload(Solicitacao.aprovacoes)).order_by(Solicitacao.id.desc()).limit(300)
         if not staff:
@@ -403,7 +403,7 @@ def criar(request: Request, tarefas: BackgroundTasks, tipo: str = Form(...), dat
 @app.post('/solicitacoes/{codigo}/notificar')
 def notificar(codigo: str, request: Request, tarefas: BackgroundTasks):
     u = logado(request)
-    if not u or u['perfil'] not in ('facilities', 'ti'):
+    if not u or u['perfil'] not in ('facilities', 'ti', 'ti_jr'):
         return ir(request, '/', erro='Só o Facilities pode notificar o gestor.')
     with Sessao() as s:
         r = s.scalars(select(Solicitacao).options(selectinload(Solicitacao.aprovacoes))

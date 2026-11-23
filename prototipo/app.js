@@ -324,7 +324,7 @@ function route() {
   const ap = h.match(/^aprovar\/([A-Za-z0-9_-]+)$/);
   if (ap) { route.page = 'aprovar'; return renderAprovar(ap[1]); } // link do e-mail do gestor: cai direto na aprovação
   if (!S.user) return renderLogin();
-  const home = { colaborador: 'agenda', facilities: 'visao', ti: 'inicio' }[S.user.role];
+  const home = { colaborador: 'agenda', facilities: 'visao', ti: 'inicio', ti_jr: 'inicio' }[S.user.role];
   const allowed = navDe(S.user).map(([k]) => k);
   const page = allowed.includes(h) ? h : home;
   if (page !== 'visao') UI.vx = null; // sair da tela expandida ao trocar de página
@@ -344,6 +344,8 @@ const NAV = {
   colaborador: NAV_COLAB,
   facilities: NAV_FAC,
   ti: [['inicio', 'Início'], ...NAV_FAC, ...NAV_COLAB, ['historico', 'Histórico'], ['usuarios', 'Usuários'], ['cadastros', 'Cadastros']],
+  // Admin Júnior: operação do dia a dia e Usuários só para consulta (sem Custos, Histórico e Cadastros)
+  ti_jr: [['inicio', 'Início'], ...NAV_FAC.filter(([k]) => k !== 'custos'), ...NAV_COLAB, ['usuarios', 'Usuários']],
 };
 // Ícones (traço, herdam a cor do texto)
 const ICO = {
@@ -395,7 +397,7 @@ function openAjuda() {
 
 function shell(page, content) {
   // TI acessa tudo pelo Início (ícones); na barra fica só o Início e a tela aberta.
-  const nav = S.user.role === 'ti' ? navDe(S.user).filter(([k]) => k === 'inicio' || k === page) : navDe(S.user);
+  const nav = ['ti', 'ti_jr'].includes(S.user.role) ? navDe(S.user).filter(([k]) => k === 'inicio' || k === page) : navDe(S.user);
   const nAprov = S.user.gestor ? S.reqs.filter((r) => r.status === 'gestor' && r.gestor && r.gestor.email === S.user.email).length : 0;
   const nMinhas = S.reqs.filter((r) => meuPedido(r) && ATIVOS.includes(r.status)).length;
   const nNovas = minhasMsgs().filter((e) => !e.lida).length;
@@ -2530,7 +2532,13 @@ const senhaAleatoria = () => {
   return Array.from(v, (n) => a[n % a.length]).join('').replace(/(.{4})(?=.)/g, '$1-');
 };
 const ADMIN_MOBILAB = 'admin@mobilab.local'; // conta local do Mobilab: sempre TI, a única com senha própria
-const PERFIL_L = { colaborador: 'Colaborador', facilities: 'Facilities', ti: 'TI / Administração' };
+// níveis de administração: Super Admin (só a conta do Mobilab) > Administrador > Admin Júnior
+const PERFIL_L = { colaborador: 'Colaborador', facilities: 'Facilities', ti: 'Administrador', ti_jr: 'Admin Júnior' };
+const ADMINS = ['ti', 'ti_jr'];
+const souSuper = () => !!S.user && (S.user.super || S.user.email === ADMIN_MOBILAB);
+// quem eu posso alterar: Super Admin mexe em todos; Administrador só em quem não é administrador; Admin Júnior só consulta
+const possoEditar = (u, ef) => S.user.role === 'ti' && (souSuper() || (u.email !== ADMIN_MOBILAB && !ADMINS.includes(ef(u))));
+const perfisQueDou = () => Object.entries(PERFIL_L).filter(([k]) => souSuper() || !ADMINS.includes(k));
 const ORIGEM_L = { login: 'Já entrou', ad: 'Importado do AD', rh: 'Base do RH + AD', 'gestor-ad': 'Gestor (AD)', 'cadastro-ti': 'Cadastrado pela TI' };
 // Skeleton loader: forma da tela em cinza enquanto os dados chegam do servidor
 const sk = (w, h, extra = '') => `<i class="sk" style="width:${w};${h ? `height:${h};` : ''}${extra}"></i>`;
@@ -2543,9 +2551,9 @@ const skPagina = () => `<div class="sk-top" aria-busy="true" aria-label="Carrega
     <div class="sk-kpis" style="margin-top:8px">${'<i class="sk" style="width:220px;height:84px"></i>'.repeat(4)}</div>${skTabela(5)}</div>`;
 // Barra de filtros e busca da tela Usuários: fica de verdade (dá para digitar) mesmo enquanto a lista carrega
 const barraUsr = (fp) => `<div class="toolbar vtools">
-      <div class="seg">${[['', 'Todos'], ['colaborador', 'Colaboradores'], ['facilities', 'Facilities'], ['ti', 'TI'], ['bloq', 'Bloqueados']].map(([k, l]) => `<button class="seg-b${fp === k ? ' on' : ''}" data-uf="${k}">${l}</button>`).join('')}</div>
+      <div class="seg">${[['', 'Todos'], ['colaborador', 'Colaboradores'], ['facilities', 'Facilities'], ['ti', 'Administradores'], ['bloq', 'Bloqueados']].map(([k, l]) => `<button class="seg-b${fp === k ? ' on' : ''}" data-uf="${k}">${l}</button>`).join('')}</div>
       <label class="search">${ico('search', 16)}<input id="uq" placeholder="Buscar nome, e-mail ou setor…" value="${esc(renderUsuarios.q || '')}" aria-label="Buscar usuário"></label>
-      <button class="btn green" id="unovo">${ico('userplus', 16)} Novo usuário</button>
+      ${S.user.role === 'ti' ? `<button class="btn green" id="unovo">${ico('userplus', 16)} Novo usuário</button>` : ''}
     </div>`;
 const ligarBarraUsr = () => {
   // filtro e busca usam a lista já carregada (não buscam de novo no servidor)
@@ -2562,7 +2570,7 @@ async function renderUsuarios(page) {
         <div class="sk-kpis">${'<i class="sk"></i>'.repeat(4)}</div></div>
       ${barraUsr(renderUsuarios.f || '')}
       ${skTabela()}`);
-    ligarBarraUsr(); $('#unovo').disabled = true;
+    ligarBarraUsr(); if ($('#unovo')) $('#unovo').disabled = true;
     renderUsuarios.carregando = true;
     try { us = await Usr.listar(); } catch (e) { const c = $('main .card[aria-busy]'); if (c) { c.className = 'card empty'; c.removeAttribute('aria-busy'); c.textContent = e.message || 'Não foi possível carregar.'; } return; } finally { renderUsuarios.carregando = false; }
     renderUsuarios.cache = us;
@@ -2571,21 +2579,22 @@ async function renderUsuarios(page) {
   const q = (renderUsuarios.q || '').toLowerCase(), fp = renderUsuarios.f || '';
   const ae = document.activeElement, foco = ae && ae.id === 'uq' ? [ae.selectionStart, ae.selectionEnd] : null; // quem está digitando continua digitando
   const ef = (u) => u.perfil || u.padrao || 'colaborador';
-  const lista = us.filter((u) => (!q || `${u.nome} ${u.email} ${u.cc}`.toLowerCase().includes(q)) && (!fp || (fp === 'bloq' ? !u.ativo : ef(u) === fp)));
-  const cont = (f) => us.filter((u) => (f === 'bloq' ? !u.ativo : ef(u) === f)).length;
+  const lista = us.filter((u) => (!q || `${u.nome} ${u.email} ${u.cc}`.toLowerCase().includes(q)) && (!fp || (fp === 'bloq' ? !u.ativo : fp === 'ti' ? ADMINS.includes(ef(u)) : ef(u) === fp)));
+  const cont = (f) => us.filter((u) => (f === 'bloq' ? !u.ativo : f === 'ti' ? ADMINS.includes(ef(u)) : ef(u) === f)).length;
   $('main').innerHTML = `<div class="pg-head"><div><nav class="crumb"><span>Administração</span>${ico('right', 12)}<b>Usuários</b></nav><h1>Usuários</h1>
-      <p>Quem acessa o Mobilab e com qual perfil. O login, o bloqueio e a senha vêm do Entra ID (conta Microsoft); aqui a TI define o perfil.</p></div>
-      <div class="mini-kpis">${[['', 'Usuários', us.length], ['facilities', 'Facilities', cont('facilities')], ['ti', 'TI', cont('ti')], ['bloq', 'Bloqueados', cont('bloq')]]
+      <p>Quem acessa o Mobilab e com qual perfil. O login, o bloqueio e a senha vêm do Entra ID (conta Microsoft); aqui a TI define o perfil.${S.user.role === 'ti_jr' ? ' <b>Admin Júnior: só consulta.</b>' : ''}</p></div>
+      <div class="mini-kpis">${[['', 'Usuários', us.length], ['facilities', 'Facilities', cont('facilities')], ['ti', 'Administradores', cont('ti')], ['bloq', 'Bloqueados', cont('bloq')]]
         .map(([k, l, n]) => `<button type="button" class="mk mk-f${fp === k ? ' on' : ''}${k === 'bloq' && n ? ' warn' : ''}" data-uf="${k}" aria-pressed="${fp === k}" title="Mostrar só ${k ? l.toLowerCase() : 'todos'}"><small>${l}</small><b>${n}</b></button>`).join('')}</div></div>
     ${barraUsr(fp)}
     <div class="card"><div class="table-wrap"><table class="tbl-ap usr-t"><thead><tr><th>Nome</th><th>E-mail</th><th>Setor</th><th>Gestor imediato</th><th>Perfil</th><th>Acesso</th><th>Origem</th><th>Último acesso</th><th></th></tr></thead><tbody>
       ${lista.map((u) => `<tr class="${u.ativo ? '' : 'bloq'}"><td><b>${esc(u.nome || '—')}</b>${u.travado ? ' <span class="tag-ed" title="Editado no Mobilab — a importação do AD não altera estes dados">editado</span>' : ''}${u.cargo ? `<br><small>${esc(u.cargo)}</small>` : ''}</td>
         <td>${esc(u.email)}</td><td>${esc(u.cc || '—')}</td><td>${esc(u.gestor || '—')}</td>
-        <td>${u.email === ADMIN_MOBILAB ? `<span class="perf-fixo" title="A conta do Mobilab é sempre TI / Administração">${PERFIL_L.ti}</span>`
-          : `<select class="uperf" data-e="${esc(u.email)}" aria-label="Perfil de ${esc(u.nome)}">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}" ${ef(u) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`}</td>
+        <td>${u.email === ADMIN_MOBILAB ? '<span class="perf-fixo perf-super" title="Conta do Mobilab: nível máximo, não muda">Super Admin</span>'
+          : !possoEditar(u, ef) ? `<span class="perf-fixo" title="${S.user.role === 'ti' ? 'Só o Super Admin muda administradores' : 'Só consulta'}">${PERFIL_L[ef(u)] || ef(u)}</span>`
+          : `<select class="uperf" data-e="${esc(u.email)}" aria-label="Perfil de ${esc(u.nome)}">${perfisQueDou().map(([k, l]) => `<option value="${k}" ${ef(u) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`}</td>
         <td><span class="ac-tag ${u.ativo ? '' : 'off'}" title="${u.email === ADMIN_MOBILAB ? 'Conta do Mobilab' : 'Vem do Entra ID (conta Microsoft)'}">${u.ativo ? 'Ativo' : 'Bloqueado'}</span></td>
         <td><small>${esc(ORIGEM_L[u.origem] || u.origem || '—')}</small></td><td><small>${esc(u.ultimo_login || '—')}</small></td>
-        <td><button class="btn sm uedit" data-e="${esc(u.email)}">Editar</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">Nenhum usuário neste filtro.</td></tr>'}
+        <td>${possoEditar(u, ef) ? `<button class="btn sm uedit" data-e="${esc(u.email)}">Editar</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">Nenhum usuário neste filtro.</td></tr>'}
     </tbody></table></div>
     <p class="section-s" style="margin-top:10px">Mudanças valem no próximo login da pessoa. Quem foi <b>editado</b> aqui não é alterado pela importação do AD (o Mobilab é a referência). Gestor não é perfil: quem é gestor imediato no AD vê a aba Aprovações automaticamente.</p></div>`;
   const salvar = async (dados, msg) => { try { await Usr.salvar(dados); toast(msg); } catch (e) { toast(e.message || 'Não foi possível salvar.'); } route(); };
@@ -2609,11 +2618,11 @@ async function renderUsuarios(page) {
         <div class="f full"><label>Gestor imediato <small>(aprova as viagens intermunicipais)</small></label>
           <input class="input" id="ue_gestor" list="ue_gestores" value="${g0 ? esc(gtxt(g0)) : ''}" placeholder="Digite o nome e escolha na lista">
           <datalist id="ue_gestores">${us.filter((x) => x.email !== u.email && x.ativo).map((x) => `<option value="${esc(gtxt(x))}">`).join('')}</datalist></div>
-        <div class="f"><label>Perfil</label>${adm ? `<input class="input" id="ue_perfil" value="${PERFIL_L.ti}" data-v="ti" readonly title="A conta do Mobilab é sempre TI / Administração">`
-          : `<select class="input" id="ue_perfil">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}" ${(u.perfil || u.padrao || 'colaborador') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`}</div>
+        <div class="f"><label>Perfil</label>${adm ? `<input class="input" id="ue_perfil" value="Super Admin" readonly title="Conta do Mobilab: nível máximo, não muda">`
+          : `<select class="input" id="ue_perfil">${perfisQueDou().map(([k, l]) => `<option value="${k}" ${(u.perfil || u.padrao || 'colaborador') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`}</div>
         <div class="f"><label>Acesso</label><input class="input" value="${u.ativo ? 'Ativo' : 'Bloqueado'}${adm ? '' : ' (vem do Entra ID)'}" readonly></div>
         <div class="f full"><label class="check"><input type="checkbox" id="ue_trava" ${u.travado ? 'checked' : ''}> <span>Manter estes dados mesmo se o AD mudar <small>(a importação do AD não altera nome, setor, cargo e gestor)</small></span></label></div>
-        ${S.user.role === 'ti' && adm ? `<div class="f full"><label for="ue_senha">Nova senha do Mobilab <small>(deixe em branco para manter a atual)</small></label>
+        ${souSuper() && adm ? `<div class="f full"><label for="ue_senha">Nova senha do Mobilab <small>(deixe em branco para manter a atual)</small></label>
           <div style="display:flex;gap:8px"><div class="pw" style="flex:1"><input class="input" id="ue_senha" type="password" autocomplete="new-password" placeholder="Mínimo de 8 caracteres">
             <button type="button" id="ue_olho" aria-label="Mostrar senha"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
             <button type="button" class="btn" id="ue_gerar">Gerar</button></div></div>` : ''}
@@ -2644,7 +2653,7 @@ async function renderUsuarios(page) {
       catch (e) { $('#uemsg').innerHTML = `<div class="msg-box bad">${esc(e.message)}</div>`; }
     };
   };
-  $('#unovo').onclick = () => editor(null);
+  if ($('#unovo')) $('#unovo').onclick = () => editor(null);
   document.querySelectorAll('.uedit').forEach((b) => { b.onclick = () => editor(us.find((x) => x.email === b.dataset.e)); });
 }
 

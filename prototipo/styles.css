@@ -841,3 +841,4 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
 .usr-t .ac-tag { display: inline-block; border: 1px solid var(--line); border-radius: 7px; padding: 2px 8px; font-size: 11.5px; font-weight: 700; color: var(--green-dark); background: #fff; }
 .usr-t .ac-tag.off { color: var(--red); border-color: #f3c4c4; background: #fdf2f2; }
 .usr-t .perf-fixo { font-size: 13px; font-weight: 700; color: var(--navy-ink); }
+.usr-t .perf-super { color: var(--green-dark); }
