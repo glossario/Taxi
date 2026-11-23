@@ -2529,6 +2529,7 @@ const senhaAleatoria = () => {
   crypto.getRandomValues(v);
   return Array.from(v, (n) => a[n % a.length]).join('').replace(/(.{4})(?=.)/g, '$1-');
 };
+const ADMIN_MOBILAB = 'admin@mobilab.local'; // conta local do Mobilab: sempre TI, a única com senha própria
 const PERFIL_L = { colaborador: 'Colaborador', facilities: 'Facilities', ti: 'TI / Administração' };
 const ORIGEM_L = { login: 'Já entrou', ad: 'Importado do AD', rh: 'Base do RH + AD', 'gestor-ad': 'Gestor (AD)', 'cadastro-ti': 'Cadastrado pela TI' };
 // Skeleton loader: forma da tela em cinza enquanto os dados chegam do servidor
@@ -2573,15 +2574,16 @@ async function renderUsuarios(page) {
   const lista = us.filter((u) => (!q || `${u.nome} ${u.email} ${u.cc}`.toLowerCase().includes(q)) && (!fp || (fp === 'bloq' ? !u.ativo : ef(u) === fp)));
   const cont = (f) => us.filter((u) => (f === 'bloq' ? !u.ativo : ef(u) === f)).length;
   $('main').innerHTML = `<div class="pg-head"><div><nav class="crumb"><span>Administração</span>${ico('right', 12)}<b>Usuários</b></nav><h1>Usuários</h1>
-      <p>Quem acessa o Mobilab e com qual perfil. O login é pelo AD; aqui a TI define o perfil e pode bloquear o acesso.</p></div>
-      <div class="mini-kpis"><div class="mk"><small>Usuários</small><b>${us.length}</b></div><div class="mk"><small>Facilities</small><b>${cont('facilities')}</b></div>
-        <div class="mk"><small>TI</small><b>${cont('ti')}</b></div><div class="mk ${cont('bloq') ? 'warn' : ''}"><small>Bloqueados</small><b>${cont('bloq')}</b></div></div></div>
+      <p>Quem acessa o Mobilab e com qual perfil. O login, o bloqueio e a senha vêm do Entra ID (conta Microsoft); aqui a TI define o perfil.</p></div>
+      <div class="mini-kpis">${[['', 'Usuários', us.length], ['facilities', 'Facilities', cont('facilities')], ['ti', 'TI', cont('ti')], ['bloq', 'Bloqueados', cont('bloq')]]
+        .map(([k, l, n]) => `<button type="button" class="mk mk-f${fp === k ? ' on' : ''}${k === 'bloq' && n ? ' warn' : ''}" data-uf="${k}" aria-pressed="${fp === k}" title="Mostrar só ${k ? l.toLowerCase() : 'todos'}"><small>${l}</small><b>${n}</b></button>`).join('')}</div></div>
     ${barraUsr(fp)}
     <div class="card"><div class="table-wrap"><table class="tbl-ap usr-t"><thead><tr><th>Nome</th><th>E-mail</th><th>Setor</th><th>Gestor imediato</th><th>Perfil</th><th>Acesso</th><th>Origem</th><th>Último acesso</th><th></th></tr></thead><tbody>
       ${lista.map((u) => `<tr class="${u.ativo ? '' : 'bloq'}"><td><b>${esc(u.nome || '—')}</b>${u.travado ? ' <span class="tag-ed" title="Editado no Mobilab — a importação do AD não altera estes dados">editado</span>' : ''}${u.cargo ? `<br><small>${esc(u.cargo)}</small>` : ''}</td>
         <td>${esc(u.email)}</td><td>${esc(u.cc || '—')}</td><td>${esc(u.gestor || '—')}</td>
-        <td><select class="uperf" data-e="${esc(u.email)}" aria-label="Perfil de ${esc(u.nome)}">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}" ${ef(u) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
-        <td><button class="btn-mini uat ${u.ativo ? '' : 'off'}" data-e="${esc(u.email)}">${u.ativo ? 'Ativo' : 'Bloqueado'}</button></td>
+        <td>${u.email === ADMIN_MOBILAB ? `<span class="perf-fixo" title="A conta do Mobilab é sempre TI / Administração">${PERFIL_L.ti}</span>`
+          : `<select class="uperf" data-e="${esc(u.email)}" aria-label="Perfil de ${esc(u.nome)}">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}" ${ef(u) === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`}</td>
+        <td><span class="ac-tag ${u.ativo ? '' : 'off'}" title="${u.email === ADMIN_MOBILAB ? 'Conta do Mobilab' : 'Vem do Entra ID (conta Microsoft)'}">${u.ativo ? 'Ativo' : 'Bloqueado'}</span></td>
         <td><small>${esc(ORIGEM_L[u.origem] || u.origem || '—')}</small></td><td><small>${esc(u.ultimo_login || '—')}</small></td>
         <td><button class="btn sm uedit" data-e="${esc(u.email)}">Editar</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">Nenhum usuário neste filtro.</td></tr>'}
     </tbody></table></div>
@@ -2590,15 +2592,8 @@ async function renderUsuarios(page) {
   ligarBarraUsr();
   if (foco) { const i = $('#uq'); i.focus(); i.setSelectionRange(foco[0], foco[1]); }
   document.querySelectorAll('.uperf').forEach((sel) => { sel.onchange = () => salvar({ email: sel.dataset.e, perfil: sel.value }, `Perfil alterado para ${PERFIL_L[sel.value]}.`); });
-  document.querySelectorAll('.uat').forEach((b) => {
-    b.onclick = () => {
-      const bloquear = !b.classList.contains('off');
-      if (bloquear && !confirm(`Bloquear o acesso de ${b.dataset.e} ao Mobilab?`)) return;
-      salvar({ email: b.dataset.e, ativo: !bloquear }, bloquear ? 'Acesso bloqueado.' : 'Acesso liberado.');
-    };
-  });
   const editor = (u) => {
-    const novo = !u;
+    const novo = !u, adm = !novo && u.email === ADMIN_MOBILAB;
     u = u || { email: '', nome: '', login: '', cc: '', cargo: '', gestor_email: '', gestor: '', perfil: 'colaborador', ativo: true, travado: true };
     const setores = [...new Set(us.map((x) => x.cc).filter(Boolean))].sort((x, y) => x.localeCompare(y));
     const gtxt = (x) => `${x.nome} <${x.email}>`;
@@ -2614,10 +2609,11 @@ async function renderUsuarios(page) {
         <div class="f full"><label>Gestor imediato <small>(aprova as viagens intermunicipais)</small></label>
           <input class="input" id="ue_gestor" list="ue_gestores" value="${g0 ? esc(gtxt(g0)) : ''}" placeholder="Digite o nome e escolha na lista">
           <datalist id="ue_gestores">${us.filter((x) => x.email !== u.email && x.ativo).map((x) => `<option value="${esc(gtxt(x))}">`).join('')}</datalist></div>
-        <div class="f"><label>Perfil</label><select class="input" id="ue_perfil">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}" ${(u.perfil || u.padrao || 'colaborador') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-        <div class="f"><label>Acesso</label><select class="input" id="ue_ativo"><option value="1" ${u.ativo ? 'selected' : ''}>Ativo</option><option value="0" ${u.ativo ? '' : 'selected'}>Bloqueado</option></select></div>
+        <div class="f"><label>Perfil</label>${adm ? `<input class="input" id="ue_perfil" value="${PERFIL_L.ti}" data-v="ti" readonly title="A conta do Mobilab é sempre TI / Administração">`
+          : `<select class="input" id="ue_perfil">${Object.entries(PERFIL_L).map(([k, l]) => `<option value="${k}" ${(u.perfil || u.padrao || 'colaborador') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`}</div>
+        <div class="f"><label>Acesso</label><input class="input" value="${u.ativo ? 'Ativo' : 'Bloqueado'}${adm ? '' : ' (vem do Entra ID)'}" readonly></div>
         <div class="f full"><label class="check"><input type="checkbox" id="ue_trava" ${u.travado ? 'checked' : ''}> <span>Manter estes dados mesmo se o AD mudar <small>(a importação do AD não altera nome, setor, cargo e gestor)</small></span></label></div>
-        ${S.user.role === 'ti' ? `<div class="f full"><label for="ue_senha">Nova senha do Mobilab <small>(deixe em branco para manter a atual)</small></label>
+        ${S.user.role === 'ti' && adm ? `<div class="f full"><label for="ue_senha">Nova senha do Mobilab <small>(deixe em branco para manter a atual)</small></label>
           <div style="display:flex;gap:8px"><div class="pw" style="flex:1"><input class="input" id="ue_senha" type="password" autocomplete="new-password" placeholder="Mínimo de 8 caracteres">
             <button type="button" id="ue_olho" aria-label="Mostrar senha"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
             <button type="button" class="btn" id="ue_gerar">Gerar</button></div></div>` : ''}
@@ -2638,8 +2634,8 @@ async function renderUsuarios(page) {
       const ge = gv ? (gm ? gm[1] : gv).trim().toLowerCase() : '';
       if (gv && !us.some((x) => x.email === ge)) { $('#uemsg').innerHTML = '<div class="msg-box bad">Escolha o gestor na lista (digite o nome e clique na sugestão).</div>'; return; }
       const dados = { email: $('#ue_email').value.trim().toLowerCase(), nome: $('#ue_nome').value.trim(), login: $('#ue_login').value.trim(),
-        cc: $('#ue_cc').value.trim(), cargo: $('#ue_cargo').value.trim(), gestor_email: ge, perfil: $('#ue_perfil').value,
-        ativo: $('#ue_ativo').value === '1', travado: $('#ue_trava').checked };
+        cc: $('#ue_cc').value.trim(), cargo: $('#ue_cargo').value.trim(), gestor_email: ge, perfil: adm ? 'ti' : $('#ue_perfil').value,
+        travado: $('#ue_trava').checked };
       try {
         await Usr.salvar(dados);
         if (nsenha) await Usr.senha(dados.email, nsenha);

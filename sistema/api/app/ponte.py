@@ -260,8 +260,9 @@ def entra_retorno(request: Request, code: str = '', state: str = '', error: str 
 
 def sincronizar_entra(quem='sistema'):
     """Atualiza quem já está no Mobilab com os dados do Entra (nome, setor, cargo, gestor, login).
+    O bloqueio vem do Entra: conta desativada lá fica bloqueada aqui (e volta quando reativada).
     Não cria ninguém (contas de serviço/salas ficam de fora; a pessoa entra no 1º login) e não mexe em perfil,
-    bloqueio, quem foi editado pela TI (travado) nem em setor/gestor de quem vem da base do RH."""
+    quem foi editado pela TI (travado) nem em setor/gestor de quem vem da base do RH."""
     contas = entra.listar_usuarios()
     por_email = {}
     for x in contas:
@@ -277,6 +278,7 @@ def sincronizar_entra(quem='sistema'):
                 continue
             atual += 1
             desativadas += not x['ativo']
+            p.ativo = x['ativo']
             p.login = p.login or x['login']
             if x['ou']:
                 p.ou = x['ou']
@@ -564,6 +566,8 @@ async def salvar_usuario(request: Request):
     perfil = c.get('perfil')
     if perfil not in (None, '', *PERFIS):
         return JSONResponse({'erro': 'Perfil inválido.'}, status_code=400)
+    if email == ADMIN_EMAIL and perfil not in (None, 'ti'):
+        return JSONResponse({'erro': 'A conta do Mobilab é sempre TI / Administração.'}, status_code=400)
     with Sessao() as s:
         p = s.get(Pessoa, email)
         antes = _linha_usuario(p) if p else {}
@@ -595,8 +599,9 @@ async def salvar_usuario(request: Request):
             p.travado = True  # editou à mão: a próxima importação do AD não desfaz
         if perfil is not None:
             p.perfil = perfil or None
-        if 'ativo' in c:
-            p.ativo = bool(c['ativo'])
+        # bloqueio não é feito aqui: vem do Entra ID (sincronização diária); a conta do Mobilab fica sempre ativa e TI
+        if email == ADMIN_EMAIL:
+            p.ativo, p.perfil = True, 'ti'
         if email == u['email'] and (not p.ativo or (p.perfil and p.perfil != 'ti')):
             s.rollback()
             return JSONResponse({'erro': 'Você não pode tirar o seu próprio acesso de TI.'}, status_code=400)
@@ -625,6 +630,8 @@ async def definir_senha(request: Request):
     c = await request.json()
     email = str(c.get('email', '')).strip().lower()
     senha = str(c.get('senha', ''))
+    if email != ADMIN_EMAIL:
+        return JSONResponse({'erro': 'A senha dos colaboradores é a da conta Microsoft (Entra ID). Só a conta do Mobilab tem senha aqui.'}, status_code=400)
     if len(senha) < 8 or len(senha) > 128:
         return JSONResponse({'erro': 'A senha precisa ter de 8 a 128 caracteres.'}, status_code=400)
     if senha.strip() != senha:
