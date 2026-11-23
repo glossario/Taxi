@@ -1498,7 +1498,54 @@ function exportCsv(rows) {
   toast(`${rows.length} registro(s) exportado(s).`);
 }
 
+// Trilha de auditoria do servidor (21 CFR Part 11): só leitura, gerada pelo servidor, exportável e com verificação de integridade
+async function renderHistoricoSrv(page, mais) {
+  const H = renderHistoricoSrv;
+  const filtros = () => new URLSearchParams({ q: H.q || '', de: H.de || '', ate: H.ate || '' });
+  if (!mais) {
+    shell(page, `<div class="pg-head"><div><nav class="crumb"><span>Administração</span>${ico('right', 12)}<b>Histórico</b></nav><h1>Trilha de auditoria</h1>
+        <p>Registro gerado pelo servidor, que não pode ser alterado nem apagado: quem fez, quando (horário do servidor), o registro, o campo, o valor anterior e o novo.</p></div></div>
+      <div class="toolbar vtools aud-tools">
+        <div class="aud-datas"><label>De <input type="date" class="input" id="aude" value="${esc(H.de || '')}"></label><label>Até <input type="date" class="input" id="auate" value="${esc(H.ate || '')}"></label></div>
+        <label class="search">${ico('search', 16)}<input id="auq" placeholder="Buscar usuário, ação, registro ou valor…" value="${esc(H.q || '')}" aria-label="Buscar na trilha"></label>
+        <span class="aud-acts"><button class="btn" id="auver">${ico('check', 16)} Verificar integridade</button><button class="btn green" id="aucsv">Exportar CSV</button></span>
+      </div>
+      <div id="auinfo"></div>
+      <div id="aulista">${skTabela(8)}</div>`);
+    const recarregar = () => { H.linhas = null; renderHistoricoSrv(page); };
+    $('#aude').onchange = (e) => { H.de = e.target.value; recarregar(); };
+    $('#auate').onchange = (e) => { H.ate = e.target.value; recarregar(); };
+    $('#auq').oninput = (e) => { H.q = e.target.value; clearTimeout(H.t); H.t = setTimeout(() => { const i = $('#auq'), p = i && i.selectionStart; recarregar(); const n = $('#auq'); if (n) { n.focus(); n.setSelectionRange(p, p); } }, 400); };
+    $('#aucsv').onclick = () => { location.href = `/api/auditoria.csv?${filtros()}`; };
+    $('#auver').onclick = async () => {
+      const b = $('#auver'); b.disabled = true; $('#auinfo').innerHTML = '<div class="msg-box">Conferindo a corrente de hash de todos os registros…</div>';
+      try {
+        const j = await (await fetch('/api/auditoria/verificar', { cache: 'no-store' })).json();
+        $('#auinfo').innerHTML = j.integra ? `<div class="msg-box good"><b>Trilha íntegra.</b> ${j.total} registros conferidos, nenhuma alteração encontrada.</div>`
+          : j.erro ? `<div class="msg-box bad">${esc(j.erro)}</div>` : `<div class="msg-box bad"><b>Trilha adulterada</b> a partir do registro nº ${esc(j.quebra)}. Avise a Garantia da Qualidade.</div>`;
+      } catch (e) { $('#auinfo').innerHTML = '<div class="msg-box bad">Não foi possível verificar agora.</div>'; }
+      b.disabled = false;
+    };
+    H.linhas = [];
+  }
+  let j;
+  try {
+    const p = filtros(); if (mais && H.linhas.length) p.set('antes_de', H.linhas[H.linhas.length - 1].id);
+    const r = await fetch(`/api/auditoria?${p}`, { cache: 'no-store' }); j = await r.json(); if (!r.ok) throw new Error(j.erro);
+  } catch (e) { const l = $('#aulista'); if (l) l.innerHTML = `<div class="card empty">${esc(e.message || 'Não foi possível carregar.')}</div>`; return; }
+  if (route.page !== 'historico' || !$('#aulista')) return;
+  H.linhas = (H.linhas || []).concat(j.linhas);
+  const cel = (v) => { const t = String(v ?? ''); return t.length > 140 ? `<span title="${esc(t)}">${esc(t.slice(0, 140))}…</span>` : esc(t); };
+  $('#aulista').innerHTML = `<div class="card"><div class="table-wrap"><table class="tbl-ap aud-t"><thead><tr><th>Nº</th><th>Data/hora</th><th>Usuário</th><th>Ação</th><th>Registro</th><th>Campo</th><th>Valor anterior</th><th>Valor novo</th></tr></thead><tbody>
+      ${H.linhas.map((l) => `<tr><td><small>${l.id}</small></td><td title="UTC ${esc(l.utc)}">${esc(l.quando)}<br><small>UTC${esc(l.fuso.slice(0, 3))}:${esc(l.fuso.slice(3))}</small></td>
+        <td><b>${esc(l.nome || l.usuario)}</b>${l.nome ? `<br><small>${esc(l.usuario)}</small>` : ''}</td><td><b>${esc(l.acao)}</b></td><td>${esc(l.ref)}</td><td>${esc(l.campo)}</td>
+        <td class="aud-v">${cel(l.antes)}</td><td class="aud-v">${cel(l.depois)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">Nenhum registro neste filtro.</td></tr>'}
+    </tbody></table></div>
+    <p class="section-s" style="margin-top:10px">Mostrando ${H.linhas.length} de ${j.total} registros. ${j.mais ? '<button class="btn sm" id="aumais">Carregar mais</button>' : ''}</p></div>`;
+  if ($('#aumais')) $('#aumais').onclick = () => renderHistoricoSrv(page, true);
+}
 function renderHistorico(page) {
+  if (window.MOBILAB_API) return renderHistoricoSrv(page);
   shell(page, `
     <div class="page-head"><div><h1>Histórico / auditoria</h1><p>Acesso restrito a TI / Administração do sistema. Quem fez, quando, valor anterior e novo valor (RF-15).</p></div></div>
     <div class="card table-wrap">${S.log.length ? `<table><thead><tr><th>Data/hora</th><th>Usuário</th><th>Ação</th><th>Referência</th><th>Antes</th><th>Depois</th></tr></thead><tbody>

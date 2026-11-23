@@ -842,3 +842,13 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
 .usr-t .ac-tag.off { color: var(--red); border-color: #f3c4c4; background: #fdf2f2; }
 .usr-t .perf-fixo { font-size: 13px; font-weight: 700; color: var(--navy-ink); }
 .usr-t .perf-super { color: var(--green-dark); }
+
+/* Trilha de auditoria */
+.aud-tools { align-items: center; }
+.aud-datas { display: flex; gap: 10px; align-items: center; }
+.aud-datas label { display: flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 700; color: var(--muted); }
+.aud-datas .input { height: 38px; padding: 0 10px; font-size: 14px; width: auto; }
+.aud-acts { display: flex; gap: 8px; }
+.aud-t td { vertical-align: top; }
+.aud-t .aud-v { max-width: 280px; word-break: break-word; font-size: 12.5px; color: #374151; }
+#auinfo .msg-box { margin-bottom: 12px; }

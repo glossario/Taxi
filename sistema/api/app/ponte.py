@@ -8,24 +8,26 @@ O servidor:
   - gera o link de aprovação com token (no estado compartilhado nunca fica token).
 """
 import copy
+import csv
 import hashlib
+import io
 import hmac
 import re
 import secrets
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from html import escape
 from types import SimpleNamespace
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from urllib.parse import quote
 
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, func, select, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from . import auth, config, entra, mail
-from .db import Base, Sessao, auditar
+from .db import Auditoria, Base, Sessao, auditar, verificar_auditoria
 
 rota = APIRouter()
 LEMBRETE_MIN = 60
@@ -191,6 +193,9 @@ async def api_login(request: Request):
     except auth.LoginInvalido as ex:
         u = _teste_usuario_ad(str(corpo.get('usuario', ''))) if config.LOGIN_TESTE else None
         if not u:
+            with Sessao() as s:
+                auditar(s, str(corpo.get('usuario', ''))[:200].strip().lower() or '(vazio)', 'Login recusado', depois=f'senha do Mobilab: {ex}')
+                s.commit()
             return JSONResponse({'erro': 'Modo de teste: digite o login ou o e-mail de um usuário importado do AD (ou use os botões abaixo).'
                                  if config.LOGIN_TESTE else str(ex)}, status_code=401)
     como = 'AD' if config.LDAP_SERVER else ('teste' if config.LOGIN_TESTE else 'senha do Mobilab')
@@ -205,6 +210,8 @@ def abrir_sessao(request, u, como):
     with Sessao() as s:
         p = s.get(Pessoa, u['email'])
         if p and not p.ativo:
+            auditar(s, u['email'], 'Login recusado', nome=u.get('nome', ''), depois=f'{como}: acesso bloqueado')
+            s.commit()
             return 'Seu acesso ao Mobilab está bloqueado. Fale com a TI.'
         u['perfil'] = perfil_efetivo(p, u['perfil'])  # perfil definido pela TI vale mais que o padrão
         if p and not p.perfil and u['perfil'] != 'colaborador':
@@ -216,7 +223,7 @@ def abrir_sessao(request, u, como):
         u['gestor'] = aprovador_de(s, p) or u.get('gestor') or {}
         # vê a aba Aprovações: quem tem cargo de liderança ou já tem solicitação esperando por ele
         u['gestor_de'] = e_lider(p.cargo) or any((r.get('gestor') or {}).get('email', '').lower() == u['email'] for r in dados.get('reqs', []))
-        auditar(s, u['email'], 'Login', '', '', como)
+        auditar(s, u['email'], 'Login', '', '', como, nome=u.get('nome', ''))
         s.commit()
     request.session.clear()
     request.session['u'] = u
@@ -245,6 +252,9 @@ def entra_retorno(request: Request, code: str = '', state: str = '', error: str 
     try:
         d = entra.concluir_login(code, pend['nonce'])
     except entra.ErroEntra as ex:
+        with Sessao() as s:
+            auditar(s, '(conta Microsoft)', 'Login recusado', depois=f'conta Microsoft: {ex}')
+            s.commit()
         return falha(str(ex))
     with Sessao() as s:  # a pessoa pode estar cadastrada pelo e-mail, pelo UPN ou pelo login de rede
         p = s.get(Pessoa, d['email']) or (s.get(Pessoa, d['upn']) if d['upn'] else None) or \
@@ -381,6 +391,7 @@ async def gravar_estado(request: Request, tarefas: BackgroundTasks):
         except Recusa as ex:
             return JSONResponse({'erro': str(ex), 'versao': e.versao, 'estado': e.dados}, status_code=403)
         envios = _novos_emails(s, e.dados, novo)
+        auditar_estado(s, u, e.dados, novo)
         e.dados = copy.deepcopy(novo)
         e.versao += 1
         s.commit()
@@ -388,6 +399,121 @@ async def gravar_estado(request: Request, tarefas: BackgroundTasks):
     for env in envios:
         tarefas.add_task(_enviar, *env)
     return {'versao': versao}
+
+
+# ---------------- trilha de auditoria dos registros (21 CFR Part 11 §11.10(e)) ----------------
+# Gerada pelo servidor comparando o que estava gravado com o que chegou: cada criação, exclusão e cada campo alterado
+# vira uma linha com quem, quando, registro, campo, valor anterior e novo. O "log" que as telas mantêm não vale como trilha.
+REGISTROS = {  # parte dos dados: (nome do registro, criado, alterado, excluído)
+    'reqs': ('Solicitação', 'criada', 'alterada', 'excluída'),
+    'motoristas': ('Motorista', 'cadastrado', 'alterado', 'removido'),
+    'grade': ('Horário da grade', 'criado', 'alterado', 'removido'),
+    'tarifas': ('Tarifa', 'criada', 'alterada', 'removida'),
+}
+
+
+def _por_chave(v):
+    if isinstance(v, dict):
+        return {str(k): x for k, x in v.items()}
+    out = {}
+    for i, x in enumerate(v or []):
+        k = str(x.get('id')) if isinstance(x, dict) and x.get('id') not in (None, '') else f'#{i + 1}'
+        out[k] = x
+    return out
+
+
+def auditar_estado(s, u, antigo, novo):
+    quem, nome = u['email'], u.get('nome', '')
+    for parte, (rot, criado, alterado, excluido) in REGISTROS.items():
+        a, b = _por_chave((antigo or {}).get(parte)), _por_chave(novo.get(parte))
+        if a == b:
+            continue
+        for k in sorted(b.keys() - a.keys()):
+            auditar(s, quem, f'{rot} {criado}', k, '', b[k], nome=nome)
+        for k in sorted(a.keys() - b.keys()):
+            auditar(s, quem, f'{rot} {excluido}', k, a[k], '', nome=nome)
+        for k in sorted(a.keys() & b.keys()):
+            x, y = a[k], b[k]
+            if x == y:
+                continue
+            if isinstance(x, dict) and isinstance(y, dict):
+                for c in sorted(set(x) | set(y)):
+                    if x.get(c) != y.get(c):
+                        auditar(s, quem, f'{rot} {alterado}', k, x.get(c), y.get(c), nome=nome, campo=c)
+            else:
+                auditar(s, quem, f'{rot} {alterado}', k, x, y, nome=nome)
+
+
+def _filtro_auditoria(q, de, ate):
+    w = []
+    if de:
+        w.append(Auditoria.quando >= datetime.fromisoformat(de).replace(tzinfo=config.FUSO))
+    if ate:
+        w.append(Auditoria.quando < datetime.fromisoformat(ate).replace(tzinfo=config.FUSO) + timedelta(days=1))
+    if q and q.strip():
+        t = f'%{q.strip().lower()}%'
+        w.append(func.lower(Auditoria.usuario + ' ' + Auditoria.nome + ' ' + Auditoria.acao + ' ' + Auditoria.ref + ' ' + Auditoria.campo + ' '
+                            + Auditoria.antes + ' ' + Auditoria.depois).like(t))
+    return w
+
+
+def _linha_auditoria(a):
+    local = a.quando.astimezone(config.FUSO)
+    return {'id': a.id, 'quando': local.strftime('%d/%m/%Y %H:%M:%S'), 'fuso': local.strftime('%z'), 'utc': a.quando.astimezone(timezone.utc).isoformat(),
+            'usuario': a.usuario, 'nome': a.nome, 'acao': a.acao, 'ref': a.ref, 'campo': a.campo, 'antes': a.antes, 'depois': a.depois, 'hash': a.hash}
+
+
+@rota.get('/api/auditoria')
+def listar_auditoria(request: Request, q: str = '', de: str = '', ate: str = '', antes_de: int = 0, limite: int = 300):
+    if not _ti(request):
+        return JSONResponse({'erro': 'Só o Administrador e o Super Admin veem a trilha de auditoria.'}, status_code=403)
+    try:
+        w = _filtro_auditoria(q, de, ate)
+    except ValueError:
+        return JSONResponse({'erro': 'Data inválida.'}, status_code=400)
+    total_w = list(w)
+    if antes_de:
+        w.append(Auditoria.id < antes_de)
+    limite = max(1, min(limite, 1000))
+    with Sessao() as s:
+        rows = s.scalars(select(Auditoria).where(*w).order_by(Auditoria.id.desc()).limit(limite + 1)).all()
+        total = s.scalar(select(func.count()).select_from(Auditoria).where(*total_w))
+    return {'linhas': [_linha_auditoria(a) for a in rows[:limite]], 'mais': len(rows) > limite, 'total': total}
+
+
+@rota.get('/api/auditoria.csv')
+def exportar_auditoria(request: Request, q: str = '', de: str = '', ate: str = ''):
+    u = _ti(request)
+    if not u:
+        return JSONResponse({'erro': 'Só o Administrador e o Super Admin exportam a trilha de auditoria.'}, status_code=403)
+    try:
+        w = _filtro_auditoria(q, de, ate)
+    except ValueError:
+        return JSONResponse({'erro': 'Data inválida.'}, status_code=400)
+    buf = io.StringIO()
+    cw = csv.writer(buf, delimiter=';')
+    cw.writerow(['id', 'data_hora_local', 'fuso', 'data_hora_utc', 'usuario', 'nome', 'acao', 'registro', 'campo', 'valor_anterior', 'valor_novo', 'hash'])
+    with Sessao() as s:
+        for a in s.execute(select(Auditoria).where(*w).order_by(Auditoria.id).execution_options(yield_per=2000)).scalars():
+            d = _linha_auditoria(a)
+            cw.writerow([d['id'], d['quando'], d['fuso'], d['utc'], d['usuario'], d['nome'], d['acao'], d['ref'], d['campo'], d['antes'], d['depois'], d['hash']])
+        auditar(s, u['email'], 'Trilha de auditoria exportada', '', '', {'busca': q, 'de': de, 'ate': ate}, nome=u.get('nome', ''))
+        s.commit()
+    arq = f"mobilab-auditoria-{datetime.now(config.FUSO).strftime('%Y%m%d-%H%M')}.csv"
+    return Response('﻿' + buf.getvalue(), media_type='text/csv; charset=utf-8', headers={'Content-Disposition': f'attachment; filename="{arq}"'})
+
+
+@rota.get('/api/auditoria/verificar')
+def verificar_trilha(request: Request):
+    u = _ti(request)
+    if not u:
+        return JSONResponse({'erro': 'Só o Administrador e o Super Admin verificam a trilha.'}, status_code=403)
+    with Sessao() as s:
+        n, quebra = verificar_auditoria(s)
+        auditar(s, u['email'], 'Integridade da trilha verificada', '', '',
+                'íntegra' if quebra is None else f'adulterada a partir do registro {quebra}', nome=u.get('nome', ''))
+        s.commit()
+    return {'total': n, 'integra': quebra is None, 'quebra': quebra}
 
 
 # ---------------- e-mails gerados pelas telas → envio real ----------------
@@ -618,7 +744,12 @@ async def salvar_usuario(request: Request):
             s.rollback()
             return JSONResponse({'erro': 'Você não pode tirar o seu próprio acesso de TI.'}, status_code=400)
         s.flush()
-        auditar(s, u['email'], 'Usuário alterado' if antes else 'Usuário cadastrado', email, antes, _linha_usuario(p))
+        depois = _linha_usuario(p)
+        if not antes:
+            auditar(s, u['email'], 'Usuário cadastrado', email, '', depois, nome=u.get('nome', ''))
+        for k in sorted(set(antes) & set(depois)):
+            if k != 'ultimo_login' and antes[k] != depois[k]:
+                auditar(s, u['email'], 'Usuário alterado', email, antes[k], depois[k], nome=u.get('nome', ''), campo=k)
         s.commit()
         return {'usuario': _linha_usuario(p)}
 
@@ -657,7 +788,7 @@ async def definir_senha(request: Request):
         p.senha_hash = gerar_hash(senha)
         for chave in (p.email, (p.login or '').lower()):
             _FALHAS.pop(chave, None)  # destrava quem errou demais
-        auditar(s, u['email'], 'Senha alterada pela TI', email, '', 'nova senha definida')
+        auditar(s, u['email'], 'Senha alterada pela TI', email, '', 'nova senha definida (só o hash é guardado)', nome=u.get('nome', ''), campo='senha')
         s.commit()
     return {'ok': True}
 

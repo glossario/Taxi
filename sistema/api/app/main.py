@@ -19,7 +19,7 @@ from sqlalchemy.orm import selectinload
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import auth, config, entra, mail, ponte
-from .db import Aprovacao, Sessao, Solicitacao, auditar, criar_tabelas
+from .db import Aprovacao, Sessao, Solicitacao, auditar, criar_tabelas, migrar_auditoria
 
 FONTE = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
          '<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet">')
@@ -29,6 +29,7 @@ LEMBRETE_MIN = 60  # intervalo mínimo entre notificações ao gestor (minutos)
 @asynccontextmanager
 async def _vida(_app):
     criar_tabelas()
+    migrar_auditoria()
     ponte.migrar()
     tarefa = asyncio.create_task(_sincronizar_entra_todo_dia())
     yield
@@ -240,6 +241,11 @@ def fazer_login(request: Request, usuario: str = Form(''), senha: str = Form('')
 
 @app.get('/sair')
 def sair(request: Request):
+    u = request.session.get('u')
+    if u:
+        with Sessao() as s:
+            auditar(s, u['email'], 'Logout', nome=u.get('nome', ''))
+            s.commit()
     request.session.clear()
     return RedirectResponse('/login', status_code=303)
 
