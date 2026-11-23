@@ -796,3 +796,19 @@ button.vp-h:focus-visible { outline: 3px solid rgba(74, 143, 34, .35); outline-o
 .lg-ms { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; height: 52px; border: 1px solid #c9cec4; border-radius: 10px;
   background: #fff; color: #1f2a1a; font-weight: 700; font-size: 15.5px; text-decoration: none; }
 .lg-ms:hover { background: #f5f7f2; border-color: #9aa392; }
+/* aviso de embarque e política no topo, ao lado do horário (libera altura no corpo da gaveta) */
+.det-h-info { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 2px 4px 0 10px; }
+.det-h-info .note { margin: 0; padding: 8px 10px; font-size: 12px; line-height: 1.35; }
+.det-h-info .det-link { margin: 0; text-align: left; font-size: 12.5px; }
+@media (max-width: 420px) { .det.gaveta .det-h { flex-wrap: wrap; } .det-h-info { order: 3; flex-basis: 100%; margin: 4px 0 0; } }
+/* gaveta mais compacta: cabe sem rolagem numa tela 1080p em 100% */
+.det.gaveta .tl { padding: 12px 0; }
+.det.gaveta .tl li { padding-bottom: 9px; }
+.det.gaveta .det-cards { padding: 12px 0; gap: 8px; }
+.det.gaveta .det-cards > div { padding: 9px 12px 11px; }
+.det.gaveta .rs { padding-top: 12px; }
+.rs-n em { white-space: nowrap; }
+.rs-box li { padding: 8px 14px; }
+.rs-cc { max-width: 140px; font-size: 11.5px; }
+.rs-add .input { height: 42px; }
+.rs-carga { margin: 10px 0 8px; }
