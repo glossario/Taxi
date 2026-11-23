@@ -2540,16 +2540,35 @@ const skTabela = (n = 8) => `<div class="card" aria-busy="true" aria-label="Carr
 const skPagina = () => `<div class="sk-top" aria-busy="true" aria-label="Carregando">${sk('110px', '30px')}${sk('60px')}${sk('60px')}<span style="flex:1"></span>${sk('38px', '38px', 'border-radius:50%')}${sk('180px', '38px')}</div>
   <div class="sk-pagina sk-grupo">${sk('120px', '12px')}${sk('260px', '34px')}${sk('420px', '14px', 'max-width:100%')}
     <div class="sk-kpis" style="margin-top:8px">${'<i class="sk" style="width:220px;height:84px"></i>'.repeat(4)}</div>${skTabela(5)}</div>`;
+// Barra de filtros e busca da tela Usuários: fica de verdade (dá para digitar) mesmo enquanto a lista carrega
+const barraUsr = (fp) => `<div class="toolbar vtools">
+      <div class="seg">${[['', 'Todos'], ['colaborador', 'Colaboradores'], ['facilities', 'Facilities'], ['ti', 'TI'], ['bloq', 'Bloqueados']].map(([k, l]) => `<button class="seg-b${fp === k ? ' on' : ''}" data-uf="${k}">${l}</button>`).join('')}</div>
+      <label class="search">${ico('search', 16)}<input id="uq" placeholder="Buscar nome, e-mail ou setor…" value="${esc(renderUsuarios.q || '')}" aria-label="Buscar usuário"></label>
+      <button class="btn green" id="unovo">${ico('userplus', 16)} Novo usuário</button>
+    </div>`;
+const ligarBarraUsr = () => {
+  // filtro e busca usam a lista já carregada (não buscam de novo no servidor)
+  document.querySelectorAll('[data-uf]').forEach((b) => { b.onclick = () => { renderUsuarios.f = b.dataset.uf; document.querySelectorAll('[data-uf]').forEach((x) => x.classList.toggle('on', x === b)); renderUsuarios.rapido = true; route(); }; });
+  $('#uq').oninput = (e) => { renderUsuarios.q = e.target.value; clearTimeout(renderUsuarios.t); renderUsuarios.t = setTimeout(() => { renderUsuarios.rapido = true; route(); }, 300); };
+};
 async function renderUsuarios(page) {
-  shell(page, `<div class="pg-head"><div><nav class="crumb"><span>Administração</span>${ico('right', 12)}<b>Usuários</b></nav><h1>Usuários</h1>
-      <p>Quem acessa o Mobilab e com qual perfil. O login é pelo AD; aqui a TI define o perfil e pode bloquear o acesso.</p></div>
-      <div class="sk-kpis">${'<i class="sk"></i>'.repeat(4)}</div></div>
-    <div class="toolbar sk-tool">${sk('420px', '34px', 'max-width:100%')}<span style="flex:1"></span>${sk('260px', '38px', 'max-width:100%')}${sk('150px', '38px')}</div>
-    ${skTabela()}`);
-  let us;
-  try { us = await Usr.listar(); } catch (e) { const c = $('main .card'); c.className = 'card empty'; c.removeAttribute('aria-busy'); c.textContent = e.message || 'Não foi possível carregar.'; return; }
-  if (route.page !== 'usuarios') return;
+  const rapido = renderUsuarios.rapido && $('#uq'); renderUsuarios.rapido = false;
+  if (rapido && renderUsuarios.carregando) return; // a lista ainda está chegando: ela já vai aparecer com a busca/filtro atuais
+  let us = rapido ? renderUsuarios.cache : null;
+  if (!us) {
+    shell(page, `<div class="pg-head"><div><nav class="crumb"><span>Administração</span>${ico('right', 12)}<b>Usuários</b></nav><h1>Usuários</h1>
+        <p>Quem acessa o Mobilab e com qual perfil. O login é pelo AD; aqui a TI define o perfil e pode bloquear o acesso.</p></div>
+        <div class="sk-kpis">${'<i class="sk"></i>'.repeat(4)}</div></div>
+      ${barraUsr(renderUsuarios.f || '')}
+      ${skTabela()}`);
+    ligarBarraUsr(); $('#unovo').disabled = true;
+    renderUsuarios.carregando = true;
+    try { us = await Usr.listar(); } catch (e) { const c = $('main .card[aria-busy]'); if (c) { c.className = 'card empty'; c.removeAttribute('aria-busy'); c.textContent = e.message || 'Não foi possível carregar.'; } return; } finally { renderUsuarios.carregando = false; }
+    renderUsuarios.cache = us;
+    if (route.page !== 'usuarios' || !$('#uq')) return;
+  }
   const q = (renderUsuarios.q || '').toLowerCase(), fp = renderUsuarios.f || '';
+  const ae = document.activeElement, foco = ae && ae.id === 'uq' ? [ae.selectionStart, ae.selectionEnd] : null; // quem está digitando continua digitando
   const ef = (u) => u.perfil || u.padrao || 'colaborador';
   const lista = us.filter((u) => (!q || `${u.nome} ${u.email} ${u.cc}`.toLowerCase().includes(q)) && (!fp || (fp === 'bloq' ? !u.ativo : ef(u) === fp)));
   const cont = (f) => us.filter((u) => (f === 'bloq' ? !u.ativo : ef(u) === f)).length;
@@ -2557,11 +2576,7 @@ async function renderUsuarios(page) {
       <p>Quem acessa o Mobilab e com qual perfil. O login é pelo AD; aqui a TI define o perfil e pode bloquear o acesso.</p></div>
       <div class="mini-kpis"><div class="mk"><small>Usuários</small><b>${us.length}</b></div><div class="mk"><small>Facilities</small><b>${cont('facilities')}</b></div>
         <div class="mk"><small>TI</small><b>${cont('ti')}</b></div><div class="mk ${cont('bloq') ? 'warn' : ''}"><small>Bloqueados</small><b>${cont('bloq')}</b></div></div></div>
-    <div class="toolbar vtools">
-      <div class="seg">${[['', 'Todos'], ['colaborador', 'Colaboradores'], ['facilities', 'Facilities'], ['ti', 'TI'], ['bloq', 'Bloqueados']].map(([k, l]) => `<button class="seg-b${fp === k ? ' on' : ''}" data-uf="${k}">${l}</button>`).join('')}</div>
-      <label class="search">${ico('search', 16)}<input id="uq" placeholder="Buscar nome, e-mail ou setor…" value="${esc(renderUsuarios.q || '')}" aria-label="Buscar usuário"></label>
-      <button class="btn green" id="unovo">${ico('userplus', 16)} Novo usuário</button>
-    </div>
+    ${barraUsr(fp)}
     <div class="card"><div class="table-wrap"><table class="tbl-ap usr-t"><thead><tr><th>Nome</th><th>E-mail</th><th>Setor</th><th>Gestor imediato</th><th>Perfil</th><th>Acesso</th><th>Origem</th><th>Último acesso</th><th></th></tr></thead><tbody>
       ${lista.map((u) => `<tr class="${u.ativo ? '' : 'bloq'}"><td><b>${esc(u.nome || '—')}</b>${u.travado ? ' <span class="tag-ed" title="Editado no Mobilab — a importação do AD não altera estes dados">editado</span>' : ''}${u.cargo ? `<br><small>${esc(u.cargo)}</small>` : ''}</td>
         <td>${esc(u.email)}</td><td>${esc(u.cc || '—')}</td><td>${esc(u.gestor || '—')}</td>
@@ -2572,8 +2587,8 @@ async function renderUsuarios(page) {
     </tbody></table></div>
     <p class="section-s" style="margin-top:10px">Mudanças valem no próximo login da pessoa. Quem foi <b>editado</b> aqui não é alterado pela importação do AD (o Mobilab é a referência). Gestor não é perfil: quem é gestor imediato no AD vê a aba Aprovações automaticamente.</p></div>`;
   const salvar = async (dados, msg) => { try { await Usr.salvar(dados); toast(msg); } catch (e) { toast(e.message || 'Não foi possível salvar.'); } route(); };
-  document.querySelectorAll('[data-uf]').forEach((b) => { b.onclick = () => { renderUsuarios.f = b.dataset.uf; route(); }; });
-  $('#uq').oninput = (e) => { renderUsuarios.q = e.target.value; clearTimeout(renderUsuarios.t); renderUsuarios.t = setTimeout(() => { route(); setTimeout(() => { const i = $('#uq'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, 300); };
+  ligarBarraUsr();
+  if (foco) { const i = $('#uq'); i.focus(); i.setSelectionRange(foco[0], foco[1]); }
   document.querySelectorAll('.uperf').forEach((sel) => { sel.onchange = () => salvar({ email: sel.dataset.e, perfil: sel.value }, `Perfil alterado para ${PERFIL_L[sel.value]}.`); });
   document.querySelectorAll('.uat').forEach((b) => {
     b.onclick = () => {
