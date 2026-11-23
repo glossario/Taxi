@@ -17,11 +17,13 @@ from html import escape
 from types import SimpleNamespace
 
 from fastapi import APIRouter, BackgroundTasks, Request
-from fastapi.responses import JSONResponse
+from urllib.parse import quote
+
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, func, select, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from . import auth, config, mail
+from . import auth, config, entra, mail
 from .db import Base, Sessao, auditar
 
 rota = APIRouter()
@@ -148,7 +150,7 @@ def _estado(s, travar=False):
 @rota.get('/api/eu')
 def eu(request: Request):
     u = request.session.get('u')
-    return {'user': usuario_tela(u) if u else None, 'login_teste': config.LOGIN_TESTE}
+    return {'user': usuario_tela(u) if u else None, 'login_teste': config.LOGIN_TESTE, 'entra': entra.ligado()}
 
 
 @rota.post('/api/login')
@@ -161,10 +163,19 @@ async def api_login(request: Request):
         if not u:
             return JSONResponse({'erro': 'Modo de teste: digite o login ou o e-mail de um usuário importado do AD (ou use os botões abaixo).'
                                  if config.LOGIN_TESTE else str(ex)}, status_code=401)
+    como = 'AD' if config.LDAP_SERVER else ('teste' if config.LOGIN_TESTE else 'senha do Mobilab')
+    erro = abrir_sessao(request, u, como)
+    if erro:
+        return JSONResponse({'erro': erro}, status_code=403)
+    return {'user': usuario_tela(request.session['u'])}
+
+
+def abrir_sessao(request, u, como):
+    """Depois de conferida a identidade (senha, AD ou Microsoft): aplica bloqueio e perfil e grava a sessão. Devolve o erro ou None."""
     with Sessao() as s:
         p = s.get(Pessoa, u['email'])
         if p and not p.ativo:
-            return JSONResponse({'erro': 'Seu acesso ao Mobilab está bloqueado. Fale com a TI.'}, status_code=403)
+            return 'Seu acesso ao Mobilab está bloqueado. Fale com a TI.'
         u['perfil'] = perfil_efetivo(p, u['perfil'])  # perfil definido pela TI vale mais que o padrão
         if p and not p.perfil and u['perfil'] != 'colaborador':
             p.perfil = u['perfil']  # registra o perfil vindo da configuração para aparecer certo na lista
@@ -173,11 +184,92 @@ async def api_login(request: Request):
             u['gestor_de'] = any((r.get('gestor') or {}).get('email', '').lower() == u['email'] for r in dados.get('reqs', [])) or \
                 bool(s.scalar(select(func.count()).select_from(Pessoa).where(Pessoa.gestor_email == u['email'], Pessoa.ativo.is_(True))))
         conhecer(s, u)
-        auditar(s, u['email'], 'Login', '', '', 'AD' if config.LDAP_SERVER else ('teste' if config.LOGIN_TESTE else 'senha do Mobilab'))
+        auditar(s, u['email'], 'Login', '', '', como)
         s.commit()
     request.session.clear()
     request.session['u'] = u
-    return {'user': usuario_tela(u)}
+    return None
+
+
+# ---------------- login com a conta Microsoft (Entra ID) ----------------
+@rota.get('/auth/entra')
+def entra_inicio(request: Request):
+    if not entra.ligado():
+        return RedirectResponse('/?erro=' + quote('O login com a conta Microsoft ainda não está ligado.'), status_code=303)
+    st, nonce = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
+    request.session['entra'] = {'state': st, 'nonce': nonce, 't': time.time()}
+    return RedirectResponse(entra.url_login(st, nonce), status_code=303)
+
+
+@rota.get('/auth/callback')
+def entra_retorno(request: Request, code: str = '', state: str = '', error: str = '', error_description: str = ''):
+    def falha(msg):
+        return RedirectResponse('/?erro=' + quote(msg), status_code=303)
+    pend = request.session.pop('entra', None)
+    if error:
+        return falha('Login cancelado.' if error == 'access_denied' else f'A Microsoft recusou o login: {error_description[:160] or error}')
+    if not pend or not code or not hmac.compare_digest(state, pend.get('state', '')) or time.time() - pend.get('t', 0) > 900:
+        return falha('O login expirou. Clique em “Entrar com a conta Microsoft” de novo.')
+    try:
+        d = entra.concluir_login(code, pend['nonce'])
+    except entra.ErroEntra as ex:
+        return falha(str(ex))
+    with Sessao() as s:  # a pessoa pode estar cadastrada pelo e-mail, pelo UPN ou pelo login de rede
+        p = s.get(Pessoa, d['email']) or (s.get(Pessoa, d['upn']) if d['upn'] else None) or \
+            s.scalars(select(Pessoa).where(func.lower(Pessoa.login) == d['login'])).first()
+        email = p.email if p else d['email']
+        if p and d['login'] and not p.login:
+            p.login = d['login']
+            s.commit()
+    if not email or '@' not in email:
+        return falha('Não foi possível identificar o e-mail da sua conta Microsoft.')
+    u = {'email': email, 'nome': d['nome'], 'cc': d['cc'], 'perfil': config.perfil_de(email), 'gestor': d['gestor']}
+    erro = abrir_sessao(request, u, 'conta Microsoft')
+    return falha(erro) if erro else RedirectResponse('/', status_code=303)
+
+
+def sincronizar_entra(quem='sistema'):
+    """Atualiza quem já está no Mobilab com os dados do Entra (nome, setor, cargo, gestor, login).
+    Não cria ninguém (contas de serviço/salas ficam de fora; a pessoa entra no 1º login) e não mexe em perfil,
+    bloqueio, quem foi editado pela TI (travado) nem em setor/gestor de quem vem da base do RH."""
+    contas = entra.listar_usuarios()
+    por_email = {}
+    for x in contas:
+        for k in {x['email'], x['upn']}:
+            if k:
+                por_email[k] = x
+    por_login = {x['login']: x for x in contas if x['login']}
+    atual = desativadas = 0
+    with Sessao() as s:
+        for p in s.scalars(select(Pessoa).where(Pessoa.email != ADMIN_EMAIL)).all():
+            x = por_email.get(p.email) or por_login.get((p.login or '').lower())
+            if not x:
+                continue
+            atual += 1
+            desativadas += not x['ativo']
+            p.login = p.login or x['login']
+            if x['ou']:
+                p.ou = x['ou']
+            if not p.travado and not p.matricula:
+                p.nome, p.cc, p.cargo = x['nome'] or p.nome, x['setor'] or p.cc, x['cargo'] or p.cargo
+                if x['gestor_email']:
+                    p.gestor_email, p.gestor_nome = x['gestor_email'], x['gestor_nome']
+        total = s.scalar(select(func.count()).select_from(Pessoa)) - 1
+        res = {'contas_entra': len(contas), 'atualizados': atual, 'sem_conta_entra': total - atual, 'conta_desativada_no_entra': desativadas}
+        auditar(s, quem, 'Sincronização Entra ID', '', '', res)
+        s.commit()
+    return res
+
+
+@rota.post('/api/usuarios/sincronizar-entra')
+def sincronizar_entra_api(request: Request):
+    u = _ti(request)
+    if not u:
+        return JSONResponse({'erro': 'Só a TI sincroniza usuários.'}, status_code=403)
+    try:
+        return sincronizar_entra(u['email'])
+    except entra.ErroEntra as ex:
+        return JSONResponse({'erro': str(ex)}, status_code=502)
 
 
 # ---------------- estado ----------------

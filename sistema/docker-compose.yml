@@ -28,6 +28,7 @@ services:
       NOREPLY_PATH: /run/secrets/noreply
     secrets:
       - noreply
+      - entra
     ports:
       - "${PORTA:-8080}:8000"
     volumes:
@@ -36,6 +37,8 @@ services:
 secrets:
   noreply:
     file: ${NOREPLY_FILE:-../../noreply.txt}   # linha 1 = usuário, linha 2 = senha (fica fora do repositório)
+  entra:
+    file: ${ENTRA_FILE:-../../entra.txt}       # tenant_id, client_id e client_secret do app Mobilab no Entra ID (fora do repositório)
 
 volumes:
   dbdata:

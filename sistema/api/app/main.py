@@ -2,6 +2,7 @@
 
 Quem aprova intermunicipal é SÓ o gestor imediato. O Facilities acompanha e pode notificar o gestor para agilizar.
 """
+import asyncio
 import hashlib
 import re
 import secrets
@@ -17,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import auth, config, mail, ponte
+from . import auth, config, entra, mail, ponte
 from .db import Aprovacao, Sessao, Solicitacao, auditar, criar_tabelas
 
 FONTE = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
@@ -29,7 +30,21 @@ LEMBRETE_MIN = 60  # intervalo mínimo entre notificações ao gestor (minutos)
 async def _vida(_app):
     criar_tabelas()
     ponte.migrar()
+    tarefa = asyncio.create_task(_sincronizar_entra_todo_dia())
     yield
+    tarefa.cancel()
+
+
+async def _sincronizar_entra_todo_dia():
+    """Uma vez por dia (1ª vez 2 min após subir): atualiza setor, cargo e gestor de quem já está no Mobilab com o Entra ID."""
+    await asyncio.sleep(120)
+    while True:
+        if entra.ligado():
+            try:
+                print('Sincronização Entra ID:', await asyncio.to_thread(ponte.sincronizar_entra), flush=True)
+            except Exception as ex:  # sem permissão, sem rede etc.: tenta de novo amanhã
+                print('Sincronização Entra ID falhou:', ex, flush=True)
+        await asyncio.sleep(24 * 3600)
 
 
 app = FastAPI(title='Mobilab', docs_url=None, redoc_url=None, openapi_url=None, lifespan=_vida)

@@ -122,6 +122,7 @@ const Srv = {
     try {
       const eu = await (await fetch('/api/eu', { cache: 'no-store' })).json();
       Srv.teste = !!eu.login_teste;
+      Srv.entra = !!eu.entra;
       if (!eu.user) { route(); return; }
       await Srv.carregar(eu.user);
     } catch (e) { route(); toast('Sem conexão com o servidor do Mobilab.'); }
@@ -468,6 +469,8 @@ function renderLogin() {
           <button class="btn-primary lg-entrar" type="submit">Entrar</button>
           <div id="lerr" class="lg-erro" hidden></div>
         </form>
+        ${window.MOBILAB_API && Srv.entra ? `<div class="lg-ou"><span>ou</span></div>
+        <a class="lg-ms" href="/auth/entra"><svg width="20" height="20" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>Entrar com a conta Microsoft</a>` : ''}
         <div class="demo lg-demo">
           <p><b>Simulação:</b> qualquer senha funciona. Entre como:</p>
           <div class="chips">
@@ -485,6 +488,8 @@ function renderLogin() {
   $('#forgot').onclick = (e) => { e.preventDefault(); toast('Na versão final o acesso é pela conta corporativa (AD) — sem senha própria.'); };
   const TESTE_SRV = { 'colaborador@natulab.com.br': 'colaborador', 'ricardo.alves@natulab.com.br': 'gestor', 'facilities@natulab.com.br': 'facilities', 'ti@natulab.com.br': 'ti' };
   if (window.MOBILAB_API) {
+    const qs = new URLSearchParams(location.search), msgErro = qs.get('erro'); // erro vindo do login Microsoft
+    if (msgErro) { const l = $('#lerr'); l.textContent = msgErro; l.hidden = false; history.replaceState(null, '', location.pathname + location.hash); }
     const dm = $('.demo');
     if (!Srv.teste) dm.hidden = true; else dm.querySelector('p').innerHTML = '<b>Modo de teste</b> (AD ainda não ligado): a senha não é conferida. Digite o login ou e-mail de <b>qualquer usuário do AD</b>, ou entre como:';
   }
