@@ -319,20 +319,28 @@ class Recusa(Exception):
     pass
 
 
-def _validar(u, antigo, novo):
+def _validar(u, antigo, novo, s):
     """Regras que as telas não podem burlar."""
     velhos = {r['id']: r for r in (antigo or {}).get('reqs', [])}
     staff = u['perfil'] in ('facilities', 'ti')
-    chefe = u.get('gestor') or {}
     for r in novo.get('reqs', []):
         r.pop('tok', None)  # token de aprovação nunca fica no estado compartilhado
         o = velhos.get(r.get('id'))
         if o is None:  # pedido novo
-            if not staff and str(r.get('email', '')).lower() != u['email']:
-                raise Recusa('Você só pode criar solicitações em seu nome.')
+            chefe = u.get('gestor') or {}
+            dono = str(r.get('email', '')).lower()
+            if dono == u['email']:
+                r.pop('por', None)
+            else:  # pedido para outra pessoa: precisa estar ativa no cadastro; nome/setor vêm do cadastro e fica registrado quem pediu
+                p = s.get(Pessoa, dono)
+                if not p or not p.ativo or dono == ADMIN_EMAIL:
+                    raise Recusa('Escolha a pessoa na lista de usuários ativos do Mobilab.')
+                r['email'], r['nome'], r['cc'] = p.email, p.nome or p.email, p.cc
+                r['por'] = {'nome': u.get('nome', ''), 'email': u['email']}
+                chefe = aprovador_de(s, p) or {}
             if r.get('tipo') == 'inter':
                 if not chefe.get('email'):
-                    raise Recusa('Seu gestor imediato não está cadastrado no AD. Fale com a TI.')
+                    raise Recusa('Quem vai viajar não tem gestor (liderança) cadastrado para aprovar. Fale com a TI.')
                 r['status'] = 'gestor'
                 r['gestor'] = {'nome': chefe.get('nome', ''), 'email': chefe['email'].lower()}
                 r.pop('aprov', None)
@@ -342,7 +350,7 @@ def _validar(u, antigo, novo):
         ge = str((o.get('gestor') or {}).get('email', '')).lower()
         if o.get('status') == 'gestor' and r.get('status') != 'gestor':
             ok_gestor = u['email'] == ge and r.get('status') in ('analise', 'recusada')
-            ok_cancel = r.get('status') == 'cancelada' and (u['email'] == str(o.get('email', '')).lower() or staff)
+            ok_cancel = r.get('status') == 'cancelada' and (u['email'] in (str(o.get('email', '')).lower(), str((o.get('por') or {}).get('email', '')).lower()) or staff)
             if not (ok_gestor or ok_cancel):
                 raise Recusa('Só o gestor imediato pode aprovar ou reprovar esta solicitação.')
         if r.get('aprov') != o.get('aprov') and u['email'] != ge:
@@ -363,7 +371,7 @@ async def gravar_estado(request: Request, tarefas: BackgroundTasks):
         if int(corpo.get('versao', -1)) != e.versao:
             return JSONResponse({'erro': 'conflito', 'versao': e.versao, 'estado': e.dados}, status_code=409)
         try:
-            _validar(u, e.dados, novo)
+            _validar(u, e.dados, novo, s)
         except Recusa as ex:
             return JSONResponse({'erro': str(ex), 'versao': e.versao, 'estado': e.dados}, status_code=403)
         envios = _novos_emails(s, e.dados, novo)
@@ -603,7 +611,7 @@ def listar_colegas(request: Request):
         return JSONResponse({'erro': 'Faça login novamente.'}, status_code=401)
     with Sessao() as s:
         ps = s.scalars(select(Pessoa).where(Pessoa.ativo.is_(True), Pessoa.email != ADMIN_EMAIL).order_by(Pessoa.nome)).all()
-        return {'pessoas': [{'nome': p.nome or p.email, 'email': p.email, 'cc': p.cc} for p in ps]}
+        return {'pessoas': [{'nome': p.nome or p.email, 'email': p.email, 'cc': p.cc, 'aprovador': aprovador_de(s, p) or {}} for p in ps]}
 
 
 @rota.post('/api/usuarios/senha')

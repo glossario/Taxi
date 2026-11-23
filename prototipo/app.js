@@ -394,7 +394,7 @@ function shell(page, content) {
   // TI acessa tudo pelo Início (ícones); na barra fica só o Início e a tela aberta.
   const nav = S.user.role === 'ti' ? navDe(S.user).filter(([k]) => k === 'inicio' || k === page) : navDe(S.user);
   const nAprov = S.user.gestor ? S.reqs.filter((r) => r.status === 'gestor' && r.gestor && r.gestor.email === S.user.email).length : 0;
-  const nMinhas = S.reqs.filter((r) => r.email === S.user.email && ATIVOS.includes(r.status)).length;
+  const nMinhas = S.reqs.filter((r) => meuPedido(r) && ATIVOS.includes(r.status)).length;
   const nNovas = minhasMsgs().filter((e) => !e.lida).length;
   app().innerHTML = `
     <header class="topbar">
@@ -644,6 +644,41 @@ async function colegas() {
   } else UI.colegas = (await Usr.listar()).filter((u) => u.ativo).map((u) => ({ nome: u.nome, email: u.email, cc: u.cc }));
   return UI.colegas;
 }
+// ---- Solicitante: começa com quem está logado; dá para apagar e escolher outra pessoa (o pedido fica no nome dela)
+const meuPedido = (r) => r.email === S.user.email || !!(r.por && r.por.email === S.user.email);
+function campoSolicitante() {
+  return `<div class="f"><label for="sol">Solicitante <small>(quem vai viajar)</small></label>
+      <div class="rs-busca"><input id="sol" value="${esc(S.user.nome)}" autocomplete="off" placeholder="Digite o nome de quem vai viajar"><div class="rs-sug" id="solsug" hidden></div></div></div>
+    <div class="f"><label>Centro de custo</label><input id="solcc" readonly value="${esc(S.user.cc || '—')}"><small id="solccn">Carregado do cadastro corporativo</small></div>`;
+}
+function ligarSolicitante(onTroca) {
+  const eu = { nome: S.user.nome, email: S.user.email, cc: S.user.cc, aprovador: chefeDe() };
+  let atual = eu, lista = [];
+  const q = $('#sol'), sug = $('#solsug');
+  const escolhe = (p) => {
+    atual = { ...p, aprovador: p.aprovador && p.aprovador.email ? p.aprovador : p.email === S.user.email ? chefeDe() : gestorDe(p.cc) };
+    q.value = p.nome; $('#solcc').value = p.cc || '—'; sug.hidden = true;
+    $('#solccn').textContent = p.email === S.user.email ? 'Carregado do cadastro corporativo' : 'Pedido para outra pessoa · você fica registrado como quem pediu';
+    if (onTroca) onTroca(atual);
+  };
+  const mostra = async () => {
+    const t = semAcento(q.value.trim());
+    if (t.length < 2) { sug.hidden = true; return; }
+    let todos;
+    try { todos = await colegas(); } catch (e) { sug.innerHTML = `<div class="rs-vazio">${esc(e.message)}</div>`; sug.hidden = false; return; }
+    lista = [eu, ...todos.filter((x) => x.email !== S.user.email)].filter((x) => semAcento(`${x.nome} ${x.cc}`).includes(t)).slice(0, 8);
+    sug.innerHTML = lista.length ? lista.map((x, i) => `<button type="button" data-i="${i}"><b>${esc(x.nome)}${x.email === S.user.email ? ' (você)' : ''}</b><small>${esc(ccPartes(x.cc).dep || '—')}</small></button>`).join('')
+      : '<div class="rs-vazio">Ninguém encontrado com esse nome.</div>';
+    sug.hidden = false;
+    sug.querySelectorAll('[data-i]').forEach((b) => { b.onmousedown = (e) => { e.preventDefault(); escolhe(lista[Number(b.dataset.i)]); }; });
+  };
+  q.oninput = () => { clearTimeout(ligarSolicitante.t); ligarSolicitante.t = setTimeout(mostra, 150); };
+  q.onblur = () => setTimeout(() => { sug.hidden = true; }, 150);
+  q.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = sug.querySelector('[data-i]'); if (b) b.onmousedown(e); } };
+  return () => (q.value.trim() === atual.nome ? atual : null); // null = digitou e não escolheu ninguém da lista
+}
+const porQuem = (p) => (p.email !== S.user.email ? { por: { nome: S.user.nome, email: S.user.email } } : {});
+
 function ligarReserva() {
   const q = $('#rsq');
   if (!q) return;
@@ -878,8 +913,7 @@ function openSlot(data, hora, preset) {
     <h3>Solicitar — ${esc(fmtDT(data, hora))}</h3>
     <p class="sub">Rota: ${esc(rotaTxt(slot.paradas))} · ocupação atual ${occ}/${capSlot(occ)} (${veicPrevisto(occ)})</p>
     <form id="sf" class="form-grid">
-      <div class="f"><label>Solicitante</label><input readonly value="${esc(S.user.nome)}"></div>
-      <div class="f"><label>Centro de custo</label><input readonly value="${esc(S.user.cc)}"><small>Carregado do cadastro corporativo</small></div>
+      ${campoSolicitante()}
       <div class="f full"><label for="tr">Trecho</label><select id="tr">${trechoOptions(slot.paradas, p.trecho)}</select></div>
       <div class="f"><label for="px">Passageiros</label><input id="px" type="number" min="1" max="${SLOT_CAP}" value="${esc(p.pax || 1)}"><small>Incluindo você. Até ${CAP_PADRAO}: carro · acima: Spin (máx. ${SLOT_CAP})</small></div>
       ${bagCampo(BAG[p.bag] ? bagTxt(p) : p.bag)}
@@ -894,7 +928,8 @@ function openSlot(data, hora, preset) {
     <div id="sfmsg"></div>
     <div class="modal-acts"><button class="btn" id="cx">Cancelar</button><button class="btn green" id="ok">Enviar solicitação</button></div>`);
   $('#cx').onclick = closeModal;
-  obrigatorios(['#tr', '#px', '#nm', '#js', '#rpe', '#rvo', '#rvot', '#rth', '#rtht']);
+  obrigatorios(['#sol', '#tr', '#px', '#nm', '#js', '#rpe', '#rvo', '#rvot', '#rth', '#rtht']);
+  const quem = ligarSolicitante();
   // Volta pela grade: de = destino da ida; para = unidade escolhida em "Voltar para".
   const pax0 = () => parseInt($('#px').value, 10) || 1;
   const bvSlot = () => { // bate-volta: 1º horário livre no mesmo dia após o tempo no destino
@@ -949,6 +984,11 @@ function openSlot(data, hora, preset) {
     const pax = parseInt($('#px').value, 10);
     const form = { trecho: $('#tr').value, pax, bag: $('#bg').value.trim() || 'N/A', nomes: $('#nm').value.trim(), just: $('#js').value.trim() };
     const msg = $('#sfmsg');
+    const pes = quem();
+    if (!pes) { msg.innerHTML = '<div class="msg-box bad">Escolha o solicitante na lista (digite o nome e clique na pessoa).</div>'; return; }
+    if (pes.email !== S.user.email && S.reqs.some((x) => x.email === pes.email && x.tipo === 'grade' && x.data === data && x.hora === hora && ATIVOS.includes(x.status))) {
+      msg.innerHTML = `<div class="msg-box bad">${esc(pes.nome)} já tem solicitação neste horário.</div>`; return;
+    }
     if (!Number.isInteger(pax) || pax < 1 || pax > SLOT_CAP) { msg.innerHTML = `<div class="msg-box bad">Informe entre 1 e ${SLOT_CAP} passageiros.</div>`; return; }
     const nAc = p.acomp ? p.acomp.length : 0;
     if (pax < 1 + nAc) { msg.innerHTML = `<div class="msg-box bad">São ${1 + nAc} pessoas na reserva (você + ${nAc}). Informe pelo menos ${1 + nAc} passageiros.</div>`; return; }
@@ -998,7 +1038,7 @@ function openSlot(data, hora, preset) {
       }
     }
     const novo = (d, h, o, de) => ({
-      id: newReqId(), tipo: 'grade', nome: S.user.nome, email: S.user.email, cc: S.user.cc, data: d, hora: h, origem: o, destino: de, pax, bag: form.bag,
+      id: newReqId(), tipo: 'grade', nome: pes.nome, email: pes.email, cc: pes.cc, ...porQuem(pes), data: d, hora: h, origem: o, destino: de, pax, bag: form.bag,
       nomes: form.nomes, just: form.just, status: 'analise', veiculo: null, motorista: null, os: null, excecao: false, motivo: '', criado: nowStamp(),
       ...(form.acomp && form.acomp.length ? { acomp: form.acomp.map((x) => ({ nome: x.nome, email: x.email || '', cc: x.visitante ? S.user.cc : x.cc || '', visitante: !!x.visitante })) } : {}),
       ...(form.carga ? { carga: form.carga } : {}),
@@ -1026,6 +1066,7 @@ function openAvulsa() {
     <h3>Solicitação avulsa</h3>
     <p class="sub">Táxi na cidade, intermunicipal ou moto táxi.</p>
     <form class="form-grid">
+      ${campoSolicitante()}
       <div class="f full"><label for="tp">Tipo</label><select id="tp">
         <option value="cidade">Táxi na cidade (antecedência mín. 1 h)</option>
         <option value="inter">Táxi intermunicipal (antecedência mín. 48 h)</option>
@@ -1044,7 +1085,7 @@ function openAvulsa() {
       <div class="f c-moto" hidden><label for="mt2">Tamanho</label><select id="mt2">${Object.entries(ITEM_TAM).map(([k, t]) => `<option value="${k}">${t.l}</option>`).join('')}</select></div>
       <div class="f full c-moto" hidden><label for="mr">Quem recebe no destino?</label><input id="mr" placeholder="Nome ou setor de quem recebe"></div>
       <div class="f full"><label for="js">Justificativa</label><textarea id="js"></textarea></div>
-      <div class="f full" id="gnote" hidden><div class="msg-box warn" style="margin:0">Este pedido precisa da <b>aprovação de ${esc(chefeDe().nome || 'sua liderança')}</b> (líder, coordenador, gerente ou diretor acima de você) antes de ir para o Facilities.</div></div>
+      <div class="f full" id="gnote" hidden><div class="msg-box warn" style="margin:0">Este pedido precisa da <b>aprovação de <span id="gnome">${esc(chefeDe().nome || 'sua liderança')}</span></b> (líder, coordenador, gerente ou diretor acima de quem vai viajar) antes de ir para o Facilities.</div></div>
       <div class="f full" id="exc" hidden><label class="check"><input type="checkbox" id="exck"> <span>Solicitar como <b>exceção</b> ao prazo (requer autorização do Facilities — DEC-12)</span></label></div>
     </form>
     <div id="avmsg"></div>
@@ -1081,10 +1122,13 @@ function openAvulsa() {
   $('#tp').onchange = () => { syncTipo(); $('#exc').hidden = true; $('#avmsg').innerHTML = ''; };
   PARES.forEach(([s]) => { $(s).onchange = () => { syncOutro(); syncARet(); }; });
   $('#cx').onclick = closeModal;
-  obrigatorios(['#tp', '#dt', '#hr', '#og', '#ogt', '#ds', '#dst', '#px', '#mo', '#mot', '#md', '#mdt', '#mi', '#mv', '#mt2', '#mr', '#js', '#rpe', '#rvo', '#rvot', '#rth']);
+  const quem = ligarSolicitante((p) => { $('#gnome').textContent = (p.aprovador && p.aprovador.nome) || 'a liderança'; });
+  obrigatorios(['#sol', '#tp', '#dt', '#hr', '#og', '#ogt', '#ds', '#dst', '#px', '#mo', '#mot', '#md', '#mdt', '#mi', '#mv', '#mt2', '#mr', '#js', '#rpe', '#rvo', '#rvot', '#rth']);
   $('#ok').onclick = () => {
     const tipo = $('#tp').value, data = $('#dt').value, hora = $('#hr').value;
     const just = $('#js').value.trim();
+    const pes = quem();
+    if (!pes) { $('#avmsg').innerHTML = '<div class="msg-box bad">Escolha o solicitante na lista (digite o nome e clique na pessoa).</div>'; return; }
     const msg = $('#avmsg');
     const bad = (t) => { msg.innerHTML = `<div class="msg-box bad">${t}</div>`; };
     let campos;
@@ -1135,11 +1179,11 @@ function openAvulsa() {
       excecao = true;
     }
     const r = {
-      id: newReqId(), tipo, nome: S.user.nome, email: S.user.email, cc: S.user.cc, data, hora, ...campos,
+      id: newReqId(), tipo, nome: pes.nome, email: pes.email, cc: pes.cc, ...porQuem(pes), data, hora, ...campos,
       just, status: 'analise', veiculo: null, motorista: null, os: null, excecao, motivo: '', criado: nowStamp(),
     };
     if (ret && ret.bv) { r.bv = ret.bv; ret = null; } // bate-volta avulso = uma corrida só (motorista aguarda)
-    if (precisaGestor(r)) Object.assign(r, { status: 'gestor', gestor: { ...chefeDe() }, aprovPedido: nowStamp() });
+    if (precisaGestor(r)) Object.assign(r, { status: 'gestor', gestor: { ...(pes.aprovador && pes.aprovador.email ? pes.aprovador : chefeDe()) }, aprovPedido: nowStamp() });
     S.reqs.push(r);
     if (r.gestor) pedirAprovacao(r);
     audit('Solicitação criada', r.id, '', `${TIPOS[tipo]} ${fmtDT(data, hora)}${excecao ? ' · EXCEÇÃO de prazo' : ''}`);
@@ -1166,6 +1210,8 @@ function openDetalhe(id) {
     ${par ? `<div class="par-box">${r.perna === 'ida' ? 'Retorno' : 'Ida'}: <b>${esc(par.id)}</b> · ${esc(fmtDT(par.data, par.hora))} · ${esc(siteName(par.origem))} → ${esc(siteName(par.destino))} ${pill(par.status)}
       <button class="btn sm" id="vpar">Ver</button></div>` : ''}
     <div class="form-grid">
+      <div class="f"><label>Solicitante</label><div>${esc(r.nome)}${r.cc ? ` <small>(${esc(ccPartes(r.cc).dep)})</small>` : ''}</div></div>
+      <div class="f"><label>Pedido por</label><div>${r.por ? esc(r.por.nome) : 'a própria pessoa'}</div></div>
       <div class="f"><label>Data/horário</label><div>${esc(fmtDT(r.data, r.hora))}</div></div>
       <div class="f"><label>Trecho</label><div>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}</div></div>
       ${r.tipo === 'moto' ? `
@@ -1195,7 +1241,7 @@ function openDetalhe(id) {
 }
 
 function renderMinhas(page) {
-  const mine = S.reqs.filter((r) => r.email === S.user.email).sort((a, b) => at(b.data, b.hora) - at(a.data, a.hora));
+  const mine = S.reqs.filter(meuPedido).sort((a, b) => at(b.data, b.hora) - at(a.data, a.hora));
   shell(page, `
     <div class="page-head"><div><h1>Minhas solicitações</h1><p>Acompanhe o status. Cancelamento disponível enquanto estiver em análise (política em definição — DEC-13).</p></div>
       <button class="btn green" id="avulsa">+ Solicitação avulsa</button></div>
@@ -1583,7 +1629,7 @@ function openEmail(id) {
     <div class="mail-body">${esc(e.corpo)}</div>
     ${e.kind === 'aprovacao' ? (() => { const r = S.reqs.find((x) => x.id === e.refs[0]); return r ? `<div class="mail-cta"><a class="btn green" href="${window.MOBILAB_API ? '#aprovacoes' : linkAprov(r)}" id="apvlink">Analisar solicitação</a></div>` : ''; })() : ''}
     <p class="section-s" style="margin-top:10px">Simulação: no sistema real esta mensagem chega na caixa de e-mail corporativa ${e.kind === 'aprovacao' ? 'do gestor' : 'do colaborador'}.</p>
-    <div class="modal-acts">${e.refs[0] && S.reqs.some((r) => r.id === e.refs[0] && r.email === S.user.email) ? `<button class="btn" id="vsol">Ver solicitação ${esc(e.refs[0])}</button>` : ''}<button class="btn green" id="cx">Fechar</button></div>`);
+    <div class="modal-acts">${e.refs[0] && S.reqs.some((r) => r.id === e.refs[0] && meuPedido(r)) ? `<button class="btn" id="vsol">Ver solicitação ${esc(e.refs[0])}</button>` : ''}<button class="btn green" id="cx">Fechar</button></div>`);
   $('#cx').onclick = () => { closeModal(); route(); };
   const al = $('#apvlink'); if (al) al.onclick = () => closeModal();
   const vs = $('#vsol'); if (vs) vs.onclick = () => openDetalhe(e.refs[0]);
