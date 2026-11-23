@@ -812,3 +812,5 @@ button.vp-h:focus-visible { outline: 3px solid rgba(74, 143, 34, .35); outline-o
 .rs-cc { max-width: 140px; font-size: 11.5px; }
 .rs-add .input { height: 42px; }
 .rs-carga { margin: 10px 0 8px; }
+.det-pe .det-link { margin-top: 8px; }
+.det.gaveta .det-pe { padding-top: 12px; padding-bottom: 12px; }

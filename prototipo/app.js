@@ -599,8 +599,7 @@ function painelSlot(sel, min, mine) {
   return `
     <div class="det-h"><div><span class="eyebrow">Horário fixo</span><div class="det-t">${esc(sel.h)}</div>
       <span class="sp sp-${inf.cls}"><i></i>${esc(inf.lbl)}</span></div>
-      <div class="det-h-info"><div class="note">Chegue ao ponto de embarque pelo menos 5 minutos antes.</div>
-        <a href="#" class="det-link" id="pol">Ver política de transporte</a></div>
+      <div class="det-h-info"><div class="note">Chegue ao ponto de embarque pelo menos 5 minutos antes.</div></div>
       <button class="icon-btn" id="detx" aria-label="Fechar detalhes">${ico('x', 18)}</button></div>
     <div class="det-corpo">
       <ol class="tl">${stops}</ol>
@@ -612,7 +611,7 @@ function painelSlot(sel, min, mine) {
       </div>
       ${reserva}
     </div>
-    <div class="det-pe">${acao}</div>`;
+    <div class="det-pe">${acao}<a href="#" class="det-link" id="pol">Ver política de transporte</a></div>`;
 }
 
 // ---- Rascunho da reserva no painel (quem vai junto + carga). Fica só na tela até virar solicitação.
