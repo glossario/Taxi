@@ -814,3 +814,6 @@ button.vp-h:focus-visible { outline: 3px solid rgba(74, 143, 34, .35); outline-o
 .rs-carga { margin: 10px 0 8px; }
 .det-pe .det-link { margin-top: 8px; }
 .det.gaveta .det-pe { padding-top: 12px; padding-bottom: 12px; }
+
+/* Campos obrigatórios: asterisco vermelho no rótulo */
+.f.obr > label:first-child::after, .ret-box.obr .ret-l::after { content: ' *'; color: #d32f2f; font-weight: 800; }

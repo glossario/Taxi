@@ -302,6 +302,8 @@ function newOsId() { S.seq.os += 1; return `OS-2026-${String(S.seq.os).padStart(
 const app = () => $('#app');
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 3200); }
 function openModal(html) { const m = $('#modal'); $('.modal-card', m).innerHTML = html; m.hidden = false; }
+// Campo obrigatório: marca required e o CSS põe o asterisco vermelho no rótulo do campo
+function obrigatorios(ids) { ids.forEach((s) => { const e = $(s); if (e) { e.required = true; const f = e.closest('.f'); if (f) f.classList.add('obr'); } }); document.querySelectorAll('#modal .ret-box').forEach((b) => b.classList.add('obr')); }
 function closeModal() { $('#modal').hidden = true; }
 $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
 document.addEventListener('keydown', (e) => {
@@ -892,6 +894,7 @@ function openSlot(data, hora, preset) {
     <div id="sfmsg"></div>
     <div class="modal-acts"><button class="btn" id="cx">Cancelar</button><button class="btn green" id="ok">Enviar solicitação</button></div>`);
   $('#cx').onclick = closeModal;
+  obrigatorios(['#tr', '#px', '#bg', '#nm', '#js', '#rpe', '#rvo', '#rvot', '#rth', '#rtht']);
   // Volta pela grade: de = destino da ida; para = unidade escolhida em "Voltar para".
   const pax0 = () => parseInt($('#px').value, 10) || 1;
   const bvSlot = () => { // bate-volta: 1º horário livre no mesmo dia após o tempo no destino
@@ -1079,6 +1082,7 @@ function openAvulsa() {
   $('#tp').onchange = () => { syncTipo(); $('#exc').hidden = true; $('#avmsg').innerHTML = ''; };
   PARES.forEach(([s]) => { $(s).onchange = () => { syncOutro(); syncARet(); }; });
   $('#cx').onclick = closeModal;
+  obrigatorios(['#tp', '#dt', '#hr', '#og', '#ogt', '#ds', '#dst', '#px', '#bg', '#mo', '#mot', '#md', '#mdt', '#mi', '#mv', '#mt2', '#mr', '#js', '#rpe', '#rvo', '#rvot', '#rth']);
   $('#ok').onclick = () => {
     const tipo = $('#tp').value, data = $('#dt').value, hora = $('#hr').value;
     const just = $('#js').value.trim();
