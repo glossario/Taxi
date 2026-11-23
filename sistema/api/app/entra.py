@@ -63,10 +63,13 @@ def _pedir(url, dados=None, token=None, extra=None):
 
 
 # ---------------- login ----------------
-def url_login(state, nonce):
+def url_login(state, nonce, reautenticar=''):
+    """reautenticar=e-mail: assinatura eletrônica — a Microsoft pede as credenciais de novo (prompt=login), já na conta de quem assina."""
     c = _credenciais()
     q = {'client_id': c['client_id'], 'response_type': 'code', 'redirect_uri': REDIRECT, 'response_mode': 'query',
-         'scope': 'openid profile email User.Read', 'state': state, 'nonce': nonce, 'prompt': 'select_account'}
+         'scope': 'openid profile email User.Read', 'state': state, 'nonce': nonce, 'prompt': 'login' if reautenticar else 'select_account'}
+    if reautenticar:
+        q.update({'login_hint': reautenticar, 'max_age': '0'})
     return f"{LOGIN}/{c['tenant_id']}/oauth2/v2.0/authorize?{urllib.parse.urlencode(q)}"
 
 
@@ -107,7 +110,7 @@ def concluir_login(code, nonce):
     return {'email': (me.get('mail') or cl.get('email') or upn).lower(), 'upn': upn,
             'login': (me.get('onPremisesSamAccountName') or upn.split('@')[0]).lower(),
             'nome': me.get('displayName') or cl.get('name') or upn, 'cc': me.get('department') or '',
-            'cargo': me.get('jobTitle') or '', 'gestor': gestor, 'oid': cl.get('oid', '')}
+            'cargo': me.get('jobTitle') or '', 'gestor': gestor, 'oid': cl.get('oid', ''), 'auth_time': cl.get('auth_time') or 0}
 
 
 # ---------------- sincronização (permissão de aplicativo User.Read.All) ----------------

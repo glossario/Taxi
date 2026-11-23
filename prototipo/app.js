@@ -148,9 +148,28 @@ const Srv = {
     this.gravando = true;
     const { user, week, ...est } = S;
     try {
-      const r = await fetch('/api/estado', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ versao: this.versao, estado: est }) });
-      const j = await r.json();
-      if (r.ok) { this.versao = j.versao; this.sujo = false; }
+      let extra = {}, r, j;
+      for (;;) { // o servidor pode pedir motivo e/ou assinatura eletrônica antes de gravar (21 CFR Part 11)
+        r = await fetch('/api/estado', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ versao: this.versao, estado: est, ...extra }) });
+        j = await r.json();
+        if (r.status !== 428) break;
+        const ok = await confirmarRegistro(j.precisa || {});
+        if (!ok) { // cancelou: nada foi gravado — a tela volta ao que está no servidor
+          this.sujo = false;
+          try { const x = await (await fetch('/api/estado', { cache: 'no-store' })).json(); this.aplicar(x); } catch (e) { /* segue */ }
+          toast('Ação cancelada — nada foi gravado.');
+          this.gravando = false; this.pendente = false;
+          return;
+        }
+        extra = ok;
+      }
+      if (r.ok) {
+        this.versao = j.versao; this.sujo = false;
+        if (extra.assinatura) { // traz a assinatura que o servidor gravou no registro
+          try { const x = await (await fetch('/api/estado', { cache: 'no-store' })).json(); this.aplicar(x); } catch (e) { /* segue */ }
+          toast('Assinado e registrado.');
+        }
+      }
       else if (r.status === 401) { this.sujo = false; S.user = null; route(); toast('Sua sessão expirou. Entre novamente.'); }
       else { this.sujo = false; this.aplicar(j); toast(r.status === 409 ? 'Outra pessoa alterou os dados agora — a tela foi atualizada. Confira e repita a ação.' : (j.erro || 'Não foi possível salvar.')); }
     } catch (e) { toast('Sem conexão com o servidor — a última ação não foi salva.'); }
@@ -166,7 +185,7 @@ const Srv = {
   vigiar() { // traz o que os outros fizeram (sem atrapalhar quem está digitando ou com janela aberta)
     if (this.vigia) return;
     this.vigia = setInterval(async () => {
-      if (!S.user || this.gravando || this.sujo || !$('#modal').hidden) return;
+      if (!S.user || this.gravando || this.sujo || !$('#modal').hidden || document.getElementById('confirma')) return;
       const ae = document.activeElement;
       if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
       try { const j = await (await fetch(`/api/estado?v=${this.versao}`, { cache: 'no-store' })).json(); if (!j.igual && j.estado) this.aplicar(j); } catch (e) { /* tenta de novo */ }
@@ -308,6 +327,60 @@ function obrigatorios(ids) { ids.forEach((s) => { const e = $(s); if (e) { e.req
   $('#modal').dataset.fixo = '1'; // formulário de solicitação: só fecha em Cancelar ou Enviar (clicar fora ou Esc não fecha)
 }
 function closeModal() { $('#modal').hidden = true; }
+// Assinaturas eletrônicas gravadas pelo servidor no registro: nome, e-mail, data/hora e significado (21 CFR Part 11 §11.50)
+const assinaturasHtml = (r) => (r && r.assinaturas && r.assinaturas.length ? `<div class="f full"><label>Assinaturas eletrônicas</label><ul class="ass-l">${r.assinaturas.map((a) => `<li><b>${esc(a.nome)}</b> <small>(${esc(a.email)})</small> — ${esc(a.significado)} · ${esc(a.quando)} <small>UTC${esc((a.fuso || '').slice(0, 3))}:${esc((a.fuso || '').slice(3))} · ${esc(a.metodo)}</small></li>`).join('')}</ul></div>` : '');
+// 21 CFR Part 11: antes de gravar, o servidor pode pedir o MOTIVO (alteração/exclusão de dado já gravado) e/ou a
+// ASSINATURA ELETRÔNICA (decisões). Esta janela fica por cima de qualquer outra e só fecha em Cancelar ou Confirmar.
+// Devolve { motivo, assinatura } ou null (cancelado: nada é gravado).
+function confirmarRegistro(precisa, tok) {
+  return new Promise((resolve) => {
+    const assinar = precisa.assinar || [], mud = precisa.motivo || [];
+    const quem = S.user ? `${S.user.nome} (${S.user.email})` : 'o gestor da solicitação';
+    const ov = document.createElement('div');
+    ov.className = 'modal cf-ov'; ov.id = 'confirma';
+    ov.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="cf_t">
+      <h3 id="cf_t">${assinar.length ? 'Assinatura eletrônica' : 'Motivo da alteração'}</h3>
+      <p class="sub">${assinar.length ? 'Esta decisão precisa ser assinada. Nada é gravado sem a assinatura.' : 'Você está alterando dados já gravados. Informe o motivo — ele fica registrado na trilha de auditoria.'}</p>
+      ${mud.length ? `<div class="cf-box"><b>Alterações</b><ul>${mud.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
+        <div class="f obr"><label for="cf_motivo">Motivo da alteração</label><textarea class="input" id="cf_motivo" rows="3" maxlength="500" required placeholder="Ex.: horário corrigido a pedido do colaborador"></textarea></div>` : ''}
+      ${assinar.length ? `<div class="cf-box cf-ass"><b>${esc(quem)}</b> assina:<ul>${assinar.map((x) => `<li><b>${esc(x.significado)}</b> — ${esc(x.ref)}</li>`).join('')}</ul>
+        <small>Esta assinatura eletrônica equivale à sua assinatura manuscrita e fica gravada no registro com seu nome, data, hora e significado.</small></div>
+        ${precisa.metodo === 'senha' ? '<div class="f obr"><label for="cf_senha">Senha da conta do Mobilab</label><input class="input" id="cf_senha" type="password" autocomplete="current-password" required></div>'
+          : '<p class="section-s">Ao confirmar, a Microsoft vai pedir sua senha de novo numa janela.</p>'}` : ''}
+      <div id="cf_msg"></div>
+      <div class="modal-acts"><button class="btn" id="cf_nao">Cancelar</button><button class="btn green" id="cf_sim">${assinar.length ? 'Assinar e confirmar' : 'Confirmar alteração'}</button></div></div>`;
+    document.body.appendChild(ov);
+    const fim = (v) => { window.removeEventListener('message', ouvir); ov.remove(); resolve(v); };
+    const erro = (t) => { $('#cf_msg', ov).innerHTML = `<div class="msg-box bad">${esc(t)}</div>`; $('#cf_sim', ov).disabled = false; };
+    let motivo = '', janela = null;
+    const ouvir = (ev) => {
+      if (ev.origin !== location.origin || !ev.data || ev.data.tipo !== 'mobilab-assinatura') return;
+      if (janela && !janela.closed) janela.close();
+      if (ev.data.erro || !ev.data.id) erro(ev.data.erro || 'Assinatura não concluída.'); else fim({ motivo, assinatura: ev.data.id });
+    };
+    window.addEventListener('message', ouvir);
+    $('#cf_nao', ov).onclick = () => fim(null);
+    $('#cf_sim', ov).onclick = async () => {
+      motivo = mud.length ? $('#cf_motivo', ov).value.trim() : '';
+      if (mud.length && motivo.length < 5) { erro('Descreva o motivo (pelo menos 5 caracteres).'); $('#cf_motivo', ov).focus(); return; }
+      if (!assinar.length) { fim({ motivo, assinatura: '' }); return; }
+      $('#cf_sim', ov).disabled = true;
+      if (precisa.metodo === 'senha') {
+        try {
+          const r = await fetch('/api/assinar/senha', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ senha: $('#cf_senha', ov).value }) });
+          const j = await r.json(); if (!r.ok) throw new Error(j.erro);
+          fim({ motivo, assinatura: j.assinatura });
+        } catch (e) { erro(e.message || 'Não foi possível assinar.'); }
+        return;
+      }
+      janela = window.open(`/auth/assinar${tok ? `?tok=${encodeURIComponent(tok)}` : ''}`, 'mobilab_assinar', 'width=520,height=680');
+      if (!janela) { erro('O navegador bloqueou a janela da Microsoft. Permita pop-ups para este site e tente de novo.'); return; }
+      $('#cf_msg', ov).innerHTML = '<div class="msg-box">Confirme sua identidade na janela da Microsoft…</div>';
+      const vigia = setInterval(() => { if (janela.closed) { clearInterval(vigia); if (document.body.contains(ov) && $('#cf_sim', ov).disabled) erro('A janela foi fechada antes de concluir a assinatura.'); } }, 700);
+    };
+    setTimeout(() => { const f = $('#cf_motivo', ov) || $('#cf_senha', ov) || $('#cf_sim', ov); if (f) f.focus(); }, 50);
+  });
+}
 $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && !e.currentTarget.dataset.fixo) closeModal(); });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
@@ -1230,6 +1303,7 @@ function openDetalhe(id) {
       <div class="f"><label>Motorista</label><div>${m ? esc(m.nome) : '<small>A definir pelo Facilities</small>'}</div></div>
       ${r.bv && !r.perna ? `<div class="f full"><label>Retorno</label><div>${esc(bvTxt(r))} · volta prevista ~${esc(addMin(r.hora, r.bv.espera + DURACAO_MIN))}</div></div>` : ''}
       ${r.gestor ? `<div class="f full"><label>Aprovação do gestor imediato (AD)</label><div>${esc(r.gestor.nome)} · ${r.aprov ? (r.aprov.ok ? `✓ aprovada em ${esc(r.aprov.quando)}` : `✕ reprovada em ${esc(r.aprov.quando)}${r.aprov.motivo ? ` — ${esc(r.aprov.motivo)}` : ''}`) : 'aguardando resposta'}</div></div>` : ''}
+      ${assinaturasHtml(r)}
       ${r.mail ? `<div class="f full"><label>Aviso por e-mail</label><div>✉ Último aviso enviado para ${esc(r.email)} em ${esc(r.mail)}</div></div>` : ''}
       ${r.os ? `<div class="f full"><label>Ordem de serviço</label><div><b>${esc(r.os)}</b></div></div>` : ''}
       <div class="f full"><label>Justificativa</label><div>${esc(r.just)}</div></div>
@@ -1508,7 +1582,7 @@ async function renderHistoricoSrv(page, mais) {
       <div class="toolbar vtools aud-tools">
         <div class="aud-datas"><label>De <input type="date" class="input" id="aude" value="${esc(H.de || '')}"></label><label>Até <input type="date" class="input" id="auate" value="${esc(H.ate || '')}"></label></div>
         <label class="search">${ico('search', 16)}<input id="auq" placeholder="Buscar usuário, ação, registro ou valor…" value="${esc(H.q || '')}" aria-label="Buscar na trilha"></label>
-        <span class="aud-acts"><button class="btn" id="auver">${ico('check', 16)} Verificar integridade</button><button class="btn green" id="aucsv">Exportar CSV</button></span>
+        <span class="aud-acts"><button class="btn" id="auver">${ico('check', 16)} Verificar integridade</button><button class="btn" id="auxlsx">Exportar Excel</button><button class="btn green" id="aupdf">Exportar PDF</button></span>
       </div>
       <div id="auinfo"></div>
       <div id="aulista">${skTabela(8)}</div>`);
@@ -1516,7 +1590,8 @@ async function renderHistoricoSrv(page, mais) {
     $('#aude').onchange = (e) => { H.de = e.target.value; recarregar(); };
     $('#auate').onchange = (e) => { H.ate = e.target.value; recarregar(); };
     $('#auq').oninput = (e) => { H.q = e.target.value; clearTimeout(H.t); H.t = setTimeout(() => { const i = $('#auq'), p = i && i.selectionStart; recarregar(); const n = $('#auq'); if (n) { n.focus(); n.setSelectionRange(p, p); } }, 400); };
-    $('#aucsv').onclick = () => { location.href = `/api/auditoria.csv?${filtros()}`; };
+    $('#auxlsx').onclick = () => { location.href = `/api/auditoria.xlsx?${filtros()}`; };
+    $('#aupdf').onclick = () => { location.href = `/api/auditoria.pdf?${filtros()}`; };
     $('#auver').onclick = async () => {
       const b = $('#auver'); b.disabled = true; $('#auinfo').innerHTML = '<div class="msg-box">Conferindo a corrente de hash de todos os registros…</div>';
       try {
@@ -1536,10 +1611,10 @@ async function renderHistoricoSrv(page, mais) {
   if (route.page !== 'historico' || !$('#aulista')) return;
   H.linhas = (H.linhas || []).concat(j.linhas);
   const cel = (v) => { const t = String(v ?? ''); return t.length > 140 ? `<span title="${esc(t)}">${esc(t.slice(0, 140))}…</span>` : esc(t); };
-  $('#aulista').innerHTML = `<div class="card"><div class="table-wrap"><table class="tbl-ap aud-t"><thead><tr><th>Nº</th><th>Data/hora</th><th>Usuário</th><th>Ação</th><th>Registro</th><th>Campo</th><th>Valor anterior</th><th>Valor novo</th></tr></thead><tbody>
+  $('#aulista').innerHTML = `<div class="card"><div class="table-wrap"><table class="tbl-ap aud-t"><thead><tr><th>Nº</th><th>Data/hora</th><th>Usuário</th><th>Ação</th><th>Registro</th><th>Campo</th><th>Valor anterior</th><th>Valor novo</th><th>Motivo</th></tr></thead><tbody>
       ${H.linhas.map((l) => `<tr><td><small>${l.id}</small></td><td title="UTC ${esc(l.utc)}">${esc(l.quando)}<br><small>UTC${esc(l.fuso.slice(0, 3))}:${esc(l.fuso.slice(3))}</small></td>
         <td><b>${esc(l.nome || l.usuario)}</b>${l.nome ? `<br><small>${esc(l.usuario)}</small>` : ''}</td><td><b>${esc(l.acao)}</b></td><td>${esc(l.ref)}</td><td>${esc(l.campo)}</td>
-        <td class="aud-v">${cel(l.antes)}</td><td class="aud-v">${cel(l.depois)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">Nenhum registro neste filtro.</td></tr>'}
+        <td class="aud-v">${cel(l.antes)}</td><td class="aud-v">${cel(l.depois)}</td><td class="aud-v">${cel(l.motivo)}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">Nenhum registro neste filtro.</td></tr>'}
     </tbody></table></div>
     <p class="section-s" style="margin-top:10px">Mostrando ${H.linhas.length} de ${j.total} registros. ${j.mais ? '<button class="btn sm" id="aumais">Carregar mais</button>' : ''}</p></div>`;
   if ($('#aumais')) $('#aumais').onclick = () => renderHistoricoSrv(page, true);
@@ -2459,7 +2534,15 @@ function renderAprovar(tok) {
       <div class="sk-grupo" style="margin-top:18px">${sk('55%', '22px')}${sk('85%')}${sk('70%')}${sk('80%')}${sk('60%')}
         <div class="sk-tool" style="margin-top:10px">${sk('48%', '44px')}${sk('48%', '44px')}</div></div></div></div>`;
     fetch(url, { cache: 'no-store' }).then((x) => (x.ok ? x.json() : null)).then((j) => telaAprov(j && j.r, j && j.par, j && j.expirado, async (ok, motivo) => {
-      const x = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok, motivo }) }).catch(() => null);
+      let extra = {}, x;
+      for (;;) { // a decisão do gestor é assinada eletronicamente (conta Microsoft com a senha digitada de novo)
+        x = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok, motivo, ...extra }) }).catch(() => null);
+        if (!x || x.status !== 428) break;
+        const pq = await x.json().catch(() => ({}));
+        const ass = await confirmarRegistro(pq.precisa || {}, tok);
+        if (!ass) { toast('Decisão cancelada — nada foi registrado.'); renderAprovar(tok); return; }
+        extra = { assinatura: ass.assinatura };
+      }
       if (!x || !x.ok) toast('Não foi possível registrar. Tente de novo.');
       renderAprovar(tok);
     })).catch(() => telaAprov(null));
@@ -2483,7 +2566,7 @@ function telaAprov(r, pr, expirado, decidir) {
   const head = `<h1>${esc(r.nome)}</h1><p class="apv-sub">${esc(r.cc)} · solicitou um transporte que precisa da sua aprovação, ${esc(r.gestor.nome.split(' ')[0])}.</p>`;
   if (r.status !== 'gestor') {
     const a = r.aprov;
-    casca(`${head}${det(r)}<div class="apv-msg ${a && a.ok ? 'ok' : 'bad'}"><b>${a ? `${a.ok ? 'Aprovada' : 'Reprovada'} por ${esc(a.por)} em ${esc(a.quando)}` : 'Esta solicitação não está mais aguardando aprovação.'}</b>${a && a.motivo ? `<p>Motivo: ${esc(a.motivo)}</p>` : ''}<p>Nada mais a fazer por aqui.</p></div>`);
+    casca(`${head}${det(r)}<div class="apv-msg ${a && a.ok ? 'ok' : 'bad'}"><b>${a ? `${a.ok ? 'Aprovada' : 'Reprovada'} por ${esc(a.por)} em ${esc(a.quando)}` : 'Esta solicitação não está mais aguardando aprovação.'}</b>${a && a.motivo ? `<p>Motivo: ${esc(a.motivo)}</p>` : ''}<p>Nada mais a fazer por aqui.</p></div>${r.assinaturas && r.assinaturas.length ? `<div class="apv-ass">${assinaturasHtml(r)}</div>` : ''}`);
     return;
   }
   if (expirado) { casca(`${head}${det(r)}<div class="apv-msg bad"><b>Este link expirou.</b><p>O horário da viagem já passou.</p></div>`); return; }
@@ -2540,8 +2623,13 @@ const Usr = {
   },
   async salvar(dados) {
     if (window.MOBILAB_API) {
-      const r = await fetch('/api/usuarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados) });
-      const j = await r.json(); if (!r.ok) throw new Error(j.erro); return j.usuario;
+      let extra = {};
+      for (;;) { // alterar cadastro já gravado: o servidor pede o motivo (21 CFR Part 11)
+        const r = await fetch('/api/usuarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...dados, ...extra }) });
+        const j = await r.json();
+        if (r.status === 428) { const ok = await confirmarRegistro(j.precisa || {}); if (!ok) throw new Error('Alteração cancelada — nada foi gravado.'); extra = { motivo: ok.motivo }; continue; }
+        if (!r.ok) throw new Error(j.erro); return j.usuario;
+      }
     }
     const email = String(dados.email || '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Informe um e-mail válido.');
@@ -2741,7 +2829,7 @@ function renderAprovacoes(page) {
   });
 }
 // Visão geral e Agenda se atualizam sozinhas a cada minuto (se nenhuma janela estiver aberta): na Agenda, o horário que passou some.
-if (typeof setInterval === 'function') setInterval(() => { if (S && S.user && ['visao', 'agenda'].includes(route.page) && $('#modal').hidden && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#det'))) route(); }, 60000);
+if (typeof setInterval === 'function') setInterval(() => { if (S && S.user && ['visao', 'agenda'].includes(route.page) && $('#modal').hidden && !document.getElementById('confirma') && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#det'))) route(); }, 60000);
 
 // ---------------- Boot ----------------
 if (window.MOBILAB_API) Srv.iniciar();
