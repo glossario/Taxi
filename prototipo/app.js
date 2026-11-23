@@ -301,16 +301,18 @@ function newOsId() { S.seq.os += 1; return `OS-2026-${String(S.seq.os).padStart(
 // ---------------- Render base ----------------
 const app = () => $('#app');
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 3200); }
-function openModal(html) { const m = $('#modal'); $('.modal-card', m).innerHTML = html; m.hidden = false; }
+function openModal(html) { const m = $('#modal'); delete m.dataset.fixo; $('.modal-card', m).innerHTML = html; m.hidden = false; }
 // Campo obrigatório: marca required e o CSS põe o asterisco vermelho no rótulo do campo
-function obrigatorios(ids) { ids.forEach((s) => { const e = $(s); if (e) { e.required = true; const f = e.closest('.f'); if (f) f.classList.add('obr'); } }); document.querySelectorAll('#modal .ret-box').forEach((b) => b.classList.add('obr')); }
+function obrigatorios(ids) { ids.forEach((s) => { const e = $(s); if (e) { e.required = true; const f = e.closest('.f'); if (f) f.classList.add('obr'); } }); document.querySelectorAll('#modal .ret-box').forEach((b) => b.classList.add('obr'));
+  $('#modal').dataset.fixo = '1'; // formulário de solicitação: só fecha em Cancelar ou Enviar (clicar fora ou Esc não fecha)
+}
 function closeModal() { $('#modal').hidden = true; }
-$('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
+$('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && !e.currentTarget.dataset.fixo) closeModal(); });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if ($('#modal').hidden && UI.vx && route.page === 'visao') { UI.vx = null; route(); }
   else if ($('#modal').hidden && UI.sel && route.page === 'agenda') { UI.sel = null; route(); }
-  else closeModal();
+  else if (!$('#modal').dataset.fixo) closeModal();
 });
 document.addEventListener('click', (e) => { const m = $('#menu'); if (m && !m.hidden && !e.target.closest('.user-wrap')) m.hidden = true; });
 const pill = (st) => `<span class="pill st-${esc(st)}">${esc(STATUS[st] || st)}</span>`;
@@ -657,8 +659,8 @@ function ligarSolicitante(onTroca) {
   const q = $('#sol'), sug = $('#solsug');
   const escolhe = (p) => {
     atual = { ...p, aprovador: p.aprovador && p.aprovador.email ? p.aprovador : p.email === S.user.email ? chefeDe() : gestorDe(p.cc) };
-    q.value = p.nome; $('#solcc').value = p.cc || '—'; sug.hidden = true;
-    $('#solccn').textContent = p.email === S.user.email ? 'Carregado do cadastro corporativo' : 'Pedido para outra pessoa · você fica registrado como quem pediu';
+    q.value = p.nome; sug.hidden = true; // centro de custo continua o de quem está pedindo
+    $('#solccn').textContent = p.email === S.user.email ? 'Carregado do cadastro corporativo' : 'Pedido para outra pessoa: fica no seu centro de custo e você registrado como quem pediu';
     if (onTroca) onTroca(atual);
   };
   const mostra = async () => {
@@ -1038,7 +1040,7 @@ function openSlot(data, hora, preset) {
       }
     }
     const novo = (d, h, o, de) => ({
-      id: newReqId(), tipo: 'grade', nome: pes.nome, email: pes.email, cc: pes.cc, ...porQuem(pes), data: d, hora: h, origem: o, destino: de, pax, bag: form.bag,
+      id: newReqId(), tipo: 'grade', nome: pes.nome, email: pes.email, cc: S.user.cc, ...porQuem(pes), data: d, hora: h, origem: o, destino: de, pax, bag: form.bag,
       nomes: form.nomes, just: form.just, status: 'analise', veiculo: null, motorista: null, os: null, excecao: false, motivo: '', criado: nowStamp(),
       ...(form.acomp && form.acomp.length ? { acomp: form.acomp.map((x) => ({ nome: x.nome, email: x.email || '', cc: x.visitante ? S.user.cc : x.cc || '', visitante: !!x.visitante })) } : {}),
       ...(form.carga ? { carga: form.carga } : {}),
@@ -1179,7 +1181,7 @@ function openAvulsa() {
       excecao = true;
     }
     const r = {
-      id: newReqId(), tipo, nome: pes.nome, email: pes.email, cc: pes.cc, ...porQuem(pes), data, hora, ...campos,
+      id: newReqId(), tipo, nome: pes.nome, email: pes.email, cc: S.user.cc, ...porQuem(pes), data, hora, ...campos,
       just, status: 'analise', veiculo: null, motorista: null, os: null, excecao, motivo: '', criado: nowStamp(),
     };
     if (ret && ret.bv) { r.bv = ret.bv; ret = null; } // bate-volta avulso = uma corrida só (motorista aguarda)
@@ -1210,8 +1212,9 @@ function openDetalhe(id) {
     ${par ? `<div class="par-box">${r.perna === 'ida' ? 'Retorno' : 'Ida'}: <b>${esc(par.id)}</b> · ${esc(fmtDT(par.data, par.hora))} · ${esc(siteName(par.origem))} → ${esc(siteName(par.destino))} ${pill(par.status)}
       <button class="btn sm" id="vpar">Ver</button></div>` : ''}
     <div class="form-grid">
-      <div class="f"><label>Solicitante</label><div>${esc(r.nome)}${r.cc ? ` <small>(${esc(ccPartes(r.cc).dep)})</small>` : ''}</div></div>
+      <div class="f"><label>Solicitante</label><div>${esc(r.nome)}</div></div>
       <div class="f"><label>Pedido por</label><div>${r.por ? esc(r.por.nome) : 'a própria pessoa'}</div></div>
+      <div class="f full"><label>Centro de custo</label><div>${esc(r.cc || '—')}</div></div>
       <div class="f"><label>Data/horário</label><div>${esc(fmtDT(r.data, r.hora))}</div></div>
       <div class="f"><label>Trecho</label><div>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}</div></div>
       ${r.tipo === 'moto' ? `

@@ -331,11 +331,13 @@ def _validar(u, antigo, novo, s):
             dono = str(r.get('email', '')).lower()
             if dono == u['email']:
                 r.pop('por', None)
-            else:  # pedido para outra pessoa: precisa estar ativa no cadastro; nome/setor vêm do cadastro e fica registrado quem pediu
+            else:  # pedido para outra pessoa: precisa estar ativa no cadastro; o nome vem do cadastro,
+                # o centro de custo continua o de quem pediu, e fica registrado quem pediu
                 p = s.get(Pessoa, dono)
                 if not p or not p.ativo or dono == ADMIN_EMAIL:
                     raise Recusa('Escolha a pessoa na lista de usuários ativos do Mobilab.')
-                r['email'], r['nome'], r['cc'] = p.email, p.nome or p.email, p.cc
+                eu = s.get(Pessoa, u['email'])
+                r['email'], r['nome'], r['cc'] = p.email, p.nome or p.email, (eu.cc if eu else '') or u.get('cc', '')
                 r['por'] = {'nome': u.get('nome', ''), 'email': u['email']}
                 chefe = aprovador_de(s, p) or {}
             if r.get('tipo') == 'inter':
