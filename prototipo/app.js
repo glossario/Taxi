@@ -10,9 +10,9 @@ const SEED_GRADE = [
   ['07:10', 0], ['08:00', 1], ['08:40', 0], ['09:30', 1], ['11:00', 0], ['11:40', 1],
   ['13:45', 0], ['14:20', 1], ['15:00', 0], ['15:40', 1], ['16:20', 0], ['17:00', 1],
 ].map(([hora, dir], i) => ({ id: `G${i + 1}`, hora, paradas: dir ? ['SUP', 'CD', 'MED'] : ['MED', 'CD', 'SUP'], ativo: true }));
-const SLOT_CAP = 7;                       // Spin — limite do horário quando passa do padrão
+const SLOT_CAP = 6;                       // Spin (6 lugares) — limite do horário quando passa do padrão
 const CAP_PADRAO = 4;                     // padrão: carro de 4 vagas; acima disso a viagem vai de Spin
-// Vagas de referência: até 4 ocupados = carro (4); a partir daí a Spin (7) assume.
+// Vagas de referência: até 4 ocupados = carro (4); a partir daí a Spin (6) assume.
 const capSlot = (occ) => (occ >= CAP_PADRAO ? SLOT_CAP : CAP_PADRAO);
 const veicPrevisto = (occ) => (occ >= CAP_PADRAO ? 'Spin' : 'Carro');
 const EXPEDIENTE = ['07:30', '17:00'];    // DEC-02 em aberto
@@ -52,7 +52,7 @@ const gestorDe = (cc) => { const g = AD_GESTORES[String(cc || '').slice(0, 4)] |
 const precisaGestor = (r) => r.tipo === 'inter';
 const chefeDe = () => (S.user && S.user.chefe && S.user.chefe.email ? S.user.chefe : gestorDe(S.user.cc));
 const VEICULOS = [
-  { id: 'V1', nome: 'Chevrolet Spin', placa: 'RFA-1A23', tipo: 'carro', cap: 7, bag: 6 },
+  { id: 'V1', nome: 'Chevrolet Spin', placa: 'RFA-1A23', tipo: 'carro', cap: 6, bag: 6 },
   { id: 'V2', nome: 'Onix Sedan', placa: 'RFB-2B34', tipo: 'carro', cap: 4, bag: 4 },
   { id: 'V3', nome: 'HB20 Hatch', placa: 'RFC-3C45', tipo: 'carro', cap: 4, bag: 2 },
   { id: 'M1', nome: 'Moto 01', placa: 'PKM-4D56', tipo: 'moto', cap: 0, bag: 4 },
@@ -98,8 +98,11 @@ const normLoc = (v) => {
   return hit ? hit[0] : t;
 };
 const tamCurto = (t) => ITEM_TAM[t].l.split(' ')[0].toLowerCase();
-const cargaPts = (r) => (r.tipo === 'moto' ? ITEM_TAM[r.tam].p * r.vol : BAG[r.bag].p);
-const resumo = (r) => (r.tipo === 'moto' ? `${r.vol}× ${r.item} (${tamCurto(r.tam)})` : `${r.pax} pax · ${BAG[r.bag].l.split(' ')[0]}`);
+// Bagagem é texto livre (padrão N/A): o Facilities lê a descrição e escolhe o veículo; não entra na conta de porta-malas.
+const bagTxt = (r) => (BAG[r.bag] ? (r.bag === 'nenhuma' ? 'N/A' : BAG[r.bag].l) : String(r.bag || '').trim() || 'N/A');
+const bagCurto = (r) => { const t = bagTxt(r); return t.length > 28 ? `${t.slice(0, 27)}…` : t; };
+const cargaPts = (r) => (r.tipo === 'moto' ? ITEM_TAM[r.tam].p * r.vol : 0);
+const resumo = (r) => (r.tipo === 'moto' ? `${r.vol}× ${r.item} (${tamCurto(r.tam)})` : `${r.pax} pax · ${bagCurto(r)}`);
 const veic = (id) => VEICULOS.find((v) => v.id === id);
 const mot = (id) => S.motoristas.find((m) => m.id === id);
 const fmtFone = (d) => (d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : d);
@@ -376,7 +379,7 @@ function openAjuda() {
       <li><b>Fora do expediente</b> (${EXPEDIENTE[0]}–${EXPEDIENTE[1]}, seg–sex): a solicitação vai para o <b>2º horário</b> do próximo dia útil.</li>
       <li><b>Horário da grade = saída.</b> A saída seguinte de um site indica que o carro já chegou lá (é a chegada prevista).</li>
       <li><b>Embarque:</b> chegue ao ponto com pelo menos <b>5 minutos</b> de antecedência.</li>
-      <li><b>Intermunicipal:</b> precisa da aprovação do <b>gestor imediato</b> (do AD) antes de ir para o Facilities.</li>
+      <li><b>Intermunicipal:</b> precisa da aprovação da <b>liderança</b>: o primeiro líder, coordenador, gerente ou diretor acima de você, antes de ir para o Facilities.</li>
       <li><b>Capacidade:</b> cada horário tem <b>${CAP_PADRAO} vagas</b> (carro). Se passar de ${CAP_PADRAO} passageiros, a viagem vai de <b>Spin</b> (até ${SLOT_CAP}). Ocupação conta solicitações em análise e confirmadas.</li>
       <li><b>Táxi na cidade:</b> 1 h de antecedência · <b>Intermunicipal:</b> 48 h · <b>Moto Táxi:</b> envio de itens (prazo a definir).</li>
       <li>Toda solicitação passa pela análise do <b>Facilities</b>; você acompanha o status em “Minhas solicitações”.</li>
@@ -802,7 +805,7 @@ function renderAgenda(page) {
     const res = UI.res && UI.res.k === `${UI.sel.d}|${UI.sel.h}` ? UI.res : null;
     if (go.dataset.act !== 'sol' || !res) return openSlot(UI.sel.d, UI.sel.h);
     if (res.carga && !res.cargaTxt.trim()) { toast('Informe o que vai levar no porta-malas.'); const i = $('#rscgt'); if (i) i.focus(); return; }
-    openSlot(UI.sel.d, UI.sel.h, { pax: 1 + res.acomp.length, acomp: res.acomp.slice(), carga: res.carga ? res.cargaTxt.trim() : '', bag: res.carga ? 'media' : 'nenhuma' });
+    openSlot(UI.sel.d, UI.sel.h, { pax: 1 + res.acomp.length, acomp: res.acomp.slice(), carga: res.carga ? res.cargaTxt.trim() : '', bag: 'N/A' });
   };
   const fecha = () => { UI.sel = null; route(); };
   const x = $('#detx'); if (x) x.onclick = fecha;
@@ -821,7 +824,7 @@ function trechoOptions(rt, sel) {
 }
 const siteOptions = (sel) => Object.entries(SITES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('') + `<option value="OUTRO" ${sel === 'OUTRO' ? 'selected' : ''}>Outro (informar)</option>`;
 const locOptions = (sel) => Object.entries(SITES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}${SITE_APELIDO[k] ? ` (${SITE_APELIDO[k]})` : ''}</option>`).join('') + '<option value="OUTRO">Outro (informar)</option>';
-const bagOptions = (sel) => Object.entries(BAG).map(([k, b]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${b.l}</option>`).join('');
+const bagCampo = (v) => `<div class="f"><label for="bg">Bagagem <small>(descreva; N/A se não levar)</small></label><input id="bg" maxlength="200" value="${esc(v || 'N/A')}" placeholder="Ex.: 1 mala média e 1 caixa de amostras" required></div>`;
 
 // Retorno da grade: horários posteriores à ida cuja rota cobre o trecho da volta (de → para).
 function retornoSlots(data, hora, rd, de, para, pax) {
@@ -877,11 +880,11 @@ function openSlot(data, hora, preset) {
       <div class="f"><label>Centro de custo</label><input readonly value="${esc(S.user.cc)}"><small>Carregado do cadastro corporativo</small></div>
       <div class="f full"><label for="tr">Trecho</label><select id="tr">${trechoOptions(slot.paradas, p.trecho)}</select></div>
       <div class="f"><label for="px">Passageiros</label><input id="px" type="number" min="1" max="${SLOT_CAP}" value="${esc(p.pax || 1)}"><small>Incluindo você. Até ${CAP_PADRAO}: carro · acima: Spin (máx. ${SLOT_CAP})</small></div>
-      <div class="f"><label for="bg">Bagagem</label><select id="bg">${bagOptions(p.bag || 'nenhuma')}</select></div>
+      ${bagCampo(BAG[p.bag] ? bagTxt(p) : p.bag)}
       ${p.acomp && p.acomp.length ? `<div class="f full"><label>Quem vai junto <small>(cada um no centro de custo do seu departamento)</small></label>
         <div class="acomp-l">${p.acomp.map((x) => `<span>${esc(x.nome)}<small>${esc(x.visitante ? 'visitante · seu centro de custo' : ccPartes(x.cc).dep || '—')}</small></span>`).join('')}</div>
         <input id="nm" type="hidden" value="${esc(p.acomp.map((x) => x.nome).join(', '))}"></div>`
-      : `<div class="f full"><label for="nm">Nomes dos acompanhantes <small>(opcional)</small></label><input id="nm" value="${esc(p.nomes || '')}" placeholder="Ex.: Maria Santos, José Lima"></div>`}
+      : `<div class="f full"><label for="nm">Nomes dos acompanhantes <small>(N/A se for só você)</small></label><input id="nm" value="${esc(p.nomes || 'N/A')}" placeholder="Ex.: Maria Santos, José Lima" required></div>`}
       ${p.carga ? `<div class="f full"><label>Carga no porta-malas</label><input readonly value="${esc(p.carga)}"></div>` : ''}
       <div class="f full"><label for="js">Justificativa</label><textarea id="js" placeholder="Motivo do deslocamento">${esc(p.just || '')}</textarea></div>
       ${retornoHtml('grade')}
@@ -941,13 +944,17 @@ function openSlot(data, hora, preset) {
   $('#ok').onclick = () => {
     const [origem, destino] = $('#tr').value.split('|');
     const pax = parseInt($('#px').value, 10);
-    const form = { trecho: $('#tr').value, pax, bag: $('#bg').value, nomes: $('#nm').value.trim(), just: $('#js').value.trim() };
+    const form = { trecho: $('#tr').value, pax, bag: $('#bg').value.trim(), nomes: $('#nm').value.trim(), just: $('#js').value.trim() };
     const msg = $('#sfmsg');
     if (!Number.isInteger(pax) || pax < 1 || pax > SLOT_CAP) { msg.innerHTML = `<div class="msg-box bad">Informe entre 1 e ${SLOT_CAP} passageiros.</div>`; return; }
     const nAc = p.acomp ? p.acomp.length : 0;
     if (pax < 1 + nAc) { msg.innerHTML = `<div class="msg-box bad">São ${1 + nAc} pessoas na reserva (você + ${nAc}). Informe pelo menos ${1 + nAc} passageiros.</div>`; return; }
     if (p.acomp) form.acomp = p.acomp;
     if (p.carga) form.carga = p.carga;
+    if (!form.bag) { msg.innerHTML = '<div class="msg-box bad">Descreva a bagagem (ou deixe N/A se não levar).</div>'; return; }
+    const semNomes = !form.nomes || /^n\/?a$/i.test(form.nomes);
+    if (!form.nomes) { msg.innerHTML = '<div class="msg-box bad">Informe os nomes dos acompanhantes (ou N/A se for só você).</div>'; return; }
+    if (pax > 1 && semNomes) { msg.innerHTML = `<div class="msg-box bad">São ${pax} passageiros: informe os nomes dos acompanhantes.</div>`; return; }
     if (!form.just) { msg.innerHTML = '<div class="msg-box bad">Informe a justificativa.</div>'; return; }
     if (at(data, hora) < minAllowedGrade()) { msg.innerHTML = '<div class="msg-box bad">Este horário não respeita a antecedência mínima de 1 hora / regra de expediente.</div>'; return; }
     if (slotOcc(data, hora) + pax > SLOT_CAP) {
@@ -1025,8 +1032,8 @@ function openAvulsa() {
       <div class="f"><label for="hr" id="hrl">Horário de embarque</label><input id="hr" type="time" value="${pad((new Date().getHours() + 2) % 24)}:00"></div>
       <div class="f c-carro"><label for="og">Origem</label><select id="og">${siteOptions('MED')}</select><input id="ogt" placeholder="Endereço / local de embarque" hidden style="margin-top:6px"></div>
       <div class="f c-carro"><label for="ds">Destino</label><select id="ds">${siteOptions('OUTRO')}</select><input id="dst" placeholder="Endereço / local de destino" style="margin-top:6px"></div>
-      <div class="f c-carro"><label for="px">Passageiros</label><input id="px" type="number" min="1" max="7" value="1"></div>
-      <div class="f c-carro"><label for="bg">Bagagem</label><select id="bg">${bagOptions('nenhuma')}</select></div>
+      <div class="f c-carro"><label for="px">Passageiros</label><input id="px" type="number" min="1" max="${SLOT_CAP}" value="1"></div>
+      ${bagCampo('N/A').replace('class="f"', 'class="f c-carro"')}
       ${retornoHtml('avulsa')}
       <div class="f c-moto" hidden><label for="mo">Retirar em</label><select id="mo">${locOptions('MED')}</select><input id="mot" placeholder="Endereço / local de retirada" hidden style="margin-top:6px"></div>
       <div class="f c-moto" hidden><label for="md">Entregar em</label><select id="md">${locOptions('CD')}</select><input id="mdt" placeholder="Endereço / local de entrega" hidden style="margin-top:6px"></div>
@@ -1035,7 +1042,7 @@ function openAvulsa() {
       <div class="f c-moto" hidden><label for="mt2">Tamanho</label><select id="mt2">${Object.entries(ITEM_TAM).map(([k, t]) => `<option value="${k}">${t.l}</option>`).join('')}</select></div>
       <div class="f full c-moto" hidden><label for="mr">Quem recebe no destino?</label><input id="mr" placeholder="Nome ou setor de quem recebe"></div>
       <div class="f full"><label for="js">Justificativa</label><textarea id="js"></textarea></div>
-      <div class="f full" id="gnote" hidden><div class="msg-box warn" style="margin:0">Este pedido precisa da <b>aprovação do seu gestor imediato</b> (${esc(chefeDe().nome)}, conforme o AD) antes de ir para o Facilities.</div></div>
+      <div class="f full" id="gnote" hidden><div class="msg-box warn" style="margin:0">Este pedido precisa da <b>aprovação de ${esc(chefeDe().nome || 'sua liderança')}</b> (líder, coordenador, gerente ou diretor acima de você) antes de ir para o Facilities.</div></div>
       <div class="f full" id="exc" hidden><label class="check"><input type="checkbox" id="exck"> <span>Solicitar como <b>exceção</b> ao prazo (requer autorização do Facilities — DEC-12)</span></label></div>
     </form>
     <div id="avmsg"></div>
@@ -1087,15 +1094,17 @@ function openAvulsa() {
       if (normLoc(origem) === normLoc(destino)) return bad('Retirada e entrega devem ser locais diferentes.');
       if (!Number.isInteger(vol) || vol < 1 || vol > 20) return bad('Volumes: entre 1 e 20.');
       if (ITEM_TAM[tam].p * vol > MOTO_CARGA) return bad(`Não cabe em uma moto (${ITEM_TAM[tam].p * vol} de ${MOTO_CARGA} pts de carga). Divida o envio ou solicite um táxi.`);
-      campos = { origem, destino, item: it, vol, tam, recebedor, pax: 0, bag: 'nenhuma' };
+      campos = { origem, destino, item: it, vol, tam, recebedor, pax: 0, bag: 'N/A' };
     } else {
       const origem = valLoc('#og', '#ogt');
       const destino = valLoc('#ds', '#dst');
       const pax = parseInt($('#px').value, 10);
       if (!data || !hora || !origem || !destino || !just) return bad('Preencha data, horário, origem, destino e justificativa.');
       if (normLoc(origem) === normLoc(destino)) return bad('Origem e destino devem ser locais diferentes.');
-      if (!Number.isInteger(pax) || pax < 1 || pax > 7) return bad('Passageiros: entre 1 e 7.');
-      campos = { origem, destino, pax, bag: $('#bg').value };
+      if (!Number.isInteger(pax) || pax < 1 || pax > SLOT_CAP) return bad(`Passageiros: entre 1 e ${SLOT_CAP} (Spin tem ${SLOT_CAP} lugares).`);
+      const bag = $('#bg').value.trim();
+      if (!bag) return bad('Descreva a bagagem (ou deixe N/A se não levar).');
+      campos = { origem, destino, pax, bag };
     }
     let ret = null;
     const modo = tipo === 'moto' ? 'nao' : modoRet();
@@ -1160,9 +1169,9 @@ function openDetalhe(id) {
       ${r.tipo === 'moto' ? `
       <div class="f full"><label>O que será enviado</label><div>${esc(r.item)} — ${esc(r.vol)} volume(s), ${esc(ITEM_TAM[r.tam].l)}</div></div>
       <div class="f full"><label>Quem recebe</label><div>${esc(r.recebedor)}</div></div>` : `
-      <div class="f"><label>Passageiros</label><div>${esc(r.pax)}${r.acomp && r.acomp.length ? ` <small>(${r.acomp.map((x) => `${esc(x.nome)} — ${esc(x.visitante ? 'visitante' : ccPartes(x.cc).dep || 'sem setor')}`).join('; ')})</small>` : r.nomes ? ` <small>(${esc(r.nomes)})</small>` : ''}</div></div>
+      <div class="f"><label>Passageiros</label><div>${esc(r.pax)}${r.acomp && r.acomp.length ? ` <small>(${r.acomp.map((x) => `${esc(x.nome)} — ${esc(x.visitante ? 'visitante' : ccPartes(x.cc).dep || 'sem setor')}`).join('; ')})</small>` : r.nomes && !/^n\/?a$/i.test(r.nomes) ? ` <small>(${esc(r.nomes)})</small>` : ''}</div></div>
       ${r.carga ? `<div class="f"><label>Carga no porta-malas</label><div>${esc(r.carga)}</div></div>` : ''}
-      <div class="f"><label>Bagagem</label><div>${esc(BAG[r.bag].l)}</div></div>`}
+      <div class="f"><label>Bagagem</label><div>${esc(bagTxt(r))}</div></div>`}
       <div class="f"><label>Veículo</label><div>${v ? `${esc(v.nome)} · ${esc(v.placa)}` : '<small>A definir pelo Facilities</small>'}</div></div>
       <div class="f"><label>Motorista</label><div>${m ? esc(m.nome) : '<small>A definir pelo Facilities</small>'}</div></div>
       ${r.bv && !r.perna ? `<div class="f full"><label>Retorno</label><div>${esc(bvTxt(r))} · volta prevista ~${esc(addMin(r.hora, r.bv.espera + DURACAO_MIN))}</div></div>` : ''}
@@ -1207,7 +1216,7 @@ function vehicleOptions(tipo, pax, bagPts, data, hora, ignoreIds, dur) {
     const fits = v.cap >= pax && v.bag >= bagPts;
     const occ = busy('veiculo', v.id, data, hora, ignoreIds, dur);
     const why = !fits ? (v.cap < pax ? ' — capacidade insuficiente' : ' — porta-malas insuficiente') : occ ? ' — já alocado neste horário' : '';
-    const cap = v.tipo === 'moto' ? `carga ${v.bag} pts` : `${v.cap} pax · bag ${v.bag}`;
+    const cap = v.tipo === 'moto' ? `carga ${v.bag} pts` : `${v.cap} lugares`;
     return `<option value="${v.id}" ${!fits || occ ? 'disabled' : ''}${best && best.id === v.id ? ' selected' : ''}>${esc(v.nome)} (${cap})${v.tipo === 'moto' && !fits ? ' — carga insuficiente' : why}</option>`;
   }).join('');
 }
@@ -1235,14 +1244,15 @@ function renderPainel(page) {
   const groupHtml = groupKeys.map((k) => {
     const rs = groups[k]; const [data, hora] = k.split(' ');
     const pax = rs.reduce((s, r) => s + r.pax, 0);
-    const bagPts = rs.reduce((s, r) => s + BAG[r.bag].p, 0);
+    const bagPts = 0; // bagagem é descritiva: o Facilities avalia o porta-malas
+    const bagsTxt = rs.map(bagTxt).filter((t) => t !== 'N/A').join('; ') || 'N/A';
     const ids = rs.map((r) => r.id);
     const anyVeh = VEICULOS.some((v) => v.tipo === 'carro' && v.cap >= pax && v.bag >= bagPts && !busy('veiculo', v.id, data, hora, ids));
     const setores = [...new Set(rs.map((r) => r.cc.split('–')[1]?.trim() || r.cc))];
     return `<div class="group ${anyVeh ? 'ok' : 'bad'}" data-k="${esc(k)}">
       <div class="group-h"><b>${esc(fmtDT(data, hora))}</b><span class="tipo">${rs.length > 1 ? `Sugestão de agrupamento: ${esc(setores.join(' + '))}` : 'Solicitação única'}</span></div>
-      <ul>${rs.map((r) => `<li><span><b>${esc(r.id)}</b> · ${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small>${r.perna ? ` <span class="tag">${pernaTxt(r)} · ${esc(r.par)}</span>` : ''}</span><span>${esc(SITE_SHORT[r.origem])}→${esc(SITE_SHORT[r.destino])} · ${r.pax} pax · ${esc(BAG[r.bag].l.split(' ')[0])}</span></li>`).join('')}</ul>
-      <div class="meter"><span>Total: <b>${pax} passageiros</b></span><span>Bagagem: <b>${bagPts} pts</b></span><span>Veículo: <b>${pax > CAP_PADRAO ? 'Spin (passou de ' + CAP_PADRAO + ')' : 'carro de ' + CAP_PADRAO + ' vagas'}</b></span></div>
+      <ul>${rs.map((r) => `<li><span><b>${esc(r.id)}</b> · ${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small>${r.perna ? ` <span class="tag">${pernaTxt(r)} · ${esc(r.par)}</span>` : ''}</span><span>${esc(SITE_SHORT[r.origem])}→${esc(SITE_SHORT[r.destino])} · ${r.pax} pax · ${esc(bagCurto(r))}</span></li>`).join('')}</ul>
+      <div class="meter"><span>Total: <b>${pax} passageiros</b></span><span>Bagagem: <b>${esc(bagsTxt)}</b></span><span>Veículo: <b>${pax > CAP_PADRAO ? 'Spin (passou de ' + CAP_PADRAO + ')' : 'carro de ' + CAP_PADRAO + ' vagas'}</b></span></div>
       ${anyVeh ? `<div class="assign"><select class="sv">${vehicleOptions('carro', pax, bagPts, data, hora, ids)}</select><select class="sd">${driverOptions('carro', data, hora, ids)}</select>
         <button class="btn green sm ok-g">Confirmar ${rs.length > 1 ? 'grupo' : ''}</button><button class="btn sm red no-g">Recusar</button></div>`
       : `<div class="alert">Nenhum veículo comporta ${pax} passageiros / ${bagPts} pts de bagagem. Separe as solicitações ou sugira o próximo horário.</div>
@@ -1276,11 +1286,11 @@ function renderPainel(page) {
     const t = r.tipo === 'moto' ? 'moto' : 'carro';
     return `<div class="group" data-id="${esc(r.id)}">
       <div class="group-h"><b>${esc(r.id)} · ${esc(TIPOS[r.tipo])}</b><span>${esc(fmtDT(r.data, r.hora))}</span></div>
-      <ul><li><span>${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small></span><span>${r.pax} pax · ${esc(BAG[r.bag].l.split(' ')[0])}</span></li>
+      <ul><li><span>${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small></span><span>${r.pax} pax · ${esc(bagCurto(r))}</span></li>
         <li><span>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}${r.perna ? ` <span class="tag">${pernaTxt(r)} · ${esc(r.par)}</span>` : ''}</span></li>
         ${r.bv ? `<li><span><b>🔁 ${esc(bvTxt(r))}</b> — veículo e motorista ficam reservados ~${fmtMin(durOf(r))}</span></li>` : ''}<li><span><i>${esc(r.just)}</i></span></li></ul>
       ${r.excecao ? '<div class="alert">⚠ Pedido fora do prazo mínimo — requer autorização excepcional.</div>' : ''}
-      <div class="assign"><select class="sv">${vehicleOptions(t, r.pax, BAG[r.bag].p, r.data, r.hora, [r.id], durOf(r))}</select><select class="sd">${driverOptions(t, r.data, r.hora, [r.id], durOf(r))}</select>
+      <div class="assign"><select class="sv">${vehicleOptions(t, r.pax, 0, r.data, r.hora, [r.id], durOf(r))}</select><select class="sd">${driverOptions(t, r.data, r.hora, [r.id], durOf(r))}</select>
         <button class="btn green sm ok-a">${r.tipo === 'moto' ? 'Aprovar e gerar OS' : 'Aprovar'}</button><button class="btn sm red no-a">Recusar</button></div>
     </div>`;
   }).join('') || '<div class="empty">Nenhuma solicitação avulsa pendente.</div>';
@@ -1424,7 +1434,7 @@ function exportCsv(rows) {
   const head = ['numero', 'tipo', 'data', 'hora', 'solicitante', 'centro_custo', 'origem', 'destino', 'passageiros', 'bagagem', 'item', 'volumes', 'tamanho', 'recebedor', 'justificativa', 'veiculo', 'motorista', 'os', 'status', 'excecao'];
   const q = (v) => { let s = String(v ?? ''); if (/^[=+\-@]/.test(s)) s = `'${s}`; return `"${s.replace(/"/g, '""')}"`; };
   const lines = rows.map((r) => [r.id, TIPOS[r.tipo], fmtDate(r.data), r.hora, r.nome, r.cc, siteName(r.origem), siteName(r.destino),
-    r.tipo === 'moto' ? '' : r.pax, r.tipo === 'moto' ? '' : BAG[r.bag].l, r.item || '', r.vol || '', r.tam ? ITEM_TAM[r.tam].l : '', r.recebedor || '',
+    r.tipo === 'moto' ? '' : r.pax, r.tipo === 'moto' ? '' : bagTxt(r), r.item || '', r.vol || '', r.tam ? ITEM_TAM[r.tam].l : '', r.recebedor || '',
     r.just, r.veiculo ? veic(r.veiculo).nome : '', r.motorista ? mot(r.motorista).nome : '', r.os || '', STATUS[r.status], r.excecao ? 'sim' : 'não'].map(q).join(';'));
   const blob = new Blob(['﻿' + [head.join(';'), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `solicitacoes_${ymd(new Date())}.csv`; a.click();
@@ -1499,7 +1509,7 @@ function wppMsg(v) {
     L.push(`🚗 ${ve.nome} · ${ve.placa}`, `📍 Embarque: ${siteName(r.origem)}`, `🏁 Destino: ${siteName(r.destino)}`, `👥 ${paxTxt(r)}`, `📝 ${r.just}`);
     if (r.bv) L.push(`🔁 *Bate-volta:* aguardar até ${fmtMin(r.bv.espera)} no destino e levar o passageiro para ${siteName(r.bv.volta)}`);
   }
-  const bags = v.rs.filter((r) => r.bag !== 'nenhuma').map((r) => BAG[r.bag].l);
+  const bags = v.rs.map(bagTxt).filter((t) => t !== 'N/A');
   if (bags.length) L.push(`🧳 Bagagem: ${bags.join(', ')}`);
   L.push('', `Ref.: ${v.rs.map((r) => r.id).join(', ')}`, 'Dúvidas: falar com o Facilities.');
   return L.join('\n');
@@ -1639,7 +1649,7 @@ function renderViagens(page) {
   };
   const linhaSol = (r, v) => `<li class="${r.faltou ? 'faltou' : ''}"><b class="sid">${esc(r.id)}</b><span class="dotsep">•</span><span>${esc(r.nome)}</span>
       ${r.tipo === 'moto' ? `<small>${r.os ? `${esc(r.os)} · ` : ''}${esc(`${r.vol}× ${r.item}`)} → ${esc(r.recebedor)}</small>`
-        : `<small>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))} · ${r.pax} pax${r.bag !== 'nenhuma' ? ` · bagagem ${esc(BAG[r.bag].l.split(' ')[0].toLowerCase())}` : ''}${r.perna ? ` · ${pernaTxt(r)}` : r.bv ? ' · bate-volta' : ''}</small>`}
+        : `<small>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))} · ${r.pax} pax${bagTxt(r) !== 'N/A' ? ` · bagagem: ${esc(bagCurto(r))}` : ''}${r.perna ? ` · ${pernaTxt(r)}` : r.bv ? ' · bate-volta' : ''}</small>`}
       ${r.faltou ? '<span class="tag-falta">Não compareceu — fora da divisão</span>' : ''}
       ${r.tipo !== 'moto' && v.st !== 'naorealizada' ? `<button class="btn-mini falta" data-id="${esc(r.id)}">${r.faltou ? 'Desfazer: compareceu' : 'Não compareceu'}</button>` : ''}</li>`;
 
@@ -2279,7 +2289,7 @@ function renderVisao(page) {
         <td><b class="sid">${esc(r.id)}</b>${r.par ? `<small>${pernaTxt(r)} · ${esc(r.par)}</small>` : r.bv ? '<small>Bate-volta</small>' : ''}</td>
         <td>${esc(r.nome)}<small>${esc(r.cc)}</small></td>
         <td><span class="tp tp-${r.tipo}">${TIPO_CURTO[r.tipo]}</span>${r.excecao ? '<small>fora do prazo</small>' : ''}</td>
-        <td>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}<small>${esc(r.tipo === 'moto' ? `${r.vol}× ${r.item} · recebe: ${r.recebedor}` : `${r.pax} pax${r.bag !== 'nenhuma' ? ` · ${BAG[r.bag].l.split(' ')[0].toLowerCase()}` : ''}`)}</small></td>
+        <td>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}<small>${esc(r.tipo === 'moto' ? `${r.vol}× ${r.item} · recebe: ${r.recebedor}` : `${r.pax} pax${bagTxt(r) !== 'N/A' ? ` · ${bagCurto(r)}` : ''}`)}</small></td>
         <td>${r.gestor ? `${esc(r.gestor.nome)}<small>${r.aprov ? (r.aprov.ok ? '✓ aprovou' : '✕ reprovou') + ` · ${esc(r.aprov.quando.slice(0, 17))}` : 'aguardando'}</small>` : '<small>—</small>'}</td>
         <td>${k === 'agora' ? '<span class="pill st-andamento">Em andamento</span>' : pill(r.status)}</td>
         <td class="vx-obs ${x.c}">${x.h || '<small>—</small>'}</td>

@@ -10,6 +10,7 @@ O servidor:
 import copy
 import hashlib
 import hmac
+import re
 import secrets
 import time
 from datetime import datetime, timedelta
@@ -130,6 +131,33 @@ def conhecer(s, u):
         p.origem = 'login'
 
 
+LIDERANCA = re.compile(r'\b(l[ií]der|coordenador|coordenadora|gerente|diretor|diretora|presidente)\b', re.I)
+
+
+def e_lider(cargo):
+    """Cargos que aprovam: Líder, Coordenador(a), Gerente, Diretor(a) e Presidente (topo da cadeia)."""
+    return bool(LIDERANCA.search(cargo or ''))
+
+
+def aprovador_de(s, p):
+    """Sobe pela cadeia de gestores (gestor_email) até achar alguém ativo com cargo de liderança.
+    Se ninguém na cadeia tiver, fica o gestor imediato (o Facilities acompanha)."""
+    if not p:
+        return None
+    vistos, atual = {p.email}, p.gestor_email
+    for _ in range(10):
+        if not atual or atual in vistos:
+            break
+        g = s.get(Pessoa, atual)
+        if not g:
+            break
+        if g.ativo and e_lider(g.cargo):
+            return {'nome': g.nome, 'email': g.email}
+        vistos.add(atual)
+        atual = g.gestor_email
+    return {'nome': p.gestor_nome, 'email': p.gestor_email} if p.gestor_email else None
+
+
 def perfil_efetivo(p, padrao):
     return p.perfil if p and p.perfil in PERFIS else padrao
 
@@ -180,10 +208,12 @@ def abrir_sessao(request, u, como):
         if p and not p.perfil and u['perfil'] != 'colaborador':
             p.perfil = u['perfil']  # registra o perfil vindo da configuração para aparecer certo na lista
         dados = _estado(s).dados or {}
-        if not u.get('gestor_de'):
-            u['gestor_de'] = any((r.get('gestor') or {}).get('email', '').lower() == u['email'] for r in dados.get('reqs', [])) or \
-                bool(s.scalar(select(func.count()).select_from(Pessoa).where(Pessoa.gestor_email == u['email'], Pessoa.ativo.is_(True))))
         conhecer(s, u)
+        p = s.get(Pessoa, u['email'])
+        # quem aprova: o 1º líder/coordenador/gerente/diretor acima na hierarquia (pula gestor imediato sem cargo de liderança)
+        u['gestor'] = aprovador_de(s, p) or u.get('gestor') or {}
+        # vê a aba Aprovações: quem tem cargo de liderança ou já tem solicitação esperando por ele
+        u['gestor_de'] = e_lider(p.cargo) or any((r.get('gestor') or {}).get('email', '').lower() == u['email'] for r in dados.get('reqs', []))
         auditar(s, u['email'], 'Login', '', '', como)
         s.commit()
     request.session.clear()
