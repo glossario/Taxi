@@ -122,6 +122,7 @@ const Srv = {
   async iniciar() {
     S = { user: null, reqs: [], log: [], emails: [] };
     if (/^aprovar\//.test(location.hash.replace('#', ''))) { route(); return; } // link do e-mail do gestor: sem login
+    app().innerHTML = skPagina(); // enquanto confere o login e carrega os dados
     try {
       const eu = await (await fetch('/api/eu', { cache: 'no-store' })).json();
       Srv.teste = !!eu.login_teste;
@@ -2405,6 +2406,9 @@ function renderVisao(page) {
 function renderAprovar(tok) {
   if (window.MOBILAB_API) {
     const url = `/api/aprovar/${encodeURIComponent(tok)}`;
+    app().innerHTML = `<div class="apv-wrap"><div class="apv-card" aria-busy="true" aria-label="Carregando"><div class="apv-top">${brand}<span>Aprovação de viagem</span></div>
+      <div class="sk-grupo" style="margin-top:18px">${sk('55%', '22px')}${sk('85%')}${sk('70%')}${sk('80%')}${sk('60%')}
+        <div class="sk-tool" style="margin-top:10px">${sk('48%', '44px')}${sk('48%', '44px')}</div></div></div></div>`;
     fetch(url, { cache: 'no-store' }).then((x) => (x.ok ? x.json() : null)).then((j) => telaAprov(j && j.r, j && j.par, j && j.expirado, async (ok, motivo) => {
       const x = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ok, motivo }) }).catch(() => null);
       if (!x || !x.ok) toast('Não foi possível registrar. Tente de novo.');
@@ -2527,12 +2531,23 @@ const senhaAleatoria = () => {
 };
 const PERFIL_L = { colaborador: 'Colaborador', facilities: 'Facilities', ti: 'TI / Administração' };
 const ORIGEM_L = { login: 'Já entrou', ad: 'Importado do AD', rh: 'Base do RH + AD', 'gestor-ad': 'Gestor (AD)', 'cadastro-ti': 'Cadastrado pela TI' };
+// Skeleton loader: forma da tela em cinza enquanto os dados chegam do servidor
+const sk = (w, h, extra = '') => `<i class="sk" style="width:${w};${h ? `height:${h};` : ''}${extra}"></i>`;
+const skTabela = (n = 8) => `<div class="card" aria-busy="true" aria-label="Carregando">
+    <div class="sk-linha cab">${'<i class="sk"></i>'.repeat(6)}</div>
+    ${Array.from({ length: n }, (_, i) => `<div class="sk-linha"><div class="sk-grupo" style="gap:6px">${sk(`${70 - (i % 3) * 12}%`)}${sk('40%', '10px')}</div>${sk(`${80 - (i % 4) * 10}%`)}${sk('60%')}${sk(`${75 - (i % 2) * 20}%`)}${sk('90%', '30px')}${sk('70%', '26px', 'border-radius:999px')}</div>`).join('')}
+  </div>`;
+const skPagina = () => `<div class="sk-top" aria-busy="true" aria-label="Carregando">${sk('110px', '30px')}${sk('60px')}${sk('60px')}<span style="flex:1"></span>${sk('38px', '38px', 'border-radius:50%')}${sk('180px', '38px')}</div>
+  <div class="sk-pagina sk-grupo">${sk('120px', '12px')}${sk('260px', '34px')}${sk('420px', '14px', 'max-width:100%')}
+    <div class="sk-kpis" style="margin-top:8px">${'<i class="sk" style="width:220px;height:84px"></i>'.repeat(4)}</div>${skTabela(5)}</div>`;
 async function renderUsuarios(page) {
   shell(page, `<div class="pg-head"><div><nav class="crumb"><span>Administração</span>${ico('right', 12)}<b>Usuários</b></nav><h1>Usuários</h1>
-      <p>Quem acessa o Mobilab e com qual perfil. O login é pelo AD; aqui a TI define o perfil e pode bloquear o acesso.</p></div></div>
-    <div class="card empty">Carregando…</div>`);
+      <p>Quem acessa o Mobilab e com qual perfil. O login é pelo AD; aqui a TI define o perfil e pode bloquear o acesso.</p></div>
+      <div class="sk-kpis">${'<i class="sk"></i>'.repeat(4)}</div></div>
+    <div class="toolbar sk-tool">${sk('420px', '34px', 'max-width:100%')}<span style="flex:1"></span>${sk('260px', '38px', 'max-width:100%')}${sk('150px', '38px')}</div>
+    ${skTabela()}`);
   let us;
-  try { us = await Usr.listar(); } catch (e) { $('main .card').textContent = e.message || 'Não foi possível carregar.'; return; }
+  try { us = await Usr.listar(); } catch (e) { const c = $('main .card'); c.className = 'card empty'; c.removeAttribute('aria-busy'); c.textContent = e.message || 'Não foi possível carregar.'; return; }
   if (route.page !== 'usuarios') return;
   const q = (renderUsuarios.q || '').toLowerCase(), fp = renderUsuarios.f || '';
   const ef = (u) => u.perfil || u.padrao || 'colaborador';
