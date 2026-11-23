@@ -826,7 +826,7 @@ function trechoOptions(rt, sel) {
 }
 const siteOptions = (sel) => Object.entries(SITES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('') + `<option value="OUTRO" ${sel === 'OUTRO' ? 'selected' : ''}>Outro (informar)</option>`;
 const locOptions = (sel) => Object.entries(SITES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}${SITE_APELIDO[k] ? ` (${SITE_APELIDO[k]})` : ''}</option>`).join('') + '<option value="OUTRO">Outro (informar)</option>';
-const bagCampo = (v) => `<div class="f"><label for="bg">Bagagem <small>(descreva; N/A se não levar)</small></label><input id="bg" maxlength="200" value="${esc(v || 'N/A')}" placeholder="Ex.: 1 mala média e 1 caixa de amostras" required></div>`;
+const bagCampo = (v) => `<div class="f"><label for="bg">Bagagem <small>(descreva o que vai levar)</small></label><input id="bg" maxlength="200" value="${esc(v || 'N/A')}" placeholder="Ex.: 1 mala média e 1 caixa de amostras"></div>`;
 
 // Retorno da grade: horários posteriores à ida cuja rota cobre o trecho da volta (de → para).
 function retornoSlots(data, hora, rd, de, para, pax) {
@@ -894,7 +894,7 @@ function openSlot(data, hora, preset) {
     <div id="sfmsg"></div>
     <div class="modal-acts"><button class="btn" id="cx">Cancelar</button><button class="btn green" id="ok">Enviar solicitação</button></div>`);
   $('#cx').onclick = closeModal;
-  obrigatorios(['#tr', '#px', '#bg', '#nm', '#js', '#rpe', '#rvo', '#rvot', '#rth', '#rtht']);
+  obrigatorios(['#tr', '#px', '#nm', '#js', '#rpe', '#rvo', '#rvot', '#rth', '#rtht']);
   // Volta pela grade: de = destino da ida; para = unidade escolhida em "Voltar para".
   const pax0 = () => parseInt($('#px').value, 10) || 1;
   const bvSlot = () => { // bate-volta: 1º horário livre no mesmo dia após o tempo no destino
@@ -947,14 +947,13 @@ function openSlot(data, hora, preset) {
   $('#ok').onclick = () => {
     const [origem, destino] = $('#tr').value.split('|');
     const pax = parseInt($('#px').value, 10);
-    const form = { trecho: $('#tr').value, pax, bag: $('#bg').value.trim(), nomes: $('#nm').value.trim(), just: $('#js').value.trim() };
+    const form = { trecho: $('#tr').value, pax, bag: $('#bg').value.trim() || 'N/A', nomes: $('#nm').value.trim(), just: $('#js').value.trim() };
     const msg = $('#sfmsg');
     if (!Number.isInteger(pax) || pax < 1 || pax > SLOT_CAP) { msg.innerHTML = `<div class="msg-box bad">Informe entre 1 e ${SLOT_CAP} passageiros.</div>`; return; }
     const nAc = p.acomp ? p.acomp.length : 0;
     if (pax < 1 + nAc) { msg.innerHTML = `<div class="msg-box bad">São ${1 + nAc} pessoas na reserva (você + ${nAc}). Informe pelo menos ${1 + nAc} passageiros.</div>`; return; }
     if (p.acomp) form.acomp = p.acomp;
     if (p.carga) form.carga = p.carga;
-    if (!form.bag) { msg.innerHTML = '<div class="msg-box bad">Descreva a bagagem (ou deixe N/A se não levar).</div>'; return; }
     const semNomes = !form.nomes || /^n\/?a$/i.test(form.nomes);
     if (!form.nomes) { msg.innerHTML = '<div class="msg-box bad">Informe os nomes dos acompanhantes (ou N/A se for só você).</div>'; return; }
     if (pax > 1 && semNomes) { msg.innerHTML = `<div class="msg-box bad">São ${pax} passageiros: informe os nomes dos acompanhantes.</div>`; return; }
@@ -1082,7 +1081,7 @@ function openAvulsa() {
   $('#tp').onchange = () => { syncTipo(); $('#exc').hidden = true; $('#avmsg').innerHTML = ''; };
   PARES.forEach(([s]) => { $(s).onchange = () => { syncOutro(); syncARet(); }; });
   $('#cx').onclick = closeModal;
-  obrigatorios(['#tp', '#dt', '#hr', '#og', '#ogt', '#ds', '#dst', '#px', '#bg', '#mo', '#mot', '#md', '#mdt', '#mi', '#mv', '#mt2', '#mr', '#js', '#rpe', '#rvo', '#rvot', '#rth']);
+  obrigatorios(['#tp', '#dt', '#hr', '#og', '#ogt', '#ds', '#dst', '#px', '#mo', '#mot', '#md', '#mdt', '#mi', '#mv', '#mt2', '#mr', '#js', '#rpe', '#rvo', '#rvot', '#rth']);
   $('#ok').onclick = () => {
     const tipo = $('#tp').value, data = $('#dt').value, hora = $('#hr').value;
     const just = $('#js').value.trim();
@@ -1106,8 +1105,7 @@ function openAvulsa() {
       if (!data || !hora || !origem || !destino || !just) return bad('Preencha data, horário, origem, destino e justificativa.');
       if (normLoc(origem) === normLoc(destino)) return bad('Origem e destino devem ser locais diferentes.');
       if (!Number.isInteger(pax) || pax < 1 || pax > SLOT_CAP) return bad(`Passageiros: entre 1 e ${SLOT_CAP} (Spin tem ${SLOT_CAP} lugares).`);
-      const bag = $('#bg').value.trim();
-      if (!bag) return bad('Descreva a bagagem (ou deixe N/A se não levar).');
+      const bag = $('#bg').value.trim() || 'N/A'; // apagou: fica N/A
       campos = { origem, destino, pax, bag };
     }
     let ret = null;
