@@ -740,7 +740,7 @@ def exportar_auditoria_xlsx(request: Request, q: str = '', de: str = '', ate: st
     ws.title = 'Trilha'
     ws.append([t for _, t in COLS_AUD])
     for c in ws[1]:
-        c.font, c.fill = Font(bold=True, color='FFFFFF'), PatternFill('solid', fgColor='1F3A5F')
+        c.font, c.fill = Font(bold=True, color='FFFFFF'), PatternFill('solid', fgColor='343936')
     for d in linhas:
         ws.append([d[k] for k, _ in COLS_AUD])
     larg = {'Nº': 7, 'Data/hora (local)': 20, 'Fuso': 7, 'Data/hora (UTC)': 30, 'Usuário': 30, 'Nome': 26, 'Ação': 28, 'Registro': 16, 'Campo': 14,
@@ -783,7 +783,7 @@ def exportar_auditoria_pdf(request: Request, q: str = '', de: str = '', ate: str
     class Pdf(FPDF):
         def header(self):
             self.set_font('Helvetica', 'B', 12)
-            self.set_text_color(31, 58, 95)
+            self.set_text_color(52, 57, 54)
             self.cell(0, 6, _latin1('Trilha de auditoria — Mobilab'), new_x='LMARGIN', new_y='NEXT')
             self.set_font('Helvetica', '', 7.5)
             self.set_text_color(70, 70, 70)
@@ -885,7 +885,7 @@ def _novos_emails(s, antigo, novo):
             texto = str(m.get('corpo', ''))
             corpo = (f'<h1 style="margin:0 0 12px;font-size:20px;color:#1f2937">{escape(assunto)}</h1>'
                      f'<div style="white-space:pre-wrap;color:#374151;line-height:1.5">{escape(texto)}</div>'
-                     f'<p style="margin:18px 0 0"><a href="{escape(config.APP_URL)}/" style="color:#4a8f1f;font-weight:700">Abrir o Mobilab</a></p>')
+                     f'<p style="margin:18px 0 0"><a href="{escape(config.APP_URL)}/" style="color:#4a8314;font-weight:700">Abrir o Mobilab</a></p>')
             html = mail._moldura('SOLICITAÇÃO DE VIAGEM', corpo)
         saida.append((m['id'], para, assunto, texto, html))
     return saida

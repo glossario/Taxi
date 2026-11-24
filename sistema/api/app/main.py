@@ -22,7 +22,8 @@ from . import auth, config, entra, mail, ponte
 from .db import Aprovacao, Sessao, Solicitacao, auditar, criar_tabelas, migrar_auditoria
 
 FONTE = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
-         '<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet">')
+         '<link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet">'
+         '<link rel="icon" type="image/svg+xml" href="/prototipo/marca/natulab-simbolo.svg">')
 LEMBRETE_MIN = 60  # intervalo mínimo entre notificações ao gestor (minutos)
 
 
@@ -115,29 +116,29 @@ def st(s):
 
 
 CSS = """.w-brand{font-size:22px;letter-spacing:.5px} .apv-card.largo{max-width:1180px} .tbl{width:100%;border-collapse:collapse;font-size:14px}
-.tbl th,.tbl td{text-align:left;padding:9px 6px;border-bottom:1px solid #eef0ea;vertical-align:top} .tbl th{color:#6b7280;font-size:12px;text-transform:uppercase}
+.tbl th,.tbl td{text-align:left;padding:9px 6px;border-bottom:1px solid #eceff0;vertical-align:top} .tbl th{color:#6b7280;font-size:12px;text-transform:uppercase}
 .frm{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:12px 0} .frm label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:#374151}
-.frm input,.frm select,.frm textarea{padding:9px 10px;border:1.5px solid #e5e7e0;border-radius:9px;font:inherit} .frm .full{grid-column:1/-1}
-.st{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef0ea;font-size:12px;font-weight:600;white-space:nowrap} .st-gestor{background:#fff3d6;color:#92400e}
-.st-analise{background:#e6efff;color:#1e3a6e} .st-recusada{background:#fdecec;color:#8a1f1f} .st-confirmada{background:#eef7e6;color:#2f5d12}
-.ok-b{background:#eef7e6;color:#2f5d12;padding:10px 14px;border-radius:10px;margin:10px 0} .er-b{background:#fdecec;color:#8a1f1f;padding:10px 14px;border-radius:10px;margin:10px 0}
+.frm input,.frm select,.frm textarea{padding:9px 10px;border:1.5px solid #dfe3e4;border-radius:9px;font:inherit} .frm .full{grid-column:1/-1}
+.st{display:inline-block;padding:2px 8px;border-radius:999px;background:#eceff0;font-size:12px;font-weight:600;white-space:nowrap} .st-gestor{background:#fff3d6;color:#92400e}
+.st-analise{background:#eceff0;color:#343936} .st-recusada{background:#fdecec;color:#8a1f1f} .st-confirmada{background:#eef7e5;color:#3f6714}
+.ok-b{background:#eef7e5;color:#3f6714;padding:10px 14px;border-radius:10px;margin:10px 0} .er-b{background:#fdecec;color:#8a1f1f;padding:10px 14px;border-radius:10px;margin:10px 0}
 h2{font-size:17px;margin:24px 0 8px} .nav{display:flex;gap:6px;align-items:center;flex-wrap:wrap} .nav a{padding:6px 12px;border-radius:999px;text-decoration:none;color:#374151;font-weight:600;font-size:14px}
-.nav a.on{background:#eef7e6;color:#2f5d12} .nav .n{display:inline-block;min-width:18px;padding:0 6px;margin-left:4px;border-radius:999px;background:#d97706;color:#fff;font-size:11px;text-align:center}
+.nav a.on{background:#eef7e5;color:#3f6714} .nav .n{display:inline-block;min-width:18px;padding:0 6px;margin-left:4px;border-radius:999px;background:#d97706;color:#fff;font-size:11px;text-align:center}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:14px 0}
-.kp{border:1px solid #e5e7e0;border-radius:14px;padding:14px 16px;background:#fff} .kp small{display:block;color:#6b7280;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-.kp b{font-size:28px;color:#1f2937} .kp.warn{background:#fff8e6;border-color:#f5d68a} .kp.ok{background:#f3f9ee} .kp.bad{background:#fdf2f2}
+.kp{border:1px solid #dfe3e4;border-radius:14px;padding:14px 16px;background:#fff} .kp small{display:block;color:#6b7280;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.kp b{font-size:28px;color:#1f2937} .kp.warn{background:#fff8e6;border-color:#f5d68a} .kp.ok{background:#eef7e5} .kp.bad{background:#fdf2f2}
 .apcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}
-.apc{border:1px solid #e5e7e0;border-left:4px solid #d97706;border-radius:14px;padding:16px;background:#fff}
+.apc{border:1px solid #dfe3e4;border-left:4px solid #d97706;border-radius:14px;padding:16px;background:#fff}
 .apc h3{margin:0 0 2px;font-size:17px} .apc .sub{color:#6b7280;font-size:13px;margin:0 0 10px} .apc dl{margin:0 0 10px;display:grid;gap:4px;font-size:14px}
 .apc dl div{display:grid;grid-template-columns:110px 1fr} .apc dt{color:#6b7280} .apc dd{margin:0;font-weight:600}
-.apc .just{background:#f7f8f4;border-radius:10px;padding:8px 10px;font-size:14px;margin-bottom:12px}
-.apc form{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start} .apc textarea{width:100%;box-sizing:border-box;padding:8px;border:1.5px solid #e5e7e0;border-radius:9px;font:inherit}
+.apc .just{background:#f4f6f6;border-radius:10px;padding:8px 10px;font-size:14px;margin-bottom:12px}
+.apc form{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start} .apc textarea{width:100%;box-sizing:border-box;padding:8px;border:1.5px solid #dfe3e4;border-radius:9px;font:inherit}
 .apc details{flex-basis:100%} .apc summary{cursor:pointer;color:#8a1f1f;font-weight:600;font-size:14px;padding:6px 0}
 .muted{color:#6b7280;font-size:13px} .btn.sm{padding:6px 10px;font-size:13px}"""
 
 
 def pagina(titulo, corpo, u=None, largo=False, aba='', pend=0):
-    marca = '<span class="w-brand"><b style="color:#4a8f1f">NATU</b><b style="color:#1e3a6e">LAB</b></span>'
+    marca = '<img src="/prototipo/marca/natulab-logo.svg" alt="Natulab Farmacêutica" style="height:30px;width:auto;display:block">'
     if u:
         links = [('inicio', '/', 'Início')]
         if u.get('gestor_de'):
@@ -283,7 +284,7 @@ def spa():
     html = (PROTO / 'index.html').read_text(encoding='utf-8')
     # Mesmo index do protótipo; só liga o modo servidor antes do app.js.
     return HTMLResponse(html.replace('<script src="app.js"></script>', '<script>window.MOBILAB_API = true;</script><script src="/app.js"></script>')
-                        .replace('href="styles.css"', 'href="/styles.css"'), headers={'Cache-Control': 'no-cache'})
+                        .replace('href="styles.css"', 'href="/styles.css"').replace('href="marca/', 'href="/prototipo/marca/'), headers={'Cache-Control': 'no-cache'})
 
 
 @app.get('/app.js')

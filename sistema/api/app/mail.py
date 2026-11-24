@@ -59,14 +59,14 @@ def _linha(k, v):
 
 
 def _moldura(titulo_tag, corpo):
-    return f"""<!doctype html><html><body style="margin:0;background:#f3f4ef;font-family:Segoe UI,Arial,sans-serif">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4ef;padding:28px 12px"><tr><td align="center">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:16px;border:1px solid #e5e7e0">
+    return f"""<!doctype html><html><body style="margin:0;background:#f2f4f5;font-family:Segoe UI,Arial,sans-serif">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f4f5;padding:28px 12px"><tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:16px;border:1px solid #dfe3e4">
 <tr><td style="padding:22px 28px 6px">
-  <span style="font-size:22px;font-weight:800;color:#4a8f1f;letter-spacing:.5px">NATU</span><span style="font-size:22px;font-weight:800;color:#1e3a6e;letter-spacing:.5px">LAB</span>
+  <img src="{config.APP_URL}/prototipo/marca/natulab-logo.png" width="130" height="45" alt="Natulab Farmacêutica" style="display:inline-block;border:0;height:45px;width:130px">
   <span style="float:right;font-size:12px;font-weight:700;color:#6b7280;letter-spacing:.06em;line-height:30px">{escape(titulo_tag)}</span></td></tr>
 <tr><td style="padding:10px 28px 0">{corpo}</td></tr>
-<tr><td style="padding:22px 28px;color:#9ca3af;font-size:12px;border-top:1px solid #eef0ea">Este é um e-mail automático — não responda. · Mobilab · Facilities Natulab</td></tr>
+<tr><td style="padding:22px 28px;color:#9ca3af;font-size:12px;border-top:1px solid #eceff0">Este é um e-mail automático — não responda. · Mobilab · Facilities Natulab</td></tr>
 </table></td></tr></table></body></html>"""
 
 
@@ -86,10 +86,10 @@ def modelo_aprovacao(r, link, lembrete=False):
     corpo = f"""<h1 style="margin:0 0 4px;font-size:22px;color:#1f2937">{escape(r.solicitante_nome)}</h1>
   <p style="margin:0 0 14px;color:#6b7280">{escape(r.centro_custo)} · solicitou um transporte que precisa da sua aprovação.</p>
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%">{''.join(_linha(k, v) for k, v in det)}</table>
-  <div style="background:#f7f8f4;border-radius:12px;padding:12px 14px;margin:16px 0 20px">
+  <div style="background:#f4f6f6;border-radius:12px;padding:12px 14px;margin:16px 0 20px">
     <div style="font-size:11px;font-weight:700;color:#6b7280;letter-spacing:.05em">JUSTIFICATIVA</div>
     <div style="margin-top:4px;color:#1f2937">{escape(r.justificativa)}</div></div>
-  <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="background:#4a8f1f;border-radius:10px">
+  <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="background:#73bc25;border-radius:10px">
     <a href="{escape(link)}" style="display:inline-block;padding:14px 28px;color:#fff;font-weight:700;text-decoration:none;font-size:15px">Analisar solicitação</a></td></tr></table>
   <p style="margin:14px 0 0;font-size:12px;color:#6b7280">Ao clicar, você vai direto para a página onde aprova ou reprova a solicitação.</p>"""
     assunto = f'{"Lembrete: " if lembrete else ""}Aprovação pendente: {r.codigo} de {r.solicitante_nome}'
