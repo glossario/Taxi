@@ -1081,3 +1081,46 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
   .cx-busca { min-width: 0; flex-basis: 100%; }
   .cx-bar .spacer { display: none; }
 }
+
+/* ---------- Login no visual do Portal Natulab (2ª versão): conteúdo centralizado, selo no topo, ajuda e acesso local no rodapé ---------- */
+.lg-titulo { margin: 0; text-align: center; font-size: 26px; font-weight: 600; color: #343936; letter-spacing: -.5px; }
+.lg-titulo span { color: #4a8314; }
+.lg-marca .lg-frase { font-weight: 500; font-size: 15px; }
+.lg-acesso { flex-direction: column; justify-content: flex-start; padding: 96px 32px 112px; overflow-y: auto; }
+.lg-acesso .lg-form { margin: auto 0; } /* centraliza sem cortar o topo quando o conteúdo cresce */
+.lg-acesso #lf .lg-campo { margin-bottom: 14px; }
+.lg-acesso.local .lg-sub, .lg-acesso.local .lg-mesma, .lg-acesso.local .lg-linha { display: none; }
+.lg-acesso.local .lg-ms { margin-top: 22px; }
+.lg-acesso #lf .lg-input, .lg-acesso #lf .lg-entrar { height: 50px; }
+.lg-acesso .lg-form { max-width: 400px; text-align: center; }
+.lg-acesso .lg-form form, .lg-acesso .lg-form .lg-erro, .lg-acesso .lg-demo { text-align: left; }
+.lg-selo { position: absolute; top: 44px; right: 56px; display: inline-flex; align-items: center; gap: 8px; font-size: 10.5px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: rgba(255, 255, 255, .85); }
+.lg-selo i, .lg-boas i { width: 6px; height: 6px; border-radius: 50%; background: #a1d57c; display: inline-block; }
+.lg-boas { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 14px; font-size: 21px; font-weight: 800; letter-spacing: -.3px; color: #fff; }
+.lg-boas i { width: 8px; height: 8px; }
+.lg-acesso .lg-form h1 { font-size: 46px; font-weight: 700; letter-spacing: -1.5px; line-height: 1.05; }
+.lg-acesso .lg-form h1 span { color: #a1d57c; }
+.lg-acesso .lg-sub { margin: 14px 0 28px; font-size: 15px; line-height: 1.6; color: rgba(255, 255, 255, .92); }
+.lg-acesso .lg-ms { height: 56px; border: 0; border-radius: 10px; font-size: 15.5px; }
+.lg-mesma { margin: 16px 0 0; font-size: 13.5px; font-weight: 700; color: #fff; }
+.lg-prot { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 30px; padding-top: 28px; border-top: 1px solid rgba(255, 255, 255, .22); color: #fff; }
+.lg-prot svg { opacity: .9; margin-bottom: 4px; }
+.lg-prot b { font-size: 14.5px; }
+.lg-prot span { font-size: 13.5px; font-weight: 600; line-height: 1.7; color: rgba(255, 255, 255, .92); max-width: 380px; }
+.lg-prot[hidden] { display: none; }
+.lg-acesso #lf { margin-top: 26px; padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, .22); }
+.lg-acesso #lf[hidden] { display: none; }
+.lg-pe { position: absolute; left: 0; right: 0; bottom: 34px; padding: 0 56px 0 max(56px, 12%); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.lg-ajuda { display: flex; align-items: center; gap: 12px; color: rgba(255, 255, 255, .85); }
+.lg-ajuda small { display: block; font-size: 11.5px; color: rgba(255, 255, 255, .8); margin-bottom: 3px; }
+.lg-ajuda a { display: inline-flex; align-items: center; gap: 6px; color: #fff; font-size: 12.5px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+/* acesso local: só um cadeado apagado no canto */
+.lg-acesso .lg-adm { display: grid; place-items: center; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 8px; background: none; color: rgba(255, 255, 255, .4); cursor: pointer; }
+.lg-acesso .lg-adm:hover { color: rgba(255, 255, 255, .8); background: rgba(255, 255, 255, .08); text-decoration: none; }
+@media (max-width: 820px) {
+  .lg-selo { position: static; align-self: flex-start; margin-bottom: 18px; }
+  .lg-acesso { justify-content: flex-start; padding: 28px 20px 110px; }
+  .lg-acesso .lg-form h1 { font-size: 38px; }
+  .lg-pe { bottom: 24px; padding: 0 20px; }
+  .lg-titulo { font-size: 20px; }
+}

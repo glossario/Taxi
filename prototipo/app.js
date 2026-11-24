@@ -588,18 +588,22 @@ function renderLogin() {
     <section class="lg-marca" aria-label="Natulab">
       <div class="lg-logo">${LOGO_NATULAB}</div>
       <div class="lg-servicos">
+        <p class="lg-titulo">Mais facilidade. <span>Mais conexão.</span></p>
         <p class="lg-frase">Táxi e Moto Táxi corporativo da Natulab.</p>
         <ul><li><b>Mobilab</b><small>Solicite, acompanhe e organize seus deslocamentos entre os sites.</small></li></ul>
       </div>
       <p class="lg-rodape escuro">© ${new Date().getFullYear()} Natulab Farmacêutica · Uso interno</p>
     </section>
     <section class="lg-acesso">
+      <span class="lg-selo"><i></i>Mobilidade corporativa</span>
       <div class="lg-form">
-        <h1>Mobilab</h1>
-        <p class="lg-sub">${soMs ? 'Entre com a sua conta Microsoft da Natulab, a mesma do Outlook e do Teams.' : 'Informe suas credenciais abaixo para acessar sua conta.'}</p>
+        <p class="lg-boas"><i></i>Bem-vindo ao Mobilab</p>
+        <h1>Mobilab<span>.</span></h1>
+        <p class="lg-sub">${soMs ? 'Seus deslocamentos, mais simples e conectados. Entre com sua conta corporativa para continuar.' : 'Informe suas credenciais abaixo para acessar sua conta.'}</p>
         ${soMs ? `<a class="lg-ms" href="/auth/entra"><svg width="20" height="20" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>Entrar com a conta Microsoft</a>
-        <p class="lg-nota">A senha é digitada na página da Microsoft. O Mobilab não vê nem guarda a sua senha.</p>
-        <button type="button" class="lg-adm" id="ladm" aria-expanded="false" aria-controls="lf">Acesso local</button>` : ''}
+        <p class="lg-mesma">A mesma conta que você usa no Outlook e no Teams.</p>
+        <div class="lg-prot" id="lprot"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.5 12l2.5 2.5 4.5-4.5"/></svg>
+          <b>Seu acesso está protegido</b><span>A autenticação é feita pela Microsoft. O Mobilab não acessa nem armazena sua senha.</span></div>` : ''}
         <form id="lf" novalidate ${soMs ? 'hidden' : ''}>
           <div class="lg-campo"><label for="em">E-mail</label><input class="lg-input" id="em" type="email" placeholder="seuemail@exemplo.com" autocomplete="username"></div>
           <div class="lg-campo"><label for="pw">Senha</label><div class="lg-senha"><input class="lg-input" id="pw" type="password" placeholder="Digite sua senha" autocomplete="current-password">
@@ -620,11 +624,15 @@ function renderLogin() {
           </div>
         </div>
       </div>
-      <p class="lg-rodape">Problemas para entrar? <a href="https://natuservices.natulab.com.br/" target="_blank" rel="noopener noreferrer">Abra um chamado para a TI</a></p>
+      <div class="lg-pe">
+        <div class="lg-ajuda"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6M12 17v.01"/></svg>
+          <div><small>Precisa de ajuda para entrar?</small><a href="https://natuservices.natulab.com.br/" target="_blank" rel="noopener noreferrer">Abra um chamado para a TI <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a></div></div>
+        ${soMs ? `<button type="button" class="lg-adm" id="ladm" aria-expanded="false" aria-controls="lf" aria-label="Acesso local" title="Acesso local"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></button>` : ''}
+      </div>
     </section>
   </div></div>`;
   if ($('#ladm')) $('#ladm').onclick = () => {
-    $('#lf').hidden = false; $('#ladm').hidden = true; $('#ladm').setAttribute('aria-expanded', 'true');
+    $('#lf').hidden = false; $('#lprot').hidden = true; $('.lg-acesso').classList.add('local'); $('#ladm').setAttribute('aria-expanded', 'true');
     $('#forgot').hidden = true; $('label[for=em]').textContent = 'Usuário'; $('#em').type = 'text'; $('#em').value = 'admin'; $('#pw').focus();
   };
   $('#eye').onclick = () => { const p = $('#pw'); p.type = p.type === 'password' ? 'text' : 'password'; };
