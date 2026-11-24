@@ -1277,10 +1277,16 @@ function openAvulsa() {
   };
 }
 
+// Cancelamento: livre até CANCEL_MIN minutos antes; depois, a corrida já alocada (veículo e motorista) continua cobrada.
+// Quem marca a cobrança é o servidor (campo cobrar), pela hora do servidor.
+const CANCEL_MIN = 30;
+const cobrada = (r) => r.status === 'cancelada' && !!r.cobrar;
+const limiteCancel = (r) => { const d = new Date(at(r.data, r.hora).getTime() - CANCEL_MIN * 60000); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}${ymd(d) !== ymd(new Date()) ? ` de ${fmtDate(ymd(d))}` : ''}`; };
 function openDetalhe(id) {
   const r = S.reqs.find((x) => x.id === id);
   const v = veic(r.veiculo), m = mot(r.motorista);
-  const canCancel = S.user.role === 'colaborador' && ['analise', 'gestor'].includes(r.status);
+  // colaborador cancela até a hora da viagem; com menos de CANCEL_MIN min, a corrida já alocada continua cobrada
+  const canCancel = S.user.role === 'colaborador' && meuPedido(r) && ['analise', 'gestor', 'confirmada', 'reagendada'].includes(r.status) && at(r.data, r.hora) > new Date();
   const par = parDe(r);
   openModal(`
     <h3>${esc(r.id)} ${pill(r.status)}</h3>
@@ -1308,15 +1314,21 @@ function openDetalhe(id) {
       ${r.os ? `<div class="f full"><label>Ordem de serviço</label><div><b>${esc(r.os)}</b></div></div>` : ''}
       <div class="f full"><label>Justificativa</label><div>${esc(r.just)}</div></div>
       ${r.motivo ? `<div class="f full"><label>Motivo / observação do Facilities</label><div>${esc(r.motivo)}</div></div>` : ''}
+      ${cobrada(r) ? `<div class="f full"><label>Custo</label><div><b>Cancelada com menos de ${CANCEL_MIN} min de antecedência:</b> o custo da corrida continua no centro de custo.</div></div>` : ''}
+      ${canCancel && r.veiculo ? `<div class="f full"><label>Cancelamento</label><div>Sem custo até <b>${esc(limiteCancel(r))}</b>. Depois disso o custo da corrida continua no centro de custo, mesmo cancelando.</div></div>` : ''}
     </div>
     <div class="modal-acts">${canCancel ? '<button class="btn red" id="cancel">Cancelar solicitação</button>' : ''}<button class="btn" id="cx">Fechar</button></div>`);
   $('#cx').onclick = closeModal;
   if (par) $('#vpar').onclick = () => openDetalhe(par.id);
   if (canCancel) $('#cancel').onclick = () => {
+    const tarde = !!r.veiculo && new Date() >= new Date(at(r.data, r.hora).getTime() - CANCEL_MIN * 60000);
+    if (!confirm(tarde ? `Faltam menos de ${CANCEL_MIN} minutos para a viagem. O cancelamento será registrado, mas o custo da corrida continua no centro de custo.
+
+Cancelar mesmo assim?` : `Cancelar ${r.id}?`)) return;
     const alvo = [r];
-    if (par && ['analise', 'gestor'].includes(par.status) && confirm(`Cancelar também ${r.perna === 'ida' ? 'o retorno' : 'a ida'} ${par.id}?`)) alvo.push(par);
+    if (par && ['analise', 'gestor', 'confirmada', 'reagendada'].includes(par.status) && at(par.data, par.hora) > new Date() && confirm(`Cancelar também ${r.perna === 'ida' ? 'o retorno' : 'a ida'} ${par.id}?`)) alvo.push(par);
     alvo.forEach((x) => { audit('Cancelada pelo solicitante', x.id, STATUS[x.status], 'Cancelada'); x.status = 'cancelada'; x.motivo = 'Cancelada pelo solicitante'; });
-    save(); closeModal(); route(); toast(`${alvo.map((x) => x.id).join(' e ')} cancelada${alvo.length > 1 ? 's' : ''}.`);
+    save(); closeModal(); route(); toast(`${alvo.map((x) => x.id).join(' e ')} cancelada${alvo.length > 1 ? 's' : ''}${tarde ? ' — o custo da corrida continua no centro de custo' : ''}.`);
   };
 }
 
@@ -1651,14 +1663,17 @@ function renderCadastros(page) {
 
 // ---------------- Viagens (envio ao motorista via WhatsApp) ----------------
 const VG_LABEL = { enviar: ['A enviar', 'st-analise'], enviada: ['Enviada', 'st-reagendada'], concluida: ['Concluída', 'st-concluida'], naorealizada: ['Não realizada', 'st-recusada'] };
-function viagens() {
+// custos=true: entram também os cancelamentos tardios (menos de ${CANCEL_MIN} min antes), que continuam cobrados
+function viagens(custos) {
   const map = {};
-  S.reqs.filter((r) => ['confirmada', 'andamento', 'concluida', 'naorealizada'].includes(r.status) && r.veiculo && r.motorista)
+  S.reqs.filter((r) => (['confirmada', 'andamento', 'concluida', 'naorealizada'].includes(r.status) || (custos && cobrada(r))) && r.veiculo && r.motorista)
     .forEach((r) => { (map[[r.data, r.hora, r.veiculo, r.motorista].join('|')] ||= []).push(r); });
-  return Object.entries(map).map(([k, rs]) => {
-    const st = rs.every((r) => r.status === 'concluida') ? 'concluida' : rs.every((r) => r.status === 'naorealizada') ? 'naorealizada'
+  return Object.entries(map).map(([k, todos]) => {
+    const rs = todos.filter((r) => !cobrada(r)).length ? todos.filter((r) => !cobrada(r)) : todos; // situação da viagem vem de quem não cancelou
+    const tudoCobrado = rs.every(cobrada);
+    const st = tudoCobrado ? (at(rs[0].data, rs[0].hora) <= new Date() ? 'concluida' : 'enviada') : rs.every((r) => r.status === 'concluida') ? 'concluida' : rs.every((r) => r.status === 'naorealizada') ? 'naorealizada'
       : rs.every((r) => r.wpp) ? 'enviada' : 'enviar';
-    return { k, rs, data: rs[0].data, hora: rs[0].hora, veiculo: rs[0].veiculo, motorista: rs[0].motorista, tipo: rs[0].tipo, st };
+    return { k, rs: todos, data: todos[0].data, hora: todos[0].hora, veiculo: todos[0].veiculo, motorista: todos[0].motorista, tipo: todos[0].tipo, st };
   }).sort((a, b) => at(a.data, a.hora) - at(b.data, b.hora));
 }
 const paxTxt = (r) => `${r.nome}${r.pax > 1 ? ` +${r.pax - 1}` : ''}`;
@@ -2172,7 +2187,7 @@ function renderCustos(page) {
   const prev = !!renderCustos.prev;
   let body = '';
   {
-    const vs = viagens().filter((v) => v.data.slice(0, 7) === mes && (v.st === 'concluida' || (prev && ['enviar', 'enviada'].includes(v.st))) && v.rs.some((r) => !r.faltou)); // ninguém foi = sem cobrança
+    const vs = viagens(true).filter((v) => v.data.slice(0, 7) === mes && (v.st === 'concluida' || (prev && ['enviar', 'enviada'].includes(v.st))) && v.rs.some((r) => !r.faltou)); // ninguém foi = sem cobrança
     const porSetor = {};
     let total = 0;
     const semValor = [];

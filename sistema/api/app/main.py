@@ -161,7 +161,7 @@ def pendentes_do_gestor(s, email):
 def marcar_gestor(s, u):
     """Quem aparece como gestor imediato em alguma solicitação ganha a aba Aprovações."""
     if not u.get('gestor_de'):
-        u['gestor_de'] = bool(s.scalar(select(func.count()).select_from(Solicitacao).where(Solicitacao.gestor_email == u['email'])))
+        u['gestor_de'] = bool(s.scalar(select(func.count()).select_from(Solicitacao).where(Solicitacao.gestor_email == u['email'], Solicitacao.status == 'gestor')))
     return u
 
 

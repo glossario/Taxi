@@ -223,7 +223,8 @@ def abrir_sessao(request, u, como):
         # quem aprova: o 1º líder/coordenador/gerente/diretor acima na hierarquia (pula gestor imediato sem cargo de liderança)
         u['gestor'] = aprovador_de(s, p) or u.get('gestor') or {}
         # vê a aba Aprovações: quem tem cargo de liderança ou já tem solicitação esperando por ele
-        u['gestor_de'] = e_lider(p.cargo) or any((r.get('gestor') or {}).get('email', '').lower() == u['email'] for r in dados.get('reqs', []))
+        u['gestor_de'] = e_lider(p.cargo) or any(r.get('status') == 'gestor' and (r.get('gestor') or {}).get('email', '').lower() == u['email']
+                                                 for r in dados.get('reqs', []))  # só solicitação AGUARDANDO a pessoa; já decidida não conta
         auditar(s, u['email'], 'Login', '', '', como, nome=u.get('nome', ''))
         s.commit()
     request.session.clear()
@@ -338,6 +339,34 @@ class Recusa(Exception):
     pass
 
 
+CANCEL_MIN = 30  # cancelar até 30 min antes não custa; depois, a corrida já alocada continua cobrada
+
+
+def _cobranca_cancelamento(r, o):
+    """Só o servidor decide se o cancelamento é cobrado (pela hora do servidor)."""
+    if o is None:
+        r.pop('cobrar', None)
+        return
+    if r.get('status') == 'cancelada' and o.get('status') != 'cancelada':
+        try:
+            saida = datetime.strptime(f"{o['data']} {o['hora']}", '%Y-%m-%d %H:%M').replace(tzinfo=config.FUSO)
+        except (KeyError, ValueError):
+            saida = None
+        tarde = bool(saida and o.get('veiculo') and o.get('motorista') and o.get('status') in ('confirmada', 'andamento')
+                     and agora() >= saida - timedelta(minutes=CANCEL_MIN))
+        r['cobrar'] = tarde
+        if tarde:  # mantém veículo e motorista para a corrida entrar nos custos
+            r['veiculo'], r['motorista'], r['data'], r['hora'] = o['veiculo'], o['motorista'], o['data'], o['hora']
+            r['cancelada_em'] = agora().strftime('%d/%m/%Y %H:%M')
+    else:
+        if o.get('cobrar') is None:
+            r.pop('cobrar', None)
+        else:
+            r['cobrar'] = o['cobrar']
+        if o.get('cancelada_em'):
+            r['cancelada_em'] = o['cancelada_em']
+
+
 def _validar(u, antigo, novo, s):
     """Regras que as telas não podem burlar."""
     velhos = {r['id']: r for r in (antigo or {}).get('reqs', [])}
@@ -346,6 +375,7 @@ def _validar(u, antigo, novo, s):
         r.pop('tok', None)  # token de aprovação nunca fica no estado compartilhado
         o = velhos.get(r.get('id'))
         r['assinaturas'] = list((o or {}).get('assinaturas') or [])  # só o servidor grava assinaturas
+        _cobranca_cancelamento(r, o)
         if o is None:  # pedido novo
             chefe = u.get('gestor') or {}
             dono = str(r.get('email', '')).lower()
