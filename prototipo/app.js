@@ -591,15 +591,15 @@ function renderLogin() {
         <p class="lg-frase">Táxi e Moto Táxi corporativo da Natulab.</p>
         <ul><li><b>Mobilab</b><small>Solicite, acompanhe e organize seus deslocamentos entre os sites.</small></li></ul>
       </div>
-      <p class="lg-rodape escuro">Copyright © ${new Date().getFullYear()} Mobilab · Natulab · SAC 0800 730 7370</p>
+      <p class="lg-rodape escuro">© ${new Date().getFullYear()} Natulab Farmacêutica · Uso interno</p>
     </section>
     <section class="lg-acesso">
       <div class="lg-form">
         <h1>Mobilab</h1>
-        <p class="lg-sub">${soMs ? 'Entre com a sua conta corporativa Microsoft.' : 'Informe suas credenciais abaixo para acessar sua conta.'}</p>
+        <p class="lg-sub">${soMs ? 'Entre com a sua conta Microsoft da Natulab, a mesma do Outlook e do Teams.' : 'Informe suas credenciais abaixo para acessar sua conta.'}</p>
         ${soMs ? `<a class="lg-ms" href="/auth/entra"><svg width="20" height="20" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>Entrar com a conta Microsoft</a>
-        <div class="lg-ou"><span>ou</span></div>
-        <button type="button" class="lg-adm" id="ladm" aria-expanded="false" aria-controls="lf">Entrar como Super Admin <small>conta local do Mobilab</small></button>` : ''}
+        <p class="lg-nota">A senha é digitada na página da Microsoft. O Mobilab não vê nem guarda a sua senha.</p>
+        <button type="button" class="lg-adm" id="ladm" aria-expanded="false" aria-controls="lf">Acesso local</button>` : ''}
         <form id="lf" novalidate ${soMs ? 'hidden' : ''}>
           <div class="lg-campo"><label for="em">E-mail</label><input class="lg-input" id="em" type="email" placeholder="seuemail@exemplo.com" autocomplete="username"></div>
           <div class="lg-campo"><label for="pw">Senha</label><div class="lg-senha"><input class="lg-input" id="pw" type="password" placeholder="Digite sua senha" autocomplete="current-password">
@@ -620,7 +620,7 @@ function renderLogin() {
           </div>
         </div>
       </div>
-      <p class="lg-rodape">natulab.com.br · Bem-estar todos os dias</p>
+      <p class="lg-rodape">Problemas para entrar? <a href="https://natuservices.natulab.com.br/" target="_blank" rel="noopener noreferrer">Abra um chamado para a TI</a></p>
     </section>
   </div></div>`;
   if ($('#ladm')) $('#ladm').onclick = () => {
