@@ -446,6 +446,9 @@ const ICO = {
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
   history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3 4v4h4"/><path d="M12 8v4l3 2"/>',
   shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.5 12l2.5 2.5 4.5-4.5"/>',
+  home: '<path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 20h14"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   userplus: '<circle cx="10" cy="8" r="3.5"/><path d="M3 20c.8-3.8 3.6-5.8 7-5.8 1.4 0 2.7.3 3.8 1"/><path d="M18 14v6M15 17h6"/>',
 };
 const ico = (n, s = 18) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO[n]}</svg>`;
@@ -468,31 +471,75 @@ function openAjuda() {
   $('#cx').onclick = closeModal;
 }
 
+// Logo e símbolo oficiais (arquivos em prototipo/marca). No servidor o SPA é servido em "/", e os arquivos ficam em /prototipo/marca/.
+const MARCA = (location.protocol === 'file:' || location.pathname.startsWith('/prototipo')) ? 'marca/' : '/prototipo/marca/';
+// Menu lateral: ícone e grupo de cada tela
+const NAV_ICO = { inicio: 'home', visao: 'grid', painel: 'list', viagens: 'route', solicitacoes: 'filter', motoristas: 'car', grade: 'clock', custos: 'money',
+  agenda: 'cal', minhas: 'user', aprovacoes: 'check', usuarios: 'users', historico: 'history', cadastros: 'gear' };
+const NAV_GRUPO = { visao: 'Operação', painel: 'Operação', viagens: 'Operação', solicitacoes: 'Operação', motoristas: 'Operação', grade: 'Operação', custos: 'Gestão',
+  agenda: 'Minhas viagens', minhas: 'Minhas viagens', aprovacoes: 'Minhas viagens', usuarios: 'Administração', historico: 'Administração', cadastros: 'Administração' };
+const GRUPOS = ['', 'Operação', 'Gestão', 'Minhas viagens', 'Administração'];
+const Lado = {
+  mini() { try { return localStorage.getItem('mobilab.menu') === 'mini'; } catch (e) { return false; } },
+  guardar(m) { try { localStorage.setItem('mobilab.menu', m ? 'mini' : 'aberto'); } catch (e) { /* sem armazenamento: só não lembra */ } },
+};
+
 function shell(page, content) {
-  // TI acessa tudo pelo Início (ícones); na barra fica só o Início e a tela aberta.
-  const nav = ['ti', 'ti_jr'].includes(S.user.role) ? navDe(S.user).filter(([k]) => k === 'inicio' || k === page) : navDe(S.user);
+  const nav = navDe(S.user).map((x, i) => [...x, i]).sort((a, b) => (GRUPOS.indexOf(NAV_GRUPO[a[0]] || '') - GRUPOS.indexOf(NAV_GRUPO[b[0]] || '')) || a[2] - b[2]);
+  const nGrupos = new Set(nav.map(([k]) => NAV_GRUPO[k] || '')).size;
   const nAprov = S.user.gestor ? S.reqs.filter((r) => r.status === 'gestor' && r.gestor && r.gestor.email === S.user.email).length : 0;
   const nMinhas = S.reqs.filter((r) => meuPedido(r) && ATIVOS.includes(r.status)).length;
   const nNovas = minhasMsgs().filter((e) => !e.lida).length;
+  const cont = { minhas: nMinhas, aprovacoes: nAprov };
+  let grupo = null;
+  const itens = nav.map(([k, l]) => {
+    const g = NAV_GRUPO[k] || '';
+    const cab = nGrupos > 1 && g && g !== grupo ? `<div class="lado-sec">${esc(g)}</div>` : '';
+    grupo = g;
+    return `${cab}<a href="#${k}" class="${k === page ? 'on' : ''}" title="${esc(l)}" ${k === page ? 'aria-current="page"' : ''}>${ico(NAV_ICO[k] || 'grid', 20)}<span class="t">${esc(l)}</span>${cont[k] ? `<span class="count">${cont[k]}</span>` : ''}</a>`;
+  }).join('');
+  const atual = (nav.find(([k]) => k === page) || [])[1] || '';
   app().innerHTML = `
-    <header class="topbar">
-      ${brand}
-      <nav>${nav.map(([k, l]) => `<a href="#${k}" class="${k === page ? 'on' : ''}">${l}${k === 'minhas' && nMinhas ? ` <span class="count">${nMinhas}</span>` : ''}${k === 'aprovacoes' && nAprov ? ` <span class="count">${nAprov}</span>` : ''}</a>`).join('')}
-        <a href="#" id="ajuda">Ajuda</a></nav>
-      <span class="spacer"></span>
-      ${window.MOBILAB_API ? (Srv.teste ? '<span class="badge-sim">TESTE</span>' : '') : '<span class="badge-sim">SIMULAÇÃO</span>'}
-      <button class="icon-btn bell" id="bell" aria-label="Mensagens do Facilities${nNovas ? ` (${nNovas} novas)` : ''}" title="Mensagens do Facilities">${ico('bell', 18)}${nNovas ? `<span class="dot">${nNovas}</span>` : ''}</button>
-      <div class="user-wrap">
-        <button class="user" id="umenu" aria-haspopup="true" aria-expanded="false"><span class="avatar">${esc(initials(S.user.nome))}</span>
-          <span class="who"><b>${esc(S.user.nome)}</b>${esc(S.user.cargo)}</span>${ico('down', 16)}</button>
-        <div class="menu" id="menu" hidden>
-          ${window.MOBILAB_API ? '' : '<button id="reset">Restaurar dados de exemplo</button>'}
-          <button id="logout">Sair</button>
+    <div class="app-sh${Lado.mini() ? ' mini' : ''}" id="appsh">
+      <aside class="lado" id="lado" aria-label="Menu">
+        <div class="lado-cab">
+          <a class="lado-logo" href="#" aria-label="Natulab Farmacêutica — início"><img class="lg-full" src="${MARCA}natulab-logo-negativo.svg" alt="Natulab Farmacêutica"><img class="lg-mini" src="${MARCA}natulab-simbolo.svg" alt="Natulab"></a>
+          <button class="lado-rec" id="rec" type="button">${ico('left', 18)}</button>
         </div>
+        <nav class="lado-nav">${itens}
+          <div class="lado-sec">Suporte</div>
+          <a href="#" id="ajuda" title="Ajuda">${ico('info', 20)}<span class="t">Ajuda</span></a></nav>
+        <div class="user-wrap lado-eu">
+          <button class="user" id="umenu" aria-haspopup="true" aria-expanded="false" title="${esc(S.user.nome)}"><span class="avatar">${esc(initials(S.user.nome))}</span>
+            <span class="who"><b>${esc(S.user.nome)}</b>${esc(S.user.cargo)}</span></button>
+          <div class="menu" id="menu" hidden>
+            ${window.MOBILAB_API ? '' : '<button id="reset">Restaurar dados de exemplo</button>'}
+            <button id="logout">Sair</button>
+          </div>
+        </div>
+      </aside>
+      <div class="lado-fundo" id="ladofundo"></div>
+      <div class="sh-main">
+        <header class="topbar">
+          <button class="icon-btn lado-abre" id="ladoabre" aria-label="Abrir menu" aria-controls="lado">${ico('menu', 20)}</button>
+          <img class="topo-logo" src="${MARCA}natulab-logo.svg" alt="Natulab Farmacêutica">
+          <span class="topo-pg">${esc(atual)}</span>
+          <span class="spacer"></span>
+          ${window.MOBILAB_API ? (Srv.teste ? '<span class="badge-sim">TESTE</span>' : '') : '<span class="badge-sim">SIMULAÇÃO</span>'}
+          <button class="icon-btn bell" id="bell" aria-label="Mensagens do Facilities${nNovas ? ` (${nNovas} novas)` : ''}" title="Mensagens do Facilities">${ico('bell', 18)}${nNovas ? `<span class="dot">${nNovas}</span>` : ''}</button>
+        </header>
+        <main>${content}</main>
       </div>
-    </header>
-    <main>${content}</main>`;
-  $('#ajuda').onclick = (e) => { e.preventDefault(); openAjuda(); };
+    </div>`;
+  const sh = $('#appsh'), rec = $('#rec');
+  const marca = () => { const m = sh.classList.contains('mini'); rec.title = m ? 'Expandir menu' : 'Recolher menu'; rec.setAttribute('aria-label', rec.title); rec.setAttribute('aria-expanded', String(!m)); };
+  marca();
+  rec.onclick = () => { const m = !sh.classList.contains('mini'); sh.classList.toggle('mini', m); Lado.guardar(m); marca(); };
+  const fechaLado = () => sh.classList.remove('lado-on');
+  $('#ladoabre').onclick = () => sh.classList.add('lado-on');
+  $('#ladofundo').onclick = fechaLado;
+  $('#lado').querySelectorAll('.lado-nav a[href^="#"]:not(#ajuda)').forEach((a) => a.addEventListener('click', fechaLado));
+  $('#ajuda').onclick = (e) => { e.preventDefault(); fechaLado(); openAjuda(); };
   $('#bell').onclick = openCaixa;
   $('#umenu').onclick = () => { const m = $('#menu'); m.hidden = !m.hidden; $('#umenu').setAttribute('aria-expanded', String(!m.hidden)); };
   $('#logout').onclick = () => {
@@ -2182,67 +2229,205 @@ function ratear(v) {
 }
 const rateioChips = (rt) => Object.entries(rt.partes).map(([cc, val]) => `<span class="chip-r"><b>${esc(setorCurto(cc))}</b> ${brl(val)}</span>`).join('');
 
+// Custos por setor: tudo calculado das viagens do mês (mesma regra de rateio de sempre).
+const CX_CAT = (tipo) => (tipo === 'moto' ? 'moto' : tipo === 'inter' ? 'inter' : 'carro'); // grade e táxi na cidade = carro
+const CX_CORES = ['#73bc25', '#343936', '#4a8314', '#8ccb4b', '#5f6664', '#a1d57c', '#3f6714', '#8a9294', '#ccd3d5'];
+const CX_CLARAS = ['#8ccb4b', '#a1d57c', '#ccd3d5'];
+const siglaSetor = (cc) => {
+  const p = setorCurto(cc).split(/\s+/).filter((w) => w.length > 2 || /^[A-Z]{2,}$/.test(w));
+  return (p.length > 1 ? p[0][0] + p[1][0] : (p[0] || '?').slice(0, 2)).toUpperCase();
+};
+function dadosCustos(mes, prev) {
+  const vs = viagens(true).filter((v) => v.data.slice(0, 7) === mes && (v.st === 'concluida' || (prev && ['enviar', 'enviada'].includes(v.st))) && v.rs.some((r) => !r.faltou)); // ninguém foi = sem cobrança
+  const porSetor = {};
+  const semValor = [];
+  const cat = { carro: { n: 0, valor: 0 }, moto: { n: 0, valor: 0 }, inter: { n: 0, valor: 0 } };
+  const rotas = {};
+  let total = 0, nGrade = 0;
+  const canc = { n: 0, valor: 0 };
+  vs.forEach((v) => {
+    const rt = ratear(v);
+    const c = CX_CAT(v.tipo);
+    if (rt.total == null) { semValor.push(v); return; }
+    total += rt.total; cat[c].n += 1; cat[c].valor += rt.total;
+    if (v.tipo === 'grade') nGrade += 1;
+    rt.legs.forEach((l) => { const k = `${siteName(l.de)} → ${siteName(l.para)}`; rotas[k] = (rotas[k] || 0) + 1; });
+    const nCob = v.rs.filter(cobrada).length;
+    if (nCob) { canc.n += nCob; if (v.rs.every(cobrada)) canc.valor += rt.total; } // corrida inteira cancelada em cima da hora
+    Object.entries(rt.partes).forEach(([cc, val]) => {
+      const sx = porSetor[cc] || (porSetor[cc] = { valor: 0, itens: [], cat: { carro: { n: 0, valor: 0 }, moto: { n: 0, valor: 0 }, inter: { n: 0, valor: 0 } }, semValor: 0 });
+      sx.valor += val; sx.itens.push({ v, val, rt }); sx.cat[c].n += 1; sx.cat[c].valor += val;
+    });
+  });
+  semValor.forEach((v) => new Set(v.rs.map((r) => r.cc)).forEach((cc) => { if (porSetor[cc]) porSetor[cc].semValor += 1; }));
+  const setores = Object.entries(porSetor).sort((a, b) => b[1].valor - a[1].valor);
+  const n = vs.length - semValor.length;
+  const rotaTop = Object.entries(rotas).sort((a, b) => b[1] - a[1])[0];
+  return { mes, vs, setores, semValor, total, n, media: n ? total / n : null, cat, nGrade, canc, rotaTop };
+}
+const mesDesloc = (mes, d) => { const [a, m] = mes.split('-').map(Number); const x = new Date(a, m - 1 + d, 1); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`; };
+const nomeMes = (mes) => { const [a, m] = mes.split('-'); return `${MESES[Number(m) - 1]} ${a}`; };
+const pctBr = (x, c = 0) => `${(x * 100).toFixed(c).replace('.', ',')}%`;
+function medidorSvg(pct) {
+  const n = 40, cx = 105, cy = 92, r1 = 62, r2 = 80;
+  let h = '';
+  for (let i = 0; i < n; i++) {
+    const a = ((-225 + (270 * i) / (n - 1)) * Math.PI) / 180;
+    const on = pct != null && i / (n - 1) <= pct / 100;
+    h += `<line x1="${(cx + r1 * Math.cos(a)).toFixed(1)}" y1="${(cy + r1 * Math.sin(a)).toFixed(1)}" x2="${(cx + r2 * Math.cos(a)).toFixed(1)}" y2="${(cy + r2 * Math.sin(a)).toFixed(1)}" stroke="${on ? '#73bc25' : '#e3e7e8'}" stroke-opacity="${on ? (0.35 + (0.65 * i) / (n - 1)).toFixed(2) : 1}" stroke-width="5" stroke-linecap="round"/>`;
+  }
+  return `<svg class="cx-g" viewBox="0 0 210 150" role="img" aria-label="${pct == null ? 'Sem viagens no mês' : `${pct}% das viagens com valor cadastrado`}">${h}
+    <text x="105" y="98" text-anchor="middle" font-size="40" font-weight="800" fill="#343936" font-family="Nunito Sans, sans-serif">${pct == null ? '—' : `${pct}%`}</text>
+    <text x="105" y="120" text-anchor="middle" font-size="12" fill="#5f6664" font-family="Nunito Sans, sans-serif">das viagens</text></svg>`;
+}
+const CX_ART = `<svg class="cx-art" viewBox="0 0 200 150" aria-hidden="true">
+  <path d="M14 120 C 60 40, 110 140, 186 40" fill="none" stroke="#ccd3d5" stroke-width="4" stroke-dasharray="2 9" stroke-linecap="round"/>
+  <circle cx="14" cy="120" r="10" fill="#73bc25"/><circle cx="14" cy="120" r="4" fill="#fff"/>
+  <circle cx="186" cy="40" r="10" fill="#343936"/><circle cx="186" cy="40" r="4" fill="#fff"/>
+  <g transform="translate(70 62) rotate(-14)"><rect x="0" y="16" width="70" height="20" rx="6" fill="#73bc25"/><path d="M12 16 L22 2 H50 L60 16 Z" fill="#8ccb4b"/><path d="M25 5 H36 V15 H19 Z M39 5 H48 L55 15 H39 Z" fill="#e3e7e8"/><circle cx="16" cy="38" r="8" fill="#343936"/><circle cx="16" cy="38" r="3" fill="#fff"/><circle cx="54" cy="38" r="8" fill="#343936"/><circle cx="54" cy="38" r="3" fill="#fff"/></g></svg>`;
+
 function renderCustos(page) {
   const mes = renderCustos.mes || ymd(new Date()).slice(0, 7);
   const prev = !!renderCustos.prev;
-  let body = '';
-  {
-    const vs = viagens(true).filter((v) => v.data.slice(0, 7) === mes && (v.st === 'concluida' || (prev && ['enviar', 'enviada'].includes(v.st))) && v.rs.some((r) => !r.faltou)); // ninguém foi = sem cobrança
-    const porSetor = {};
-    let total = 0;
-    const semValor = [];
-    vs.forEach((v) => {
-      const rt = ratear(v);
-      if (rt.total == null) { semValor.push(v); return; }
-      total += rt.total;
-      Object.entries(rt.partes).forEach(([cc, val]) => {
-        const sx = porSetor[cc] || (porSetor[cc] = { valor: 0, itens: [] });
-        sx.valor += val; sx.itens.push({ v, val, rt });
-      });
-    });
-    const setores = Object.entries(porSetor).sort((a, b) => b[1].valor - a[1].valor);
-    renderCustos.dados = { setores, mes };
-    const [ano, mm] = mes.split('-');
-    body = `
-      <div class="cost-bar">
-        <label class="f-inline">Mês <input type="month" id="cmes" value="${esc(mes)}"></label>
-        <label class="check"><input type="checkbox" id="cprev" ${prev ? 'checked' : ''}> <span>Incluir viagens ainda não concluídas (previsão)</span></label>
-        <span class="spacer"></span>
-        <button class="btn" id="ccsv">Exportar CSV</button>
-      </div>
-      <div class="mini-kpis cost-kpis">
-        <div class="mk"><small>Total do mês</small><b>${brl(total)}</b></div>
-        <div class="mk"><small>Viagens</small><b>${vs.length - semValor.length}</b></div>
-        <div class="mk"><small>Setores</small><b>${setores.length}</b></div>
-        <div class="mk ${semValor.length ? 'warn' : ''}"><small>Sem valor</small><b>${semValor.length}</b></div>
-      </div>
-      ${semValor.length ? `<div class="banner warn">${ico('info', 18)}<div><b>${semValor.length} viagem(ns) sem valor</b> — rota sem valor cadastrado. Cadastre o valor em <a href="#grade">Grade e rotas</a>: ${semValor.map((v) => esc(v.rs.map((r) => r.id).join('+'))).join(', ')}.</div></div>` : ''}
-      <div class="card cost-card">
-        <h2 class="section-t">Quanto cada setor deve — ${esc(MESES[Number(mm) - 1])} de ${esc(ano)}</h2>
-        <p class="section-s">${prev ? 'Concluídas + previsão das viagens em aberto.' : 'Somente viagens concluídas.'} Clique no setor para ver as viagens.</p>
-        ${setores.length ? `<div class="cost-list">${setores.map(([cc, sx]) => `
-          <details class="cost-row"><summary><span class="cs-n"><b>${esc(setorCurto(cc))}</b><small>${esc(cc)}</small></span>
-            <span class="cs-q">${sx.itens.length} viagem(ns)</span><span class="cs-bar"><i style="width:${total ? Math.round((sx.valor / total) * 100) : 0}%"></i></span><b class="cs-v">${brl(sx.valor)}</b></summary>
-            <table class="cost-t"><thead><tr><th>Data</th><th>Tipo</th><th>Trajeto</th><th>Solicitações do setor</th><th>Divisão da viagem</th><th>Valor da viagem</th><th>Parte do setor</th></tr></thead><tbody>
-            ${sx.itens.sort((a, b) => at(a.v.data, a.v.hora) - at(b.v.data, b.v.hora)).map(({ v, val, rt }) => `<tr>
-              <td>${fmtDate(v.data)} <small>${esc(v.hora)}</small></td><td>${esc(TIPO_CURTO[v.tipo])}${v.st !== 'concluida' ? ' <small>(previsão)</small>' : ''}</td>
-              <td>${rt.legs.map((l) => `${esc(siteName(l.de))} → ${esc(siteName(l.para))}${l.valor != null ? ` <small>${brl(l.valor)} · ${l.ccs.map(setorCurto).map(esc).join(' + ')}</small>` : ''}`).join('<br>')}</td>
-              <td>${esc(v.rs.filter((r) => r.cc === cc).map((r) => `${r.id} ${r.nome}`).join(', '))}</td>
-              <td><div class="chips">${rateioChips(rt)}</div></td>
-              <td>${brl(rt.total)} <small>${'fixo'}${rt.acrescimo ? ` + acréscimo ${brl(rt.acrescimo)}${rt.motivoAcr ? ` (${esc(rt.motivoAcr)})` : ''}` : ''}</small></td><td><b>${brl(val)}</b></td></tr>`).join('')}
-            </tbody></table></details>`).join('')}
-          <div class="cost-total"><span>Total</span><b>${brl(total)}</b></div></div>`
-          : '<div class="empty">Nenhuma viagem com valor neste mês.</div>'}
-      </div>`;
-  }
+  const filtro = renderCustos.filtro || 'todos';
+  const d = dadosCustos(mes, prev);
+  const ant = dadosCustos(mesDesloc(mes, -1), false);
+  renderCustos.dados = { setores: d.setores, mes };
+  const cor = {};
+  d.setores.forEach(([cc], i) => { cor[cc] = CX_CORES[i % CX_CORES.length]; });
+  const chip = (cc) => `<span class="cx-sg" style="background:${cor[cc]};color:${CX_CLARAS.includes(cor[cc]) ? '#343936' : '#fff'}" title="${esc(setorCurto(cc))}">${esc(siglaSetor(cc))}</span>`;
+  const mesAnt = MESES[Number(mesDesloc(mes, -1).slice(5)) - 1];
+  // comparação com o mês anterior (só concluídas, para não comparar previsão)
+  const varTot = ant.total ? (d.total - ant.total) / ant.total : null;
+  const difN = d.n - ant.n;
+  const difMed = d.media != null && ant.media != null ? d.media - ant.media : null;
+  const nTodas = d.n + d.semValor.length;
+  const pctVal = nTodas ? Math.floor((d.n / nTodas) * 100) : null;
+  const nota = pctVal == null ? 'Sem viagens' : pctVal >= 95 ? 'Ótimo!' : pctVal >= 80 ? 'Bom' : 'Atenção';
+  const top = d.setores[0];
+  const fech = (() => { const [a, m] = mesDesloc(mes, 1).split('-'); return `01/${m}/${a}`; })();
+  const agora = new Date();
+  // valor (ou nº de viagens, com n=1) do setor no filtro escolhido
+  const k = (sx, n = 0) => (filtro === 'todos' ? (n ? sx.itens.length : sx.valor) : sx.cat[filtro][n ? 'n' : 'valor']);
+  const totFiltro = filtro === 'todos' ? d.total : d.cat[filtro].valor;
   shell(page, `
-    <div class="pg-head"><div><nav class="crumb"><span>Operação</span>${ico('right', 12)}<b>Custos</b></nav><h1>Custos por setor</h1>
-      <p>Valor de cada corrida, divisão entre os setores e o que cada setor deve no mês.</p></div></div>
-    <p class="section-s">Os valores fixos das rotas ficam em <a href="#grade">Grade e rotas</a>; acréscimos (espera, pedágio…) são lançados em <a href="#viagens">Viagens</a>.</p>
-    ${body}`);
-  const cm = $('#cmes'); if (cm) cm.onchange = () => { if (cm.value) { renderCustos.mes = cm.value; route(); } };
-  const cp = $('#cprev'); if (cp) cp.onchange = () => { renderCustos.prev = cp.checked; route(); };
-  const cc = $('#ccsv'); if (cc) cc.onclick = () => csvCustos(renderCustos.dados);
+    <div class="pg-head"><div><nav class="crumb"><span>Gestão</span>${ico('right', 12)}<b>Custos</b></nav><h1>Custos por setor</h1>
+      <p>Valor de cada corrida, divisão entre os setores e o que cada setor deve no mês.</p></div>
+      <div class="cx-acts"><button class="btn" id="ccsv">${ico('download', 16)} Exportar CSV</button></div></div>
+    <div class="cx-bar">
+      <div class="cx-mes"><button id="cant" aria-label="Mês anterior">${ico('left', 16)}</button><label><b>${esc(nomeMes(mes))}</b><input type="month" id="cmes" value="${esc(mes)}" aria-label="Escolher mês"></label><button id="cprox" aria-label="Próximo mês">${ico('right', 16)}</button></div>
+      <label class="check"><input type="checkbox" id="cprev" ${prev ? 'checked' : ''}> <span>Incluir viagens ainda não concluídas (previsão)</span></label>
+      <span class="spacer"></span>
+      <label class="cx-busca">${ico('search', 16)}<input id="cq" placeholder="Buscar setor ou centro de custo…" aria-label="Buscar setor" value="${esc(renderCustos.q || '')}"></label>
+    </div>
+    ${d.semValor.length ? `<div class="banner warn">${ico('info', 18)}<div><b>${d.semValor.length} viagem(ns) sem valor</b> — rota sem valor cadastrado. Cadastre o valor em <a href="#grade">Grade e rotas</a>: ${d.semValor.map((v) => esc(v.rs.map((r) => r.id).join('+'))).join(', ')}.</div></div>` : ''}
+    <section class="cx-l1">
+      <div class="cx-card cx-dest">
+        <h2>Custo do mês</h2><p>${prev ? 'Concluídas + previsão das viagens em aberto' : `Viagens concluídas em ${esc(MESES[Number(mes.slice(5)) - 1])}`}</p>
+        <div class="cx-tot">${brl(d.total)}</div>
+        <div class="cx-var">${varTot == null ? `Sem custos em ${esc(mesAnt)} para comparar` : `<b class="${varTot > 0 ? 'up' : 'dn'}">${varTot > 0 ? '+' : ''}${pctBr(varTot)}</b> em relação a ${esc(mesAnt)} (${brl(ant.total)})`}</div>
+        <a class="btn green sm" href="#viagens">Ver viagens</a>
+        ${CX_ART}
+      </div>
+      <div class="cx-card cx-kpi">
+        <div class="cx-kt"><span class="cx-ic">${ico('route', 20)}</span><span>Viagens cobradas</span></div>
+        <div class="cx-kv"><b>${d.n}</b>${ant.n || d.n ? `<span class="cx-tag ${difN > 0 ? 'up' : difN < 0 ? 'dn' : ''}" title="Diferença para ${esc(mesAnt)}">${difN > 0 ? '+' : ''}${difN}</span>` : ''}</div>
+        <div class="cx-meta"><span>Na grade</span><div class="cx-b"><i style="width:${d.n ? Math.round((d.nGrade / d.n) * 100) : 0}%"></i></div><span>${d.n ? pctBr(d.nGrade / d.n) : '—'}</span></div>
+      </div>
+      <div class="cx-card cx-kpi">
+        <div class="cx-kt"><span class="cx-ic g">${ico('money', 20)}</span><span>Custo médio por viagem</span></div>
+        <div class="cx-kv"><b>${brl(d.media)}</b>${difMed != null && Math.abs(difMed) >= 0.01 ? `<span class="cx-tag ${difMed > 0 ? 'dn' : 'up'}" title="Diferença para ${esc(mesAnt)}">${difMed > 0 ? '+' : '−'}${brl(Math.abs(difMed))}</span>` : ''}</div>
+        <div class="cx-meta"><span>Média de ${esc(mesAnt)}</span><div class="cx-b"><i style="width:${d.media && ant.media ? Math.min(100, Math.round((ant.media / Math.max(d.media, ant.media)) * 100)) : 0}%"></i></div><span>${brl(ant.media)}</span></div>
+      </div>
+      <div class="cx-card cx-kpi">
+        <div class="cx-kt"><span class="cx-ic a">${ico('x', 20)}</span><span>Cancelamentos cobrados</span></div>
+        <div class="cx-kv"><b>${brl(d.canc.valor)}</b>${d.canc.n ? `<span class="cx-tag am">${d.canc.n} solicitaç${d.canc.n > 1 ? 'ões' : 'ão'}</span>` : ''}</div>
+        <div class="cx-meta"><span>Menos de ${CANCEL_MIN} min antes</span><div class="cx-b a"><i style="width:${d.total ? Math.round((d.canc.valor / d.total) * 100) : 0}%"></i></div><span>${d.total ? pctBr(d.canc.valor / d.total) : '—'}</span></div>
+      </div>
+    </section>
+    <section class="cx-l2">
+      <div class="cx-card cx-med">
+        <div class="cx-mt">Valores cadastrados <b>${nota}</b></div>
+        ${medidorSvg(pctVal)}
+        <div class="cx-obs">Viagens do mês com valor de rota cadastrado</div>
+        <div class="cx-obs">${d.semValor.length ? `<b>${d.semValor.length} viagem(ns)</b> ainda sem valor` : 'Todas as viagens têm valor'}</div>
+        <a class="btn green" href="#grade">${d.semValor.length ? 'Cadastrar valores' : 'Ver valores das rotas'}</a>
+      </div>
+      <div class="cx-card">
+        <div class="cx-rh"><span class="cx-ic r">${ico('money', 22)}</span><div><h3>Resumo do mês</h3><p>Clique em um setor na tabela para ver as viagens e a divisão</p></div></div>
+        <div class="cx-rg">
+          <div><small>Setor que mais gastou</small><b>${top ? `${esc(setorCurto(top[0]))} · ${brl(top[1].valor)}` : '—'}</b></div>
+          <div><small>Rota mais usada</small><b>${d.rotaTop ? `${esc(d.rotaTop[0])} <span class="cx-mut">(${d.rotaTop[1]}×)</span>` : '—'}</b></div>
+          <div><small>Fechamento do mês</small><b>${fech}</b></div>
+          <div><small>Táxi intermunicipal</small><b>${brl(d.cat.inter.valor)}</b></div>
+          <div class="cx-full"><small>Divisão por tipo de transporte</small>
+            <div class="cx-oc"><div class="cx-b"><i style="width:${d.n ? Math.round((d.cat.carro.n / d.n) * 100) : 0}%"></i></div><b>${d.n ? `Carro ${pctBr(d.cat.carro.n / d.n)} · Moto ${pctBr(d.cat.moto.n / d.n)} · Inter ${pctBr(d.cat.inter.n / d.n)}` : '—'}</b></div></div>
+        </div>
+        <div class="cx-rp"><div class="cx-rpl"><div class="cx-chips">${d.setores.slice(0, 6).map(([cc]) => chip(cc)).join('')}</div><span class="cx-quando">ATUALIZADO ÀS ${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}</span></div>
+          <button class="btn green sm" id="cver">Ver divisão por setor</button></div>
+      </div>
+    </section>
+    <section class="cx-card cx-tab" id="ctab">
+      <div class="cx-th"><h3>Setores</h3>
+        <div class="cx-seg" role="group" aria-label="Tipo de transporte">${[['todos', 'Todos'], ['carro', 'Carro'], ['moto', 'Moto'], ['inter', 'Intermunicipal']].map(([f, l]) => `<button data-f="${f}" class="${f === filtro ? 'on' : ''}" aria-pressed="${f === filtro}">${l}</button>`).join('')}</div></div>
+      <div class="cx-tw"><table class="cx-t">
+        <thead><tr><th>Setor</th><th>Viagens</th><th>Por tipo</th><th>Valor</th><th>Participação</th><th>Situação</th></tr></thead>
+        <tbody id="ctb"></tbody>
+        ${d.setores.length ? `<tfoot><tr><td>Total ${filtro === 'todos' ? '' : `(${esc({ carro: 'carro', moto: 'moto', inter: 'intermunicipal' }[filtro])})`}</td><td></td><td></td><td class="cx-val"><b>${brl(totFiltro)}</b></td><td></td><td></td></tr></tfoot>` : ''}
+      </table></div>
+    </section>
+    <p class="section-s cx-nota">Os valores fixos das rotas ficam em <a href="#grade">Grade e rotas</a>; acréscimos (espera, pedágio…) são lançados em <a href="#viagens">Viagens</a>. Viagens compartilhadas são divididas entre os setores de cada trecho.</p>
+    <div class="cx-fundo" id="cfundo"></div><aside class="cx-gav" id="cgav" aria-label="Detalhe do setor" tabindex="-1"></aside>`);
+
+  const media = d.media || 0;
+  const maxV = Math.max(0, ...d.setores.map(([, sx]) => k(sx)));
+  const ICAT = { carro: 'car', moto: 'moto', inter: 'route' };
+  const desenha = () => {
+    const q = (renderCustos.q || '').trim().toLowerCase();
+    const lista = d.setores.filter(([cc, sx]) => k(sx, 1) > 0 && (!q || cc.toLowerCase().includes(q)));
+    $('#ctb').innerHTML = lista.map(([cc, sx]) => {
+      const nV = sx.itens.length, mS = nV ? sx.valor / nV : 0;
+      const sit = sx.semValor ? ['pe', `${sx.semValor} sem valor`] : media && mS > media * 1.5 ? ['al', 'Acima da média'] : ['ok', 'Dentro da média'];
+      const p = totFiltro ? k(sx) / totFiltro : 0;
+      return `<tr data-cc="${esc(cc)}" tabindex="0"><td><div class="cx-st">${chip(cc)}<div><b>${esc(setorCurto(cc))}</b><small>Centro de custo ${esc(cc.split('–')[0].trim())}</small></div></div></td>
+        <td><b>${k(sx, 1)}</b>${filtro === 'todos' ? '' : ` <small class="cx-mut">de ${nV}</small>`}</td>
+        <td><div class="cx-mods">${['carro', 'moto', 'inter'].filter((c) => sx.cat[c].n).map((c) => `<span title="${esc({ carro: 'Carro', moto: 'Moto', inter: 'Intermunicipal' }[c])}">${ico(ICAT[c], 14)}${sx.cat[c].n}</span>`).join('')}</div></td>
+        <td class="cx-val"><b>${brl(k(sx))}</b><small>${brl(mS)} por viagem</small></td>
+        <td><div class="cx-part"><div class="cx-b"><i style="width:${maxV ? Math.round((k(sx) / maxV) * 100) : 0}%"></i></div><span>${pctBr(p, 1)}</span></div></td>
+        <td><span class="cx-sit ${sit[0]}">${esc(sit[1])}</span></td></tr>`;
+    }).join('') || `<tr><td colspan="6" class="cx-vazio">${d.setores.length ? 'Nenhum setor encontrado.' : 'Nenhuma viagem com valor neste mês.'}</td></tr>`;
+    document.querySelectorAll('#ctb tr[data-cc]').forEach((tr) => {
+      tr.onclick = () => abrir(tr.dataset.cc);
+      tr.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(tr.dataset.cc); } };
+    });
+  };
+  const fechar = () => { $('#cgav').classList.remove('on'); $('#cfundo').classList.remove('on'); };
+  const abrir = (cc) => {
+    const sx = (d.setores.find(([c]) => c === cc) || [])[1];
+    if (!sx) return;
+    const g = $('#cgav');
+    g.innerHTML = `<button class="btn sm cx-x" id="cfx">Fechar</button><small class="cx-cc">CENTRO DE CUSTO ${esc(cc.split('–')[0].trim())}</small><h3>${esc(setorCurto(cc))}</h3>
+      <p class="cx-mut">${brl(sx.valor)} em ${sx.itens.length} viagem(ns) · ${d.total ? pctBr(sx.valor / d.total, 1) : '—'} do mês</p>
+      <ul>${[...sx.itens].sort((a, b) => at(a.v.data, a.v.hora) - at(b.v.data, b.v.hora)).map(({ v, val, rt }) => `<li><div>
+        <b>${esc(v.rs.filter((r) => r.cc === cc).map((r) => r.id).join(', '))}</b> · ${fmtDate(v.data)} ${esc(v.hora)}
+        <small>${rt.legs.map((l) => `${esc(siteName(l.de))} → ${esc(siteName(l.para))}`).join(' · ')} · ${esc(TIPO_CURTO[v.tipo])}${v.st !== 'concluida' ? ' (previsão)' : ''}${v.rs.some(cobrada) ? ' · cancelada em cima da hora' : ''}</small>
+        <small>${esc(v.rs.filter((r) => r.cc === cc).map((r) => r.nome).join(', '))}</small>
+        <small>Viagem ${brl(rt.total)}${rt.acrescimo ? ` (inclui acréscimo ${brl(rt.acrescimo)}${rt.motivoAcr ? ` — ${esc(rt.motivoAcr)}` : ''})` : ''}${Object.keys(rt.partes).length > 1 ? ` · dividida: ${Object.entries(rt.partes).map(([c, x]) => `${esc(setorCurto(c))} ${brl(x)}`).join(' · ')}` : ''}</small>
+        </div><b class="cx-pt">${brl(val)}</b></li>`).join('')}</ul>`;
+    g.classList.add('on'); $('#cfundo').classList.add('on'); g.focus();
+    $('#cfx').onclick = fechar;
+  };
+  desenha();
+  $('#cfundo').onclick = fechar;
+  $('#cgav').onkeydown = (e) => { if (e.key === 'Escape') fechar(); };
+  document.querySelectorAll('.cx-seg button').forEach((b) => { b.onclick = () => { renderCustos.filtro = b.dataset.f; route(); }; });
+  $('#cq').oninput = (e) => { renderCustos.q = e.target.value; desenha(); };
+  $('#cmes').onchange = (e) => { if (e.target.value) { renderCustos.mes = e.target.value; route(); } };
+  $('#cant').onclick = () => { renderCustos.mes = mesDesloc(mes, -1); route(); };
+  $('#cprox').onclick = () => { renderCustos.mes = mesDesloc(mes, 1); route(); };
+  $('#cprev').onchange = (e) => { renderCustos.prev = e.target.checked; route(); };
+  $('#ccsv').onclick = () => csvCustos(renderCustos.dados);
+  $('#cver').onclick = () => { const t = $('#ctab'); if (t && t.scrollIntoView) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
 }
 // Valores das rotas: ficam em Grade e rotas (valor fixo por trecho). Acréscimos são lançados em Viagens.
 function valoresRotasHtml() {
