@@ -918,6 +918,11 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
 .sh-main .topbar .topo-pg { font-weight: 800; color: var(--ink); font-size: 15px; }
 .sh-main main { width: auto; margin: 0; padding: 20px 24px 32px; }
 .lado-abre, .topo-logo { display: none; }
+/* Início: sem menu lateral (ele aparece ao entrar numa função). Logo e usuário vão para a barra de cima. */
+.app-sh.sem-lado, .app-sh.sem-lado.mini { grid-template-columns: minmax(0, 1fr); }
+.app-sh.sem-lado .topo-logo { display: block; height: 40px; width: auto; }
+.app-sh.sem-lado .topo-pg, .app-sh.sem-lado .lado-abre { display: none !important; }
+.topo-eu { padding-left: 14px; border-left: 1px solid var(--line); }
 /* Início da TI dentro do layout com menu lateral: ocupa a área ao lado do menu, sem passar da tela */
 .sh-main .ti-home { width: auto; margin: 0; min-height: calc(100vh - 122px); }
 .sh-main .ti-brand { border-radius: var(--radius); }

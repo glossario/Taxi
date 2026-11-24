@@ -499,9 +499,18 @@ function shell(page, content) {
     return `${cab}<a href="#${k}" class="${k === page ? 'on' : ''}" title="${esc(l)}" ${k === page ? 'aria-current="page"' : ''}>${ico(NAV_ICO[k] || 'grid', 20)}<span class="t">${esc(l)}</span>${cont[k] ? `<span class="count">${cont[k]}</span>` : ''}</a>`;
   }).join('');
   const atual = (nav.find(([k]) => k === page) || [])[1] || '';
+  const semLado = page === 'inicio';
+  const eu = `<div class="user-wrap ${semLado ? 'topo-eu' : 'lado-eu'}">
+          <button class="user" id="umenu" aria-haspopup="true" aria-expanded="false" title="${esc(S.user.nome)}"><span class="avatar">${esc(initials(S.user.nome))}</span>
+            <span class="who"><b>${esc(S.user.nome)}</b>${esc(S.user.cargo)}</span>${semLado ? ico('down', 16) : ''}</button>
+          <div class="menu" id="menu" hidden>
+            ${window.MOBILAB_API ? '' : '<button id="reset">Restaurar dados de exemplo</button>'}
+            <button id="logout">Sair</button>
+          </div>
+        </div>`;
   app().innerHTML = `
-    <div class="app-sh${Lado.mini() ? ' mini' : ''}" id="appsh">
-      <aside class="lado" id="lado" aria-label="Menu">
+    <div class="app-sh${semLado ? ' sem-lado' : Lado.mini() ? ' mini' : ''}" id="appsh">
+      ${semLado ? '' : `<aside class="lado" id="lado" aria-label="Menu">
         <div class="lado-cab">
           <a class="lado-logo" href="#" aria-label="Natulab Farmacêutica — início"><img class="lg-full" src="${MARCA}natulab-logo-negativo.svg" alt="Natulab Farmacêutica"><img class="lg-mini" src="${MARCA}natulab-simbolo.svg" alt="Natulab"></a>
           <button class="lado-rec" id="rec" type="button">${ico('left', 18)}</button>
@@ -509,16 +518,9 @@ function shell(page, content) {
         <nav class="lado-nav">${itens}
           <div class="lado-sec">Suporte</div>
           <a href="#" id="ajuda" title="Ajuda">${ico('info', 20)}<span class="t">Ajuda</span></a></nav>
-        <div class="user-wrap lado-eu">
-          <button class="user" id="umenu" aria-haspopup="true" aria-expanded="false" title="${esc(S.user.nome)}"><span class="avatar">${esc(initials(S.user.nome))}</span>
-            <span class="who"><b>${esc(S.user.nome)}</b>${esc(S.user.cargo)}</span></button>
-          <div class="menu" id="menu" hidden>
-            ${window.MOBILAB_API ? '' : '<button id="reset">Restaurar dados de exemplo</button>'}
-            <button id="logout">Sair</button>
-          </div>
-        </div>
+        ${eu}
       </aside>
-      <div class="lado-fundo" id="ladofundo"></div>
+      <div class="lado-fundo" id="ladofundo"></div>`}
       <div class="sh-main">
         <header class="topbar">
           <button class="icon-btn lado-abre" id="ladoabre" aria-label="Abrir menu" aria-controls="lado">${ico('menu', 20)}</button>
@@ -527,11 +529,13 @@ function shell(page, content) {
           <span class="spacer"></span>
           ${window.MOBILAB_API ? (Srv.teste ? '<span class="badge-sim">TESTE</span>' : '') : '<span class="badge-sim">SIMULAÇÃO</span>'}
           <button class="icon-btn bell" id="bell" aria-label="Mensagens do Facilities${nNovas ? ` (${nNovas} novas)` : ''}" title="Mensagens do Facilities">${ico('bell', 18)}${nNovas ? `<span class="dot">${nNovas}</span>` : ''}</button>
+          ${semLado ? eu : ''}
         </header>
         <main>${content}</main>
       </div>
     </div>`;
   const sh = $('#appsh'), rec = $('#rec');
+  if (rec) {
   const marca = () => { const m = sh.classList.contains('mini'); rec.title = m ? 'Expandir menu' : 'Recolher menu'; rec.setAttribute('aria-label', rec.title); rec.setAttribute('aria-expanded', String(!m)); };
   marca();
   rec.onclick = () => { const m = !sh.classList.contains('mini'); sh.classList.toggle('mini', m); Lado.guardar(m); marca(); };
@@ -540,6 +544,7 @@ function shell(page, content) {
   $('#ladofundo').onclick = fechaLado;
   $('#lado').querySelectorAll('.lado-nav a[href^="#"]:not(#ajuda)').forEach((a) => a.addEventListener('click', fechaLado));
   $('#ajuda').onclick = (e) => { e.preventDefault(); fechaLado(); openAjuda(); };
+  }
   $('#bell').onclick = openCaixa;
   $('#umenu').onclick = () => { const m = $('#menu'); m.hidden = !m.hidden; $('#umenu').setAttribute('aria-expanded', String(!m.hidden)); };
   $('#logout').onclick = () => {
