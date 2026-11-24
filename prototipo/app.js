@@ -2805,8 +2805,14 @@ function renderInicioTI(page) {
     <div class="ti-home">
       <div class="ti-tiles">${tiles.map(([k, l, ic, grp]) => `<a class="ti-tile" href="${k.startsWith('#') ? '#' : `#${k}`}" ${k === '#ajuda' ? 'id="tajuda"' : ''} title="${esc(grp)}">
           <span class="ti-ic g-${esc(grp.toLowerCase().replace(/[^a-z]/g, ''))}">${ico(ic, 26)}</span><b>${esc(l)}</b>${extra[k] ? `<span class="ti-badge">${esc(extra[k])}</span>` : ''}</a>`).join('')}</div>
-      <aside class="ti-brand"><div class="ti-art">${heroArt}</div><h2>Mobilab</h2><p>Táxi e Moto Táxi corporativo</p>
-        <div class="ti-line"><i></i><span>NATULAB · TI / ADMINISTRAÇÃO</span><i></i></div></aside>
+      <aside class="ti-brand lg-marca" aria-label="Natulab">
+        <div class="lg-logo"><img src="${MARCA}natulab-logo.svg" alt="Natulab Farmacêutica"></div>
+        <div class="lg-servicos">
+          <p class="lg-frase">Táxi e Moto Táxi corporativo da Natulab.</p>
+          <ul><li><b>Mobilab</b><small>Solicite, acompanhe e organize seus deslocamentos entre os sites.</small></li></ul>
+        </div>
+        <p class="lg-rodape escuro">Copyright © ${new Date().getFullYear()} Mobilab · Natulab · SAC 0800 730 7370</p>
+      </aside>
     </div>`);
   const aj = $('#tajuda'); if (aj) aj.onclick = (e) => { e.preventDefault(); openAjuda(); };
 }

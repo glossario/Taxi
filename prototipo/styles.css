@@ -926,6 +926,12 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
 /* Início da TI dentro do layout com menu lateral: ocupa a área ao lado do menu, sem passar da tela */
 .sh-main .ti-home { width: auto; margin: 0; min-height: calc(100vh - 122px); }
 .sh-main .ti-brand { border-radius: var(--radius); }
+/* painel do Início igual ao lado da marca na tela de login (Portal Natulab) */
+.ti-brand.lg-marca { background: #fff; border: 1px solid var(--line); box-shadow: 0 6px 24px rgba(52, 57, 54, .07); }
+.lg-logo img { display: block; width: min(400px, 72%); height: auto; margin: 0 auto; }
+.ti-brand.lg-marca { text-align: left; }
+.ti-brand.lg-marca .lg-frase { margin: 0; font-weight: 600; }
+.ti-brand.lg-marca .lg-rodape { margin: 0; font-weight: 400; text-align: center; }
 .lado-fundo { display: none; }
 @media (prefers-reduced-motion: reduce) { .app-sh, .lado-rec .ico, .lado { transition: none; } }
 @media (max-width: 900px) {
