@@ -106,6 +106,10 @@ const resumo = (r) => (r.tipo === 'moto' ? `${r.vol}× ${r.item} (${tamCurto(r.t
 const veic = (id) => VEICULOS.find((v) => v.id === id);
 const mot = (id) => S.motoristas.find((m) => m.id === id);
 const fmtFone = (d) => (d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : d);
+// Avatar: iniciais e, no sistema, a foto de perfil do Entra ID por cima (se não houver foto, ficam as iniciais)
+const avatar = (nome, email, cls = '') => `<span class="avatar${cls ? ` ${cls}` : ''}">${esc(initials(nome || email || '?'))}${window.MOBILAB_API && email
+  ? `<img class="av-foto" src="/api/foto?e=${encodeURIComponent(String(email).toLowerCase())}" alt="" loading="lazy" decoding="async">` : ''}</span>`;
+document.addEventListener('error', (e) => { const t = e.target; if (t && t.classList && t.classList.contains('av-foto')) t.remove(); }, true);
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 
 // ---------------- Estado ----------------
@@ -501,7 +505,7 @@ function shell(page, content) {
   const atual = (nav.find(([k]) => k === page) || [])[1] || '';
   const semLado = page === 'inicio';
   const eu = `<div class="user-wrap ${semLado ? 'topo-eu' : 'lado-eu'}">
-          <button class="user" id="umenu" aria-haspopup="true" aria-expanded="false" title="${esc(S.user.nome)}"><span class="avatar">${esc(initials(S.user.nome))}</span>
+          <button class="user" id="umenu" aria-haspopup="true" aria-expanded="false" title="${esc(S.user.nome)}">${avatar(S.user.nome, S.user.email)}
             <span class="who"><b>${esc(S.user.nome)}</b>${esc(S.user.cargo)}</span>${semLado ? ico('down', 16) : ''}</button>
           <div class="menu" id="menu" hidden>
             ${window.MOBILAB_API ? '' : '<button id="reset">Restaurar dados de exemplo</button>'}
@@ -509,7 +513,7 @@ function shell(page, content) {
           </div>
         </div>`;
   app().innerHTML = `
-    <div class="app-sh${semLado ? ' sem-lado' : Lado.mini() ? ' mini' : ''}" id="appsh">
+    <div class="app-sh${semLado ? ' sem-lado' : Lado.mini() ? ' mini' : ''}${page === 'agenda' ? ' fixo' : ''}" id="appsh">
       ${semLado ? '' : `<aside class="lado" id="lado" aria-label="Menu">
         <div class="lado-cab">
           <a class="lado-logo" href="#" aria-label="Natulab Farmacêutica — início"><img class="lg-full" src="${MARCA}natulab-logo-negativo.svg" alt="Natulab Farmacêutica"><img class="lg-mini" src="${MARCA}natulab-simbolo.svg" alt="Natulab"></a>
@@ -2949,7 +2953,7 @@ async function renderUsuarios(page) {
         .map(([k, l, n]) => `<button type="button" class="mk mk-f${fp === k ? ' on' : ''}${k === 'bloq' && n ? ' warn' : ''}" data-uf="${k}" aria-pressed="${fp === k}" title="Mostrar só ${k ? l.toLowerCase() : 'todos'}"><small>${l}</small><b>${n}</b></button>`).join('')}</div></div>
     ${barraUsr(fp)}
     <div class="card"><div class="table-wrap"><table class="tbl-ap usr-t"><thead><tr><th>Nome</th><th>E-mail</th><th>Setor</th><th>Gestor imediato</th><th>Perfil</th><th>Acesso</th><th>Origem</th><th>Último acesso</th><th></th></tr></thead><tbody>
-      ${lista.map((u) => `<tr class="${u.ativo ? '' : 'bloq'}"><td><b>${esc(u.nome || '—')}</b>${u.travado ? ' <span class="tag-ed" title="Editado no Mobilab — a importação do AD não altera estes dados">editado</span>' : ''}${u.cargo ? `<br><small>${esc(u.cargo)}</small>` : ''}</td>
+      ${lista.map((u) => `<tr class="${u.ativo ? '' : 'bloq'}"><td><div class="u-pess">${avatar(u.nome, u.email, 'sm')}<div><b>${esc(u.nome || '—')}</b>${u.travado ? ' <span class="tag-ed" title="Editado no Mobilab — a importação do AD não altera estes dados">editado</span>' : ''}${u.cargo ? `<br><small>${esc(u.cargo)}</small>` : ''}</div></div></td>
         <td>${esc(u.email)}</td><td>${esc(u.cc || '—')}</td><td>${esc(u.gestor || '—')}</td>
         <td>${u.email === ADMIN_MOBILAB ? '<span class="perf-fixo perf-super" title="Conta do Mobilab: nível máximo, não muda">Super Admin</span>'
           : !possoEditar(u, ef) ? `<span class="perf-fixo" title="${S.user.role === 'ti' ? 'Só o Super Admin muda administradores' : 'Só consulta'}">${PERFIL_L[ef(u)] || ef(u)}</span>`

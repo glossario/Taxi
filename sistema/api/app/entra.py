@@ -27,6 +27,38 @@ class ErroEntra(Exception):
     pass
 
 
+class SemPermissao(ErroEntra):
+    """O aplicativo ainda não tem a permissão no Entra (ex.: User.Read.All sem consentimento do administrador)."""
+
+
+FOTO_MAX = 400_000  # bytes
+
+
+def _baixar(url, token):
+    """GET binário no Graph (foto). Devolve (bytes, tipo) ou None quando a pessoa não tem foto / não existe."""
+    req = urllib.request.Request(url)
+    req.add_header('Authorization', f'Bearer {token}')
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            dados = r.read(FOTO_MAX + 1)
+            if len(dados) > FOTO_MAX:
+                return None
+            return dados, (r.headers.get('Content-Type') or 'image/jpeg').split(';')[0]
+    except urllib.error.HTTPError as ex:
+        if ex.code == 404:
+            return None
+        if ex.code in (401, 403):
+            raise SemPermissao(f'Microsoft respondeu {ex.code} ao ler a foto.') from None
+        raise ErroEntra(f'Microsoft respondeu {ex.code} ao ler a foto.') from None
+    except (urllib.error.URLError, TimeoutError) as ex:
+        raise ErroEntra(f'Sem conexão com a Microsoft: {ex}') from None
+
+
+def _foto(base, token):
+    """Foto de perfil em tamanho pequeno (120x120); se esse tamanho não existir, a original."""
+    return _baixar(f'{base}/photos/120x120/$value', token) or _baixar(f'{base}/photo/$value', token)
+
+
 def _credenciais():
     try:
         with open(CAMINHO, encoding='utf-8-sig') as f:
@@ -106,22 +138,49 @@ def concluir_login(code, nonce):
         gestor = {'nome': g.get('displayName') or '', 'email': (g.get('mail') or g.get('userPrincipalName') or '').lower()}
     except ErroEntra:
         pass
+    try:  # foto de perfil da própria pessoa (permissão User.Read, já concedida no login)
+        foto = _foto(f'{GRAPH}/me', t.get('access_token'))
+    except ErroEntra:
+        foto = False  # não deu para ler agora: não grava nada
     upn = (me.get('userPrincipalName') or cl.get('preferred_username') or cl.get('upn') or '').lower()
-    return {'email': (me.get('mail') or cl.get('email') or upn).lower(), 'upn': upn,
+    return {'foto': foto, 'email': (me.get('mail') or cl.get('email') or upn).lower(), 'upn': upn,
             'login': (me.get('onPremisesSamAccountName') or upn.split('@')[0]).lower(),
             'nome': me.get('displayName') or cl.get('name') or upn, 'cc': me.get('department') or '',
             'cargo': me.get('jobTitle') or '', 'gestor': gestor, 'oid': cl.get('oid', ''), 'auth_time': cl.get('auth_time') or 0}
 
 
 # ---------------- sincronização (permissão de aplicativo User.Read.All) ----------------
+_TOKEN_APP = {'v': '', 'ate': 0.0}
+
+
 def _token_app():
+    if _TOKEN_APP['v'] and time.time() < _TOKEN_APP['ate']:
+        return _TOKEN_APP['v']
     c = _credenciais()
     if not c:
         raise ErroEntra('Login Microsoft não configurado.')
     t = _pedir(f"{LOGIN}/{c['tenant_id']}/oauth2/v2.0/token", {
         'client_id': c['client_id'], 'client_secret': c['client_secret'], 'grant_type': 'client_credentials',
         'scope': 'https://graph.microsoft.com/.default'})
+    _TOKEN_APP.update(v=t['access_token'], ate=time.time() + int(t.get('expires_in', 3600)) - 300)
     return t['access_token']
+
+
+def foto_app(email):
+    """Foto de perfil de qualquer pessoa (permissão de aplicativo User.Read.All). Procura pelo UPN e, se não achar, pelo e-mail."""
+    tk = _token_app()
+    r = _foto(f'{GRAPH}/users/{urllib.parse.quote(email)}', tk)
+    if r:
+        return r
+    filtro = urllib.parse.quote(f"mail eq '{email}'")
+    try:
+        j = _pedir(f'{GRAPH}/users?$filter={filtro}&$select=id', token=tk)
+    except ErroEntra as ex:
+        if ' 403' in str(ex) or ' 401' in str(ex):
+            raise SemPermissao(str(ex)) from None
+        raise
+    ids = [x['id'] for x in j.get('value', []) if x.get('id')]
+    return _foto(f'{GRAPH}/users/{ids[0]}', tk) if ids else None
 
 
 def listar_usuarios():

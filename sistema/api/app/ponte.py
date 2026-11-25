@@ -24,7 +24,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from urllib.parse import quote
 
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text, func, select, text
+from sqlalchemy import JSON, Boolean, DateTime, Integer, LargeBinary, String, Text, func, select, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from . import auth, config, entra, mail
@@ -61,6 +61,22 @@ class Pessoa(Base):
     matricula: Mapped[str] = mapped_column(String(30), default='', index=True)  # base do RH: setor e gestor vêm do RH
     sem_email: Mapped[bool] = mapped_column(Boolean, default=False)  # conta sem caixa de e-mail (identificada pelo UPN)
     senha_hash: Mapped[str] = mapped_column(String(200), default='')  # login por senha do Mobilab (antes do Entra). Só o hash (scrypt).
+
+
+class Foto(Base):
+    """Foto de perfil vinda do Entra ID (Microsoft). dados vazio = a pessoa não tem foto (tenta de novo depois de alguns dias)."""
+    __tablename__ = 'fotos'
+    email: Mapped[str] = mapped_column(String(200), primary_key=True)
+    dados: Mapped[bytes | None] = mapped_column(LargeBinary)
+    tipo: Mapped[str] = mapped_column(String(40), default='image/jpeg')
+    em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+def guardar_foto(s, email, foto):
+    f = s.get(Foto, email) or Foto(email=email)
+    f.dados, f.tipo = (foto[0], foto[1]) if foto else (None, 'image/jpeg')
+    f.em = datetime.now(timezone.utc)
+    s.add(f)
 
 
 PERFIS = ('colaborador', 'facilities', 'ti', 'ti_jr')  # ti = Administrador, ti_jr = Admin Júnior; Super Admin = só a conta do Mobilab
@@ -271,6 +287,13 @@ def entra_retorno(request: Request, code: str = '', state: str = '', error: str 
             s.commit()
     if not email or '@' not in email:
         return falha('Não foi possível identificar o e-mail da sua conta Microsoft.')
+    if d.get('foto') is not False:  # foto de perfil do Entra (ou o registro de que a pessoa não tem)
+        try:
+            with Sessao() as s:
+                guardar_foto(s, email, d.get('foto'))
+                s.commit()
+        except Exception as ex:  # foto nunca impede o login
+            print('Foto de perfil não gravada:', ex, flush=True)
     u = {'email': email, 'nome': d['nome'], 'cc': d['cc'], 'perfil': config.perfil_de(email), 'gestor': d['gestor']}
     erro = abrir_sessao(request, u, 'conta Microsoft')
     return falha(erro) if erro else RedirectResponse('/', status_code=303)
@@ -986,6 +1009,38 @@ async def decidir_token(tok: str, request: Request, tarefas: BackgroundTasks):
     for env in envios:
         tarefas.add_task(_enviar, *env)
     return {'r': _publico(r)}
+
+
+# ---------------- fotos de perfil (Entra ID) ----------------
+_FOTO_SEM_PERMISSAO = {'ate': 0.0}
+FOTO_REPETIR = timedelta(days=7)
+
+
+@rota.get('/api/foto')
+def foto_pessoa(request: Request, e: str = ''):
+    """Foto de perfil de um colaborador. A da própria pessoa é gravada no login Microsoft; a dos outros vem do Graph
+    quando o aplicativo tem a permissão User.Read.All (sem ela, a tela mostra as iniciais)."""
+    if not request.session.get('u'):
+        return Response(status_code=401)
+    e = (e or '').strip().lower()
+    sem = Response(status_code=404, headers={'Cache-Control': 'private, max-age=3600'})
+    if '@' not in e or len(e) > 200:
+        return sem
+    with Sessao() as s:
+        f = s.get(Foto, e)
+        vencida = f is None or (f.dados is None and (f.em is None or datetime.now(timezone.utc) - f.em > FOTO_REPETIR))
+        if vencida and e != ADMIN_EMAIL and entra.ligado() and time.time() > _FOTO_SEM_PERMISSAO['ate']:
+            try:
+                guardar_foto(s, e, entra.foto_app(e))
+                s.commit()
+                f = s.get(Foto, e)
+            except entra.SemPermissao:
+                _FOTO_SEM_PERMISSAO['ate'] = time.time() + 3600  # sem consentimento ainda: não insiste por 1 hora
+            except entra.ErroEntra:
+                pass
+        if not f or not f.dados:
+            return sem
+        return Response(f.dados, media_type=f.tipo or 'image/jpeg', headers={'Cache-Control': 'private, max-age=86400'})
 
 
 # ---------------- gestão de usuários (só TI) ----------------
