@@ -108,7 +108,7 @@ const mot = (id) => S.motoristas.find((m) => m.id === id);
 const fmtFone = (d) => (d.length === 11 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` : d.length === 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}` : d);
 // Avatar: iniciais e, no sistema, a foto de perfil do Entra ID por cima (se não houver foto, ficam as iniciais)
 const avatar = (nome, email, cls = '') => `<span class="avatar${cls ? ` ${cls}` : ''}">${esc(initials(nome || email || '?'))}${window.MOBILAB_API && email
-  ? `<img class="av-foto" src="/api/foto?e=${encodeURIComponent(String(email).toLowerCase())}" alt="" loading="lazy" decoding="async">` : ''}</span>`;
+  ? `<img class="av-foto" src="/api/foto?v=2&e=${encodeURIComponent(String(email).toLowerCase())}" alt="" loading="lazy" decoding="async">` : ''}</span>`;
 document.addEventListener('error', (e) => { const t = e.target; if (t && t.classList && t.classList.contains('av-foto')) t.remove(); }, true);
 const initials = (n) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
 

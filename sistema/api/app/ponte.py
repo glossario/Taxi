@@ -1023,7 +1023,7 @@ def foto_pessoa(request: Request, e: str = ''):
     if not request.session.get('u'):
         return Response(status_code=401)
     e = (e or '').strip().lower()
-    sem = Response(status_code=404, headers={'Cache-Control': 'private, max-age=3600'})
+    sem = Response(status_code=404, headers={'Cache-Control': 'no-store'})  # sem foto: não guardar (pode aparecer no próximo login)
     if '@' not in e or len(e) > 200:
         return sem
     with Sessao() as s:
