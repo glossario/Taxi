@@ -1495,27 +1495,33 @@ function vehicleOptions(tipo, pax, bagPts, data, hora, ignoreIds, dur) {
 // Veículo que o motorista usa (cadastro em Motoristas)
 const veicDoMot = (m) => (m && m.veiculo ? veic(m.veiculo) : null);
 const veicTxt = (v) => `${v.nome} (${v.tipo === 'moto' ? `carga ${v.bag} pts` : `${v.cap} lugares`})`;
-// Confirmação de viagens: escolher o motorista seleciona o carro dele, e escolher o carro seleciona quem usa esse carro
+// Confirmação de viagens: cada motorista anda sempre com o MESMO carro. Escolheu o motorista, o carro dele aparece travado.
+// Motorista cujo carro não comporta a viagem (lugares/porta-malas) ou já está em outra viagem fica indisponível na lista.
+// Só motorista sem carro cadastrado deixa escolher o veículo à mão.
 function ligarMotoristaVeiculo(raiz = document) {
-  const par = (el) => { const p = el.parentElement; return { sv: p.querySelector('.sv'), sd: p.querySelector('.sd') }; };
-  const pode = (sel, val) => { const o = [...sel.options].find((x) => x.value === val); return o && !o.disabled; };
-  const doMot = (sd, sv, avisa) => {
-    const v = veicDoMot(mot(sd.value));
-    if (!v || sv.value === v.id) return;
-    if (pode(sv, v.id)) sv.value = v.id;
-    else if (avisa) toast(`O veículo de ${mot(sd.value).nome} (${v.nome}) não serve ou está ocupado neste horário. Escolha outro veículo.`);
-  };
-  const doVeic = (sv, sd) => {
-    if (veicDoMot(mot(sd.value)) && veicDoMot(mot(sd.value)).id === sv.value) return;
-    const m = S.motoristas.find((x) => x.ativo && x.veiculo === sv.value && pode(sd, x.id));
-    if (m) sd.value = m.id;
-  };
   raiz.querySelectorAll('.sd').forEach((sd) => {
-    const { sv } = par(sd);
+    const sv = sd.parentElement.querySelector('.sv');
     if (!sv) return;
-    doVeic(sv, sd); // ao abrir: o motorista que usa o veículo sugerido
-    sd.onchange = () => doMot(sd, sv, true);
-    sv.onchange = () => doVeic(sv, sd);
+    const opV = (id) => [...sv.options].find((o) => o.value === id);
+    const sugerido = sv.value; // menor veículo que comporta (escolha do sistema)
+    [...sd.options].forEach((o) => {
+      const v = veicDoMot(mot(o.value));
+      if (!v || o.disabled) return;
+      const ov = opV(v.id);
+      if (!ov || ov.disabled) { o.disabled = true; o.textContent += ov && /ocupado|alocado/.test(ov.textContent) ? ' — carro já em outra viagem' : ' — carro não comporta esta viagem'; }
+    });
+    const livre = (o) => o && !o.disabled;
+    // ao abrir: quem usa o veículo sugerido; senão o primeiro motorista disponível
+    const pref = [...sd.options].find((o) => livre(o) && (veicDoMot(mot(o.value)) || {}).id === sugerido);
+    if (pref) sd.value = pref.value;
+    else if (!livre(sd.selectedOptions[0])) { const o = [...sd.options].find(livre); if (o) sd.value = o.value; }
+    const aplica = () => {
+      const v = veicDoMot(mot(sd.value));
+      if (v) { sv.value = v.id; sv.disabled = true; sv.title = `Carro de ${mot(sd.value).nome}`; }
+      else { sv.disabled = false; sv.title = ''; if (!livre(sv.selectedOptions[0])) { const o = [...sv.options].find(livre); if (o) sv.value = o.value; } }
+    };
+    aplica();
+    sd.onchange = aplica;
   });
 }
 function driverOptions(tipo, data, hora, ignoreIds, dur) {
@@ -1551,7 +1557,7 @@ function renderPainel(page) {
       <div class="group-h"><b>${esc(fmtDT(data, hora))}</b><span class="tipo">${rs.length > 1 ? `Sugestão de agrupamento: ${esc(setores.join(' + '))}` : 'Solicitação única'}</span></div>
       <ul>${rs.map((r) => `<li><span><b>${esc(r.id)}</b> · ${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small>${r.perna ? ` <span class="tag">${pernaTxt(r)} · ${esc(r.par)}</span>` : ''}</span><span>${esc(SITE_SHORT[r.origem])}→${esc(SITE_SHORT[r.destino])} · ${r.pax} pax · ${esc(bagCurto(r))}</span></li>`).join('')}</ul>
       <div class="meter"><span>Total: <b>${pax} passageiros</b></span><span>Bagagem: <b>${esc(bagsTxt)}</b></span><span>Veículo: <b>${pax > CAP_PADRAO ? 'Spin (passou de ' + CAP_PADRAO + ')' : 'carro de ' + CAP_PADRAO + ' vagas'}</b></span></div>
-      ${anyVeh ? `<div class="assign"><select class="sv">${vehicleOptions('carro', pax, bagPts, data, hora, ids)}</select><select class="sd">${driverOptions('carro', data, hora, ids)}</select>
+      ${anyVeh ? `<div class="assign"><select class="sd" aria-label="Motorista">${driverOptions('carro', data, hora, ids)}</select><select class="sv" aria-label="Veículo">${vehicleOptions('carro', pax, bagPts, data, hora, ids)}</select>
         <button class="btn green sm ok-g">Confirmar ${rs.length > 1 ? 'grupo' : ''}</button><button class="btn sm red no-g">Recusar</button></div>`
       : `<div class="alert">Nenhum veículo comporta ${pax} passageiros / ${bagPts} pts de bagagem. Separe as solicitações ou sugira o próximo horário.</div>
          <div class="assign">${rs.map((r) => `<button class="btn sm mv" data-id="${esc(r.id)}">Mover ${esc(r.id)} p/ próximo horário</button>`).join('')}</div>`}
@@ -1574,7 +1580,7 @@ function renderPainel(page) {
       <div class="meter"><span>Carga: <b>${c.pts}/${MOTO_CARGA} pts</b></span>${varios ? `<span>Pedidos entre <b>${horas[0]}</b> e <b>${saida}</b></span>` : ''}</div>
       <div class="assign">
         <label class="f" style="display:flex;align-items:center;gap:6px;margin:0"><small>Saída</small><select class="sh">${horas.map((h) => `<option ${h === saida ? 'selected' : ''}>${h}</option>`).join('')}</select></label>
-        <select class="sv">${vehicleOptions('moto', 0, c.pts, c.data, saida, ids)}</select><select class="sd">${driverOptions('moto', c.data, saida, ids)}</select>
+        <select class="sd" aria-label="Motorista">${driverOptions('moto', c.data, saida, ids)}</select><select class="sv" aria-label="Veículo">${vehicleOptions('moto', 0, c.pts, c.data, saida, ids)}</select>
         <button class="btn green sm ok-m">${varios ? 'Agrupar e gerar OS' : 'Aprovar e gerar OS'}</button><button class="btn sm red no-m">Recusar${varios ? ' todos' : ''}</button></div>
     </div>`;
   }).join('') || '<div class="empty">Nenhum envio de Moto Táxi pendente.</div>';
@@ -1588,7 +1594,7 @@ function renderPainel(page) {
         <li><span>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}${r.perna ? ` <span class="tag">${pernaTxt(r)} · ${esc(r.par)}</span>` : ''}</span></li>
         ${r.bv ? `<li><span><b>🔁 ${esc(bvTxt(r))}</b> — veículo e motorista ficam reservados ~${fmtMin(durOf(r))}</span></li>` : ''}<li><span><i>${esc(r.just)}</i></span></li></ul>
       ${r.excecao ? '<div class="alert">⚠ Pedido fora do prazo mínimo — requer autorização excepcional.</div>' : ''}
-      <div class="assign"><select class="sv">${vehicleOptions(t, r.pax, 0, r.data, r.hora, [r.id], durOf(r))}</select><select class="sd">${driverOptions(t, r.data, r.hora, [r.id], durOf(r))}</select>
+      <div class="assign"><select class="sd" aria-label="Motorista">${driverOptions(t, r.data, r.hora, [r.id], durOf(r))}</select><select class="sv" aria-label="Veículo">${vehicleOptions(t, r.pax, 0, r.data, r.hora, [r.id], durOf(r))}</select>
         <button class="btn green sm ok-a">${r.tipo === 'moto' ? 'Aprovar e gerar OS' : 'Aprovar'}</button><button class="btn sm red no-a">Recusar</button></div>
     </div>`;
   }).join('') || '<div class="empty">Nenhuma solicitação avulsa pendente.</div>';
@@ -2025,8 +2031,10 @@ function renderViagens(page) {
       <div class="vc-cost">
         <div class="vc-val">
           <small>Valor da corrida</small>
-          ${rt.padrao != null ? `<div class="fixo"><b>${brl(rt.padrao)}</b><em>valor fixo da rota</em></div>`
-            : `<div class="fixo sem"><b>Sem valor</b><em>destino sem valor cadastrado — cadastre em <a href="#grade">Grade e rotas</a></em></div>`}
+          ${rt.informado ? `<div class="acr-row"><span class="money sm">R$ <input class="vcor" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.base ?? ''}" placeholder="0,00" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Valor da corrida"></span>
+              <em class="vcor-n">${rt.base == null ? '<span class="warn-t">Informe o valor desta corrida</span>' : rt.corrida != null ? 'informado pelo Facilities' : 'valor anterior da tabela — confirme ou corrija'}</em></div>`
+            : rt.padrao != null ? `<div class="fixo"><b>${brl(rt.padrao)}</b><em>valor fixo da rota</em></div>`
+            : `<div class="fixo sem"><b>Sem valor</b><em>rota da grade sem valor — cadastre em <a href="#grade">Grade e rotas</a></em></div>`}
           <small class="mt">Acréscimo <span class="opt">(espera, pedágio…)</span></small>
           <div class="acr-row"><span class="money sm">R$ <input class="vacr" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.acrescimo || ''}" placeholder="0,00" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Acréscimo"></span>
             <input class="vmot" placeholder="Motivo do acréscimo" value="${esc(rt.motivoAcr)}" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Motivo do acréscimo"></div>
@@ -2095,13 +2103,27 @@ function renderViagens(page) {
       S.extras = S.extras || {};
       const antes = S.extras[v.k] ? `${brl(S.extras[v.k].valor)} ${S.extras[v.k].motivo || ''}` : 'sem acréscimo';
       const motivo = vmo.value.trim();
-      if (n === 0 && !motivo) delete S.extras[v.k]; else S.extras[v.k] = { valor: Math.round(n * 100) / 100, motivo };
+      const resto = { ...(S.extras[v.k] || {}) }; delete resto.valor; delete resto.motivo;
+      if (n === 0 && !motivo) { if (Object.keys(resto).length) S.extras[v.k] = resto; else delete S.extras[v.k]; } else S.extras[v.k] = { ...resto, valor: Math.round(n * 100) / 100, motivo };
       audit('Acréscimo na viagem', v.rs.map((r) => r.id).join(', '), antes, n ? `${brl(n)} ${motivo}` : 'sem acréscimo');
       save(); route(); toast(n ? `Acréscimo de ${brl(n)} lançado.` : 'Acréscimo removido.');
     };
     if (va) va.onchange = salvaAcr;
+    const vc = $('.vcor', g);
+    if (vc) vc.onchange = () => {
+      const raw = String(vc.value).trim().replace(',', '.');
+      const n = raw === '' ? null : Number(raw);
+      if (n != null && (!Number.isFinite(n) || n < 0)) { toast('Valor da corrida inválido.'); return; }
+      S.extras = S.extras || {};
+      const ex = S.extras[v.k] || {}, antes = ex.corrida != null ? brl(ex.corrida) : 'sem valor informado';
+      if (n == null) { delete ex.corrida; if (Object.keys(ex).length) S.extras[v.k] = ex; else delete S.extras[v.k]; }
+      else S.extras[v.k] = { ...ex, corrida: Math.round(n * 100) / 100 };
+      audit('Valor da corrida informado', v.rs.map((r) => r.id).join(', '), antes, n == null ? 'sem valor' : brl(n));
+      save(); route(); toast(n == null ? 'Valor da corrida removido.' : `Valor da corrida: ${brl(n)}.`);
+    };
     if (vmo) vmo.onchange = salvaAcr;
     if (fim) fim.onclick = () => {
+      if (ratear(v).total == null) { toast('Informe o valor da corrida antes de concluir a viagem.'); const c = $('.vcor', g); if (c) c.focus(); return; }
       v.rs.forEach((r) => { audit('Concluída', r.id, STATUS[r.status], 'Concluída'); r.status = 'concluida'; });
       save(); route(); toast('Viagem concluída.');
     };
@@ -2319,8 +2341,12 @@ function ratear(v) {
   }
   if (!legs.length) legs.push({ de: rs[0].origem, para: rs[0].destino, custo: null, ccs: [...new Set(rs.map((r) => r.cc))] });
   const padrao = legs.every((l) => l.custo != null) ? legs.reduce((t, l) => t + l.custo, 0) : null;
-  const base = padrao; // valor sempre FIXO, vindo de Grade e rotas (a viagem não edita o valor)
   const ex = (S.extras || {})[v.k] || {};
+  // Grade: valor FIXO da tabela de Grade e rotas. Avulsa (táxi, intermunicipal, moto): o Facilities informa o valor da corrida
+  // na própria viagem (pode sair mais cara ou mais barata). Viagens antigas sem valor informado continuam com o da tabela.
+  const informado = v.tipo !== 'grade';
+  const corrida = informado && ex.corrida != null && ex.corrida !== '' ? Number(ex.corrida) : null;
+  const base = informado ? (corrida != null ? corrida : padrao) : padrao;
   const acrescimo = Number(ex.valor) > 0 ? Number(ex.valor) : 0;
   const total = base == null ? null : base + acrescimo;
   const manual = false;
@@ -2342,7 +2368,7 @@ function ratear(v) {
     [...ccsOrd].sort((x, y) => (exato[y] - partes[y]) - (exato[x] - partes[x])).forEach((cc) => { if (resto > 0) { partes[cc] += 1; resto -= 1; } });
     ccsOrd.forEach((cc) => { partes[cc] /= 100; });
   }
-  return { total, padrao, base, acrescimo, motivoAcr: ex.motivo || '', manual, partes, legs, modal };
+  return { total, padrao, base, acrescimo, motivoAcr: ex.motivo || '', manual, partes, legs, modal, informado, corrida };
 }
 const rateioChips = (rt) => Object.entries(rt.partes).map(([cc, val]) => `<span class="chip-r"><b>${esc(setorCurto(cc))}</b> ${brl(val)}</span>`).join('');
 
@@ -2437,7 +2463,7 @@ function renderCustos(page) {
       <span class="spacer"></span>
       <label class="cx-busca">${ico('search', 16)}<input id="cq" placeholder="Buscar setor ou centro de custo…" aria-label="Buscar setor" value="${esc(renderCustos.q || '')}"></label>
     </div>
-    ${d.semValor.length ? `<div class="banner warn">${ico('info', 18)}<div><b>${d.semValor.length} viagem(ns) sem valor</b> — rota sem valor cadastrado. Cadastre o valor em <a href="#grade">Grade e rotas</a>: ${d.semValor.map((v) => esc(v.rs.map((r) => r.id).join('+'))).join(', ')}.</div></div>` : ''}
+    ${d.semValor.length ? `<div class="banner warn">${ico('info', 18)}<div><b>${d.semValor.length} viagem(ns) sem valor</b> — avulsas: informe o valor em <a href="#viagens">Viagens</a>; grade: cadastre em <a href="#grade">Grade e rotas</a>: ${d.semValor.map((v) => esc(v.rs.map((r) => r.id).join('+'))).join(', ')}.</div></div>` : ''}
     <section class="cx-l1">
       <div class="cx-card cx-dest">
         <h2>Custo do mês</h2><p>${prev ? 'Concluídas + previsão das viagens em aberto' : `Viagens concluídas em ${esc(MESES[Number(mes.slice(5)) - 1])}`}</p>
@@ -2466,9 +2492,9 @@ function renderCustos(page) {
       <div class="cx-card cx-med">
         <div class="cx-mt">Valores cadastrados <b>${nota}</b></div>
         ${medidorSvg(pctVal)}
-        <div class="cx-obs">Viagens do mês com valor de rota cadastrado</div>
+        <div class="cx-obs">Viagens do mês com valor definido</div>
         <div class="cx-obs">${d.semValor.length ? `<b>${d.semValor.length} viagem(ns)</b> ainda sem valor` : 'Todas as viagens têm valor'}</div>
-        <a class="btn green" href="#grade">${d.semValor.length ? 'Cadastrar valores' : 'Ver valores das rotas'}</a>
+        <a class="btn green" href="${d.semValor.length ? '#viagens' : '#grade'}">${d.semValor.length ? 'Informar valores' : 'Ver valores das rotas'}</a>
       </div>
       <div class="cx-card">
         <div class="cx-rh"><span class="cx-ic r">${ico('money', 22)}</span><div><h3>Resumo do mês</h3><p>Clique em um setor na tabela para ver as viagens e a divisão</p></div></div>
@@ -2575,16 +2601,9 @@ function valoresRotasHtml() {
     return `
       <div class="grid-2">
         <section class="card"><h2 class="section-t">Valores das rotas</h2>
-          <p class="section-s">Valor <b>fixo</b> de cada corrida (vale para os dois sentidos). <b>Só é alterado aqui</b> — em Viagens a Noemia lança apenas acréscimos (espera, pedágio…).</p>
+          <p class="section-s">Valor <b>fixo</b> das corridas da <b>grade</b> entre as unidades (vale para os dois sentidos). Viagens <b>avulsas</b> não usam esta tabela: o Facilities informa o valor de cada corrida em <a href="#viagens">Viagens</a>.</p>
           <table class="tar-t"><thead><tr><th>Entre as unidades</th><th>Táxi (R$)</th><th>Moto (R$)</th></tr></thead><tbody>
           ${pares.map(([a, b]) => linha(parKey(a, b), `${esc(nome(a))} ↔ ${esc(nome(b))}`, t[parKey(a, b)] || {})).join('')}
-          </tbody></table>
-          <table class="tar-t tar-o"><thead><tr><th>Outros destinos ${nPend ? `<em class="warn-t">· ${nPend} sem valor</em>` : ''}</th><th>Táxi (R$)</th><th>Moto (R$)</th></tr></thead><tbody>
-          ${outrosOrd.map(([k, o]) => linha(k, `${esc(curto(o.u))} ↔ ${esc(o.nome)}${(!t[k] || t[k].carro == null) ? ' <em class="warn-t">sem valor</em>' : ''}${t[k] ? ` <button class="btn-mini tdel" data-k="${esc(k)}" title="Remover destino">Remover</button>` : ''}`, t[k] || {}, `data-nome="${esc(o.nome)}"`)).join('')}
-          <tr class="tar-new"><td><select id="tnu" aria-label="Unidade">${Object.keys(SITES).map((k) => `<option value="${k}">${esc(curto(k))}</option>`).join('')}</select>
-            <input id="tnd" placeholder="Novo destino (ex.: Centro – Banco)" aria-label="Novo destino"></td>
-            <td><input id="tnc" type="number" min="0" step="0.01" inputmode="decimal" aria-label="Valor táxi do novo destino"></td>
-            <td><input id="tnm" type="number" min="0" step="0.01" inputmode="decimal" aria-label="Valor moto do novo destino"></td></tr>
           </tbody></table>
           <div id="tarmsg"></div>
           <div class="modal-acts"><button class="btn green" id="tsave">Salvar valores</button></div>
@@ -2596,7 +2615,7 @@ function valoresRotasHtml() {
             <li>Bate-volta: pela tabela é ida + volta; se houver espera cobrada, a Noemia lança como acréscimo.</li>
             <li>Na grade, a conta é <b>por trecho</b>: o valor até cada parada é contado a partir da saída da rota. Quem desce antes não paga o resto do caminho.</li>
             <li>O valor da rota é <b>fixo</b>. Acréscimos lançados na viagem são divididos na mesma proporção dos trechos.</li>
-            <li>Táxi avulso: o setor do solicitante paga sozinho. Moto agrupada: dividida entre os setores dos envios.</li>
+            <li>Viagem avulsa (táxi, intermunicipal, moto): o valor é <b>informado pelo Facilities</b> em Viagens. O setor do solicitante paga sozinho; moto agrupada é dividida entre os setores dos envios.</li>
           </ul>
           <div class="ex-box"><b>Exemplo com a tabela atual</b>
             <p>TI vai do Site 1 até o CD e Garantia vai do Site 1 até a Life, no mesmo carro.</p>
@@ -2640,6 +2659,7 @@ function bindValoresRotas() {
     }
     if (erro) { $('#tarmsg').innerHTML = `<div class="msg-box bad">${erro}</div>`; return; }
     const antes = JSON.stringify(tabTarifas());
+    Object.entries(tabTarifas()).forEach(([k, val]) => { const [x, y] = k.split('|'); if (!(SITES[x] && SITES[y]) && !novo[k]) novo[k] = val; });
     S.tarifas = novo;
     audit('Valores das rotas alterados', 'Tabela de valores', antes, JSON.stringify(novo));
     save(); route(); toast('Valores das rotas salvos.');
