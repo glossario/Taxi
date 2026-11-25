@@ -414,7 +414,7 @@ window.addEventListener('hashchange', route);
 
 // Perfis → telas. TI / Administração do sistema tem acesso a tudo.
 const NAV_COLAB = [['agenda', 'Agenda'], ['minhas', 'Minhas solicitações']];
-const NAV_FAC = [['visao', 'Visão geral'], ['painel', 'Painel'], ['viagens', 'Viagens'], ['solicitacoes', 'Solicitações'], ['motoristas', 'Motoristas'], ['grade', 'Grade e rotas'], ['custos', 'Custos']];
+const NAV_FAC = [['visao', 'Visão geral'], ['painel', 'Confirmação de viagens'], ['viagens', 'Viagens'], ['solicitacoes', 'Solicitações'], ['motoristas', 'Motoristas'], ['grade', 'Grade e rotas'], ['custos', 'Custos']];
 // Gestor imediato (vem do AD) vê as mesmas abas do colaborador + Aprovações.
 const navDe = (u) => [...NAV[u.role], ...(u.gestor ? [['aprovacoes', 'Aprovações']] : [])];
 const NAV = {
@@ -1562,7 +1562,7 @@ function renderPainel(page) {
   }).join('') || '<div class="empty">Nenhuma solicitação avulsa pendente.</div>';
 
   shell(page, `
-    <div class="page-head"><div><h1>Painel do Facilities</h1><p>Analise, agrupe e atribua veículo e motorista. A decisão final é sempre do Facilities.</p></div></div>
+    <div class="page-head"><div><h1>Confirmação de viagens</h1><p>Analise, agrupe e atribua veículo e motorista. A decisão final é sempre do Facilities.</p></div></div>
     <div class="kpis">
       <div class="kpi"><div class="v">${pend.length}</div><div class="l">Pendentes de análise</div></div>
       <div class="kpi"><div class="v">${confHoje.length}</div><div class="l">Viagens hoje</div></div>
@@ -2028,7 +2028,7 @@ function renderViagens(page) {
       <div class="seg">${TABS.map(([k, l, n]) => `<button class="seg-b${f === k ? ' on' : ''}" data-f="${k}">${l} (${n})</button>`).join('')}</div>
       <label class="search">${ico('search', 16)}<input id="vq" placeholder="Buscar viagem, pessoa, motorista, placa…" value="${esc(renderViagens.q || '')}" aria-label="Buscar viagem"></label>
     </div>
-    <div class="vlist">${list.length ? list.map(card).join('') : '<div class="card empty">Nenhuma viagem neste filtro. Confirme solicitações no <a href="#painel">Painel</a>.</div>'}
+    <div class="vlist">${list.length ? list.map(card).join('') : '<div class="card empty">Nenhuma viagem neste filtro. Confirme solicitações em <a href="#painel">Confirmação de viagens</a>.</div>'}
       <div class="card empty" id="vnone" hidden>Nenhuma viagem encontrada para a busca.</div></div>`);
 
   document.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => { renderViagens.f = b.dataset.f; route(); }; });
@@ -2713,7 +2713,7 @@ function renderVisao(page) {
       <span class="vi-t">${o.dia ? `<small>${esc(diaTxt(r.data))}</small>` : ''}${esc(r.hora)}</span>
       <span class="vi-b"><span class="vi-l"><b>${esc(r.nome)}</b><span class="tp tp-${r.tipo}">${TIPO_CURTO[r.tipo]}</span>${r.perna ? `<span class="tp">${pernaTxt(r)}</span>` : r.bv ? '<span class="tp">Bate-volta</span>' : ''}</span>
         <small>${esc(r.id)} · ${esc(destTxt(r))}${r.tipo !== 'moto' && r.pax ? ` · ${r.pax} pax` : ''}</small>
-        ${x.h ? `<small class="vi-x ${x.c}">${x.h}${o.ret && r.aprov && r.aprov.ok && r.status === 'analise' ? ' · <a href="#painel">analisar no Painel →</a>' : ''}</small>` : ''}
+        ${x.h ? `<small class="vi-x ${x.c}">${x.h}${o.ret && r.aprov && r.aprov.ok && r.status === 'analise' ? ' · <a href="#painel">confirmar viagem →</a>' : ''}</small>` : ''}
         ${r.status === 'gestor' ? `<span class="vi-acts">${simBtns(r)}</span>` : ''}</span>
       <span class="vi-s">${o.agora ? '<span class="pill st-andamento">Em andamento</span>' : pill(r.status)}</span></div>`;
   };
@@ -2771,7 +2771,7 @@ function renderVisao(page) {
       <div><span class="eyebrow">Facilities · tudo em uma tela</span><h1>Visão geral</h1></div>
       <div class="vg-meta"><span>${esc(DIAS[now.getDay()])}, ${fmtDate(hoje)} · ${pad(now.getHours())}:${pad(now.getMinutes())}</span>
         <span class="lbl">Clique no título de uma caixa para ver tudo · aprovações vêm do gestor imediato (AD simulado)</span>
-        <a class="btn sm" href="#painel">Abrir Painel de análise</a></div>
+        <a class="btn sm" href="#painel">Abrir Confirmação de viagens</a></div>
     </div>
     <div class="vgrid">${['agora', 'hoje', 'amanha', 'semana', 'aprov', 'ret', 'canc'].map(painel).join('')}</div>`);
 
@@ -2864,7 +2864,7 @@ function telaAprov(r, pr, expirado, decidir) {
 }
 // ---------------- TI: tudo em uma tela (ícones) ----------------
 const TILES_TI = [
-  ['visao', 'Visão geral', 'grid', 'Facilities'], ['painel', 'Painel de análise', 'list', 'Facilities'], ['viagens', 'Viagens', 'route', 'Facilities'],
+  ['visao', 'Visão geral', 'grid', 'Facilities'], ['painel', 'Confirmação de viagens', 'list', 'Facilities'], ['viagens', 'Viagens', 'route', 'Facilities'],
   ['solicitacoes', 'Solicitações', 'filter', 'Facilities'], ['motoristas', 'Motoristas', 'car', 'Facilities'], ['grade', 'Grade e rotas', 'clock', 'Facilities'],
   ['custos', 'Custos por setor', 'money', 'Facilities'], ['agenda', 'Agenda', 'cal', 'Colaborador'], ['minhas', 'Minhas solicitações', 'user', 'Colaborador'],
   ['aprovacoes', 'Aprovações', 'check', 'Gestor'], ['usuarios', 'Usuários', 'users', 'Administração'], ['historico', 'Histórico', 'history', 'Administração'],
