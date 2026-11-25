@@ -905,22 +905,22 @@ function renderAgenda(page) {
       if (i.my) ja.add(i.my.id);
       const sel = UI.sel && UI.sel.d === ds && UI.sel.h === s.hora;
       out.push({ hora: s.hora, titulo: `${curto(p[0])} → ${curto(p[p.length - 1])}`, rota: rotaTxt(p),
-        cls: i.my ? `ev-${CV_COR(i.my.status)}` : 'ev-fixo', passado: i.cls === 'indisp' && !i.my, sel,
+        cls: i.my ? `ev-${CV_COR(i.my.status)}` : 'ev-fixo', passado: i.cls === 'indisp' && !i.my, foi: at(ds, s.hora) < agora, sel,
         sub: i.my ? `Minha viagem · ${STATUS[i.my.status]}` : `${i.occ}/${i.cap} lugares`, attr: `data-d="${ds}" data-h="${s.hora}"` });
     });
     if (UI.minhas) minhasTodas.filter((r) => r.data === ds && !ja.has(r.id) && noPer(r.hora)).forEach((r) => {
       const m = mot(r.motorista), st = CV_COR(r.status);
       out.push({ hora: r.hora, titulo: `${curto(r.origem)} → ${curto(r.destino)}`, rota: `${siteName(r.origem)} → ${siteName(r.destino)}`,
-        cls: `ev-${st}${['recusada', 'cancelada'].includes(st) ? ' ev-riscado' : ''}`, passado: at(r.data, r.hora) < agora,
+        cls: `ev-${st}${['recusada', 'cancelada'].includes(st) ? ' ev-riscado' : ''}`, passado: at(r.data, r.hora) < agora, foi: at(r.data, r.hora) < agora,
         sub: [r.tipo === 'moto' ? 'Mototáxi' : r.tipo === 'grade' ? '' : 'Táxi', STATUS[r.status], m && m.nome].filter(Boolean).join(' · '), attr: `data-req="${esc(r.id)}"` });
     });
     return out.sort((a, b) => a.hora.localeCompare(b.hora));
   };
-  const evCls = (e) => `ev ${e.cls}${e.passado ? ' ev-passado' : ''}${e.sel ? ' ev-sel' : ''}`;
-  const evHtml = (e, estilo = '') => `<button type="button" class="${evCls(e)}" ${e.attr} title="${esc(e.rota)}"${estilo ? ` style="${estilo}"` : ''}>
+  const evCls = (e) => `ev ${e.cls}${e.passado || e.foi ? ' ev-passado' : ''}${e.foi ? ' ev-foi' : ''}${e.sel ? ' ev-sel' : ''}`;
+  const evHtml = (e, estilo = '') => `<button type="button" class="${evCls(e)}" ${e.foi ? 'disabled tabindex="-1"' : e.attr} title="${esc(e.rota)}"${estilo ? ` style="${estilo}"` : ''}>
       <span class="ev-linha"><b>${e.hora}</b><small>${esc(e.sub)}</small></span><span class="ev-titulo">${esc(e.titulo)}</span></button>`;
   const porDia = days.map((d) => ({ d, ds: ymd(d), evs: eventosDo(ymd(d)) }));
-  const cabDia = (d, ds, curto2) => `<button type="button" class="cv-dh${ds === todayStr ? ' cv-hj' : ''}" data-dia="${ds}">${curto2 ? DIAS[d.getDay()].slice(0, 3) : DIAS[d.getDay()]}<b>${pad(d.getDate())}/${pad(d.getMonth() + 1)}</b></button>`;
+  const cabDia = (d, ds, curto2) => `<button type="button" class="cv-dh${ds === todayStr ? ' cv-hj' : ''}" data-dia="${ds}"${ds < todayStr ? ' disabled' : ''}>${curto2 ? DIAS[d.getDay()].slice(0, 3) : DIAS[d.getDay()]}<b>${pad(d.getDate())}/${pad(d.getMonth() + 1)}</b></button>`;
 
   // ---- Semana / Dia: grade de horas
   const gradeHoras = () => {
@@ -953,9 +953,9 @@ function renderAgenda(page) {
   // ---- Mês: um quadro por dia útil, até 3 corridas e "+N mais"
   const gradeMes = () => {
     const vazios = (days[0].getDay() + 6) % 7;
-    const cel = ({ d, ds, evs }) => `<div class="cv-mc${ds === todayStr ? ' cv-hj' : ''}" data-dia="${ds}">
+    const cel = ({ d, ds, evs }) => `<div class="cv-mc${ds === todayStr ? ' cv-hj' : ''}${ds < todayStr ? ' cv-pass' : ''}"${ds < todayStr ? '' : ` data-dia="${ds}"`}>
         <span class="cv-mn">${d.getDate()}</span>${evs.slice(0, 3).map((e) => evHtml(e)).join('')}
-        ${evs.length > 3 ? `<button type="button" class="cv-mais" data-dia="${ds}">+${evs.length - 3} mais</button>` : ''}</div>`;
+        ${evs.length > 3 ? `<button type="button" class="cv-mais" data-dia="${ds}"${ds < todayStr ? ' disabled' : ''}>+${evs.length - 3} mais</button>` : ''}</div>`;
     return `<div class="cv-scroll" id="cvs"><div class="cv-mes"><div class="cv-mes-cab">${['Seg', 'Ter', 'Qua', 'Qui', 'Sex'].map((x) => `<span>${x}</span>`).join('')}</div>
       <div class="cv-mes-grade">${'<div class="cv-mc vazio"></div>'.repeat(vazios)}${porDia.map(cel).join('')}</div></div></div>`;
   };
@@ -964,7 +964,7 @@ function renderAgenda(page) {
     const comEv = porDia.filter((x) => x.evs.length);
     return `<div class="cv-scroll" id="cvs">${comEv.length ? `<table class="cv-lista"><tbody>${comEv.map(({ d, ds, evs }) => `
       <tr class="cv-ld"><th colspan="2">${DIAS[d.getDay()]}${ds === todayStr ? ' <span class="hoje">Hoje</span>' : ''}</th><th>${fmtDate(ds)}</th></tr>
-      ${evs.map((e) => `<tr class="cv-li${e.passado ? ' ev-passado' : ''}"><td class="cv-lh">${e.hora}</td><td class="cv-lp"><i class="${e.cls.split(' ')[0]}"></i></td>
+      ${evs.map((e) => `<tr class="cv-li${e.passado || e.foi ? ' ev-passado' : ''}${e.foi ? ' cv-foi' : ''}"><td class="cv-lh">${e.hora}</td><td class="cv-lp"><i class="${e.cls.split(' ')[0]}"></i></td>
         <td>${evHtml(e)}</td></tr>`).join('')}`).join('')}</tbody></table>` : '<div class="cv-vazio">Nenhuma corrida neste período.</div>'}</div>`;
   };
 

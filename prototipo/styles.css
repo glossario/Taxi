@@ -1256,3 +1256,12 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
   .segmentado button { padding: 0 10px; }
   .cal-legenda { gap: 10px; }
 }
+/* o que já passou fica só para consulta visual: sem clique */
+.ev.ev-foi, .ev:disabled { cursor: default; pointer-events: none; }
+.ev.ev-foi:hover { filter: none; box-shadow: none; }
+.cv-dh:disabled { cursor: default; }
+.cv-dh:disabled:hover { background: none; }
+.cv-mc.cv-pass { cursor: default; background: #fafbfb; }
+.cv-mc.cv-pass:hover { background: #fafbfb; }
+.cv-mais:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+.cv-lista tr.cv-foi:hover td { background: none; }
