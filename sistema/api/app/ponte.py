@@ -1012,35 +1012,52 @@ async def decidir_token(tok: str, request: Request, tarefas: BackgroundTasks):
 
 
 # ---------------- fotos de perfil (Entra ID) ----------------
+# A foto dos colegas vem AO VIVO da conta Microsoft (e-mail) da pessoa: o servidor busca no Graph e repassa para a tela,
+# sem gravar no banco. Fica só alguns minutos na memória para a lista não pedir de novo a cada clique.
+# Precisa da permissão de aplicativo User.Read.All; sem ela a Microsoft recusa e a tela mostra as iniciais.
 _FOTO_SEM_PERMISSAO = {'ate': 0.0}
-FOTO_REPETIR = timedelta(days=7)
+_FOTO_MEMORIA = {}  # email -> (instante, (bytes, tipo) ou None)
+FOTO_MEMORIA_S = 30 * 60
+FOTO_MEMORIA_MAX = 3000
+
+
+def _foto_ao_vivo(e):
+    agora_s = time.time()
+    m = _FOTO_MEMORIA.get(e)
+    if m and agora_s - m[0] < FOTO_MEMORIA_S:
+        return m[1]
+    if e == ADMIN_EMAIL or not entra.ligado() or agora_s < _FOTO_SEM_PERMISSAO['ate']:
+        return None
+    try:
+        r = entra.foto_app(e)
+    except entra.SemPermissao:
+        _FOTO_SEM_PERMISSAO['ate'] = agora_s + 300  # permissão ainda não liberada: tenta de novo em 5 minutos
+        return None
+    except entra.ErroEntra:
+        return None
+    if len(_FOTO_MEMORIA) >= FOTO_MEMORIA_MAX:
+        _FOTO_MEMORIA.clear()
+    _FOTO_MEMORIA[e] = (agora_s, r)
+    return r
 
 
 @rota.get('/api/foto')
 def foto_pessoa(request: Request, e: str = ''):
-    """Foto de perfil de um colaborador. A da própria pessoa é gravada no login Microsoft; a dos outros vem do Graph
-    quando o aplicativo tem a permissão User.Read.All (sem ela, a tela mostra as iniciais)."""
+    """Foto de perfil cadastrada na conta Microsoft da pessoa (se ela tiver). Sem foto, a tela mostra as iniciais."""
     if not request.session.get('u'):
         return Response(status_code=401)
     e = (e or '').strip().lower()
-    sem = Response(status_code=404, headers={'Cache-Control': 'no-store'})  # sem foto: não guardar (pode aparecer no próximo login)
+    sem = Response(status_code=404, headers={'Cache-Control': 'no-store'})
     if '@' not in e or len(e) > 200:
         return sem
-    with Sessao() as s:
-        f = s.get(Foto, e)
-        vencida = f is None or (f.dados is None and (f.em is None or datetime.now(timezone.utc) - f.em > FOTO_REPETIR))
-        if vencida and e != ADMIN_EMAIL and entra.ligado() and time.time() > _FOTO_SEM_PERMISSAO['ate']:
-            try:
-                guardar_foto(s, e, entra.foto_app(e))
-                s.commit()
-                f = s.get(Foto, e)
-            except entra.SemPermissao:
-                _FOTO_SEM_PERMISSAO['ate'] = time.time() + 3600  # sem consentimento ainda: não insiste por 1 hora
-            except entra.ErroEntra:
-                pass
-        if not f or not f.dados:
-            return sem
-        return Response(f.dados, media_type=f.tipo or 'image/jpeg', headers={'Cache-Control': 'private, max-age=86400'})
+    r = _foto_ao_vivo(e)
+    if not r:  # a própria pessoa: a foto lida no login com a conta Microsoft (vale mesmo sem a permissão acima)
+        with Sessao() as s:
+            f = s.get(Foto, e)
+            r = (f.dados, f.tipo) if f and f.dados else None
+    if not r:
+        return sem
+    return Response(r[0], media_type=r[1] or 'image/jpeg', headers={'Cache-Control': 'private, max-age=3600'})
 
 
 # ---------------- gestão de usuários (só TI) ----------------
