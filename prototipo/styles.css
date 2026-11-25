@@ -1396,3 +1396,5 @@ a.vc-ic:hover { border-color: var(--green); color: var(--green-dark); }
 @media (max-width: 600px) {
   .sh-main .page-head .btn.green, .sh-main .page-head .btn.navy, .sh-main .pg-head .btn.green, .sh-main .pg-head .btn.navy, .sh-main .hero .btn-cta { width: 100%; justify-content: center; }
 }
+/* veículo travado (carro fixo do motorista): sem a seta de lista, parece um campo só de leitura */
+select.sv:disabled { -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: none; padding-right: 12px; cursor: default; opacity: 1; color: var(--ink); background-color: var(--bg); }
