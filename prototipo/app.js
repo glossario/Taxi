@@ -1575,7 +1575,7 @@ function renderPainel(page) {
       <div class="group-h"><b>${esc(fmtDay(at(c.data, '00:00')))} · ${esc(siteName(c.origem))} → ${esc(siteName(c.destino))}</b>
         <span class="tipo">${varios ? `Sugestão: ${c.rs.length} envios em 1 viagem` : 'Envio único'}</span></div>
       <ul>${c.rs.map((r) => `<li><span><b>${esc(r.id)}</b> · ${esc(r.hora)} · ${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small><br>
-          📦 ${esc(resumo(r))} → recebe: ${esc(r.recebedor)}${r.excecao ? ' · <b style="color:var(--red)">fora do prazo</b>' : ''}</span>
+          ${esc(resumo(r))} → recebe: ${esc(r.recebedor)}${r.excecao ? ' · <b style="color:var(--red)">fora do prazo</b>' : ''}</span>
           ${varios ? `<button class="btn sm red rx" data-id="${esc(r.id)}">Recusar este</button>` : ''}</li>`).join('')}</ul>
       <div class="meter"><span>Carga: <b>${c.pts}/${MOTO_CARGA} pts</b></span>${varios ? `<span>Pedidos entre <b>${horas[0]}</b> e <b>${saida}</b></span>` : ''}</div>
       <div class="assign">
