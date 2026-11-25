@@ -453,6 +453,9 @@ const ICO = {
   home: '<path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/>',
   download: '<path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 20h14"/>',
   menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  clip: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4.5V3h6v1.5M9 10h6M9 14h6M9 18h3"/>',
+  chart: '<path d="M4 4v16h16"/><path d="M8 16v-4M12 16V8M16 16v-6"/>',
   userplus: '<circle cx="10" cy="8" r="3.5"/><path d="M3 20c.8-3.8 3.6-5.8 7-5.8 1.4 0 2.7.3 3.8 1"/><path d="M18 14v6M15 17h6"/>',
 };
 const ico = (n, s = 18) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO[n]}</svg>`;
@@ -2765,15 +2768,73 @@ function renderVisao(page) {
         <tbody>${linhas.length ? linhas.map(row).join('') : `<tr><td colspan="10" class="empty">${q ? 'Nada encontrado para a busca.' : c.vazio}</td></tr>`}</tbody></table></div></div>`;
   };
 
+  // ---------- Tela principal: resumo do dia, o caminho de hoje e o que precisa do Facilities ----------
   const k = UI.vx && CATS[UI.vx] ? UI.vx : null;
+  const aba = ['hoje', 'amanha', 'semana'].includes(UI.vt) ? UI.vt : 'hoje';
+  const caminho = aba === 'hoje' ? [...agoraL, ...CATS.hoje.ls].sort(byDH) : CATS[aba].ls;
+  const confirmar = S.reqs.filter((r) => r.status === 'analise').sort(byDH); // precisa do Facilities: confirmar veículo e motorista
+  const proximas = S.reqs.filter((r) => ['confirmada', 'reagendada'].includes(r.status) && at(r.data, r.hora) > now).length;
+  const n2 = (n) => pad(n);
+  const linha = (r) => {
+    const v = veic(r.veiculo), curso = emCurso(r);
+    return `<div class="vc-li" data-id="${esc(r.id)}" tabindex="0" role="button">
+      <span class="vc-hr"><b>${esc(r.hora)}</b><small>${aba === 'hoje' ? 'Saída' : esc(diaTxt(r.data))}</small></span>
+      ${avatar(r.nome, r.email, 'vc-av')}
+      <span class="vc-c"><b>${esc(r.nome)}</b><span class="vc-r">${esc(siteName(r.origem))} <i>→</i> ${esc(siteName(r.destino))}</span>
+        <small>${ico(r.tipo === 'moto' ? 'moto' : 'car', 13)}${esc(v ? v.nome : 'Veículo a definir')} · ${esc(TIPO_CURTO[r.tipo] || '')}</small></span>
+      <span class="vc-s">${curso ? '<span class="vc-pill ok"><i></i>Em andamento</span>' : `<span class="vc-pill">${esc(r.status === 'confirmada' ? 'Agendada' : STATUS[r.status])}</span>`}</span>
+      <span class="vc-go">${ico('right', 16)}</span></div>`;
+  };
+  const pessoas = [...new Map(confirmar.map((r) => [r.email || r.nome, r])).values()];
+  const atalho = (x, ic, tit, sub, n) => `<button class="vc-at" data-x="${x}"><span class="vc-ai">${ico(ic, 18)}</span><span><b>${tit}</b><small>${sub}</small></span>${n !== undefined ? `<span class="vc-an">${n}</span>` : ''}<span class="vc-go">${ico('arrow', 16)}</span></button>`;
   shell(page, k ? expandida(k) : `
-    <div class="vg-head">
-      <div><span class="eyebrow">Facilities · tudo em uma tela</span><h1>Visão geral</h1></div>
-      <div class="vg-meta"><span>${esc(DIAS[now.getDay()])}, ${fmtDate(hoje)} · ${pad(now.getHours())}:${pad(now.getMinutes())}</span>
-        <span class="lbl">Clique no título de uma caixa para ver tudo · aprovações vêm do gestor imediato (AD simulado)</span>
-        <a class="btn sm" href="#painel">Abrir Confirmação de viagens</a></div>
+    <div class="vc-topo">
+      <div><span class="vc-eye">Seu dia, em um só lugar</span><h1 class="vc-t">Visão geral<span>.</span></h1>
+        <p class="vc-sub">Menos detalhes. Mais clareza para seguir em frente.</p></div>
+      <button class="vc-novo" id="vcnovo">${ico('plus', 18)} Nova solicitação</button>
     </div>
-    <div class="vgrid">${['agora', 'hoje', 'amanha', 'semana', 'aprov', 'ret', 'canc'].map(painel).join('')}</div>`);
+    <section class="vc-card vc-kpis">
+      <div class="vc-dia"><span class="vc-ic">${ico('cal', 20)}</span><span><b>${esc(DIAS[now.getDay()])}${isWeekday(now) ? '-feira' : ''}, ${now.getDate()} de ${esc(MESES[now.getMonth()])}</b><small>Um olhar rápido para a sua operação.</small></span></div>
+      <button class="vc-k" data-x="agora"><b>${n2(agoraL.length)}${agoraL.length ? '<i class="vc-vivo"></i>' : ''}</b><small>Em andamento</small></button>
+      <button class="vc-k" data-x="semana"><b>${n2(proximas)}</b><small>Próximas viagens ${ico('arrow', 13)}</small></button>
+      <a class="vc-k" href="#painel"><b>${n2(confirmar.length)}${confirmar.length ? '<span class="vc-tag">Ação necessária</span>' : ''}</b><small>Aguardando confirmação ${ico('arrow', 13)}</small></a>
+    </section>
+    <div class="vc-grade">
+      <section class="vc-card vc-cam">
+        <div class="vc-cam-h">
+          <div><h2>O caminho ${aba === 'hoje' ? 'de hoje' : aba === 'amanha' ? 'de amanhã' : 'da semana'}</h2><p>As próximas paradas da sua operação.</p></div>
+          <a class="vc-ic" href="#viagens" title="Abrir Viagens">${ico('cal', 18)}</a>
+        </div>
+        <div class="vc-cam-f">
+          <div class="vc-tabs">${[['hoje', 'Hoje'], ['amanha', 'Amanhã'], ['semana', 'Semana']].map(([kk, l]) => `<button class="${aba === kk ? 'on' : ''}" data-vt="${kk}">${l}</button>`).join('')}</div>
+          <small>${caminho.length} ${caminho.length === 1 ? 'viagem programada' : 'viagens programadas'}</small>
+        </div>
+        <div class="vc-lista">${caminho.length ? caminho.slice(0, 6).map(linha).join('') : `<div class="vc-vazio">${CATS[aba].vazio}</div>`}</div>
+        <button class="vc-mais" data-x="${aba}">Ver agenda completa ${ico('arrow', 14)}</button>
+      </section>
+      <div class="vc-lado">
+        <section class="vc-card vc-precisa">
+          <div class="vc-ph"><span class="vc-ic">${ico('clip', 18)}</span><span class="vc-eye">Precisa de você</span><i></i></div>
+          ${confirmar.length ? `<h2>Uma pausa para destravar o caminho.</h2>
+            <p>Você tem <b>${confirmar.length} ${confirmar.length === 1 ? 'solicitação' : 'solicitações'}</b> aguardando confirmação. Vamos dar o próximo passo?</p>
+            <div class="vc-pess">${pessoas.slice(0, 3).map((r) => avatar(r.nome, r.email, 'vc-av sm')).join('')}<small>${esc(pessoas[0].nome.split(' ')[0])}${pessoas.length > 1 ? ` e mais ${pessoas.length - 1} ${pessoas.length === 2 ? 'pessoa' : 'pessoas'}` : ''}</small></div>
+            <a class="vc-rev" href="#painel">Revisar solicitações ${ico('arrow', 16)}</a>`
+          : `<h2>Tudo em dia por aqui.</h2><p>Nenhuma solicitação aguardando confirmação do Facilities.</p>`}
+        </section>
+        <section class="vc-card vc-ats">
+          ${atalho('aprov', 'users', 'Em aprovação', 'aguardando o gestor imediato', CATS.aprov.ls.length)}
+          ${atalho('ret', 'mail', 'Retornos de aprovação', 'respostas dos gestores', CATS.ret.ls.length)}
+          ${atalho('canc', 'x', 'Canceladas e recusadas', 'desta semana em diante', CATS.canc.ls.length)}
+          <a class="vc-at" href="#custos"><span class="vc-ai">${ico('chart', 18)}</span><span><b>Uma visão mais completa</b><small>Explore os custos da operação</small></span><span class="vc-go">${ico('arrow', 16)}</span></a>
+        </section>
+      </div>
+    </div>`);
+  document.querySelectorAll('[data-vt]').forEach((b) => { b.onclick = () => { UI.vt = b.dataset.vt; route(); }; });
+  document.querySelectorAll('.vc-li').forEach((el) => {
+    el.onclick = () => openDetalhe(el.dataset.id);
+    el.onkeydown = (e) => { if (e.key === 'Enter') openDetalhe(el.dataset.id); };
+  });
+  const novoB = $('#vcnovo'); if (novoB) novoB.onclick = openAvulsa;
 
   // ---------- eventos ----------
   document.querySelectorAll('[data-x]').forEach((b) => { b.onclick = () => { UI.vx = b.dataset.x; UI.vq = ''; route(); window.scrollTo && window.scrollTo(0, 0); }; });
