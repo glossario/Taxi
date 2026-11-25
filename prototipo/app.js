@@ -859,88 +859,122 @@ function ligarReserva() {
   const cg = $('#rscgt'); if (cg) cg.oninput = () => { res.cargaTxt = cg.value; };
 }
 
+// Agenda em formato de calendário (Mês · Semana · Dia · Lista): horários fixos da grade + as minhas solicitações.
+// Versão anterior (cartões por dia) guardada em taxi/backup-agenda-antes-calendario e na tag git agenda-antes-calendario.
+const CV_MIN = 1.2;      // pixels por minuto na grade de horas (30 min = 36 px)
+const CV_DUR = 35;       // altura de cada corrida na grade, em minutos (os horários fixos ficam a 35–50 min uns dos outros)
+const CV_COR = (st) => (['gestor', 'analise'].includes(st) ? 'pendente' : ['confirmada', 'reagendada', 'andamento'].includes(st) ? 'aprovada'
+  : st === 'concluida' ? 'realizada' : st === 'recusada' ? 'recusada' : 'cancelada');
+const minDe = (h) => { const [a, b] = String(h).split(':').map(Number); return a * 60 + (b || 0); };
+
 function renderAgenda(page) {
-  const hojeD = new Date();
-  let days, navTit, navTxt;
-  if (UI.faixa === 'dia') {
+  const hojeD = new Date(), todayStr = ymd(hojeD);
+  if (!UI.cv) UI.cv = (typeof innerWidth === 'number' && innerWidth < 720) ? 'lista' : 'semana';
+  if (UI.fixos === undefined) UI.fixos = true;
+  if (UI.minhas === undefined) UI.minhas = true;
+  let days, titulo;
+  if (UI.cv === 'dia') {
     const d = UI.dia ? at(UI.dia, '00:00') : proxUtil(hojeD);
     days = [d];
-    navTit = ymd(d) === ymd(hojeD) ? 'Hoje' : 'Dia';
-    navTxt = `${DIAS[d.getDay()]}, ${pad(d.getDate())} de ${MESES[d.getMonth()]}`;
-  } else if (UI.faixa === 'mes') {
+    titulo = `${DIAS[d.getDay()]}, ${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
+  } else if (UI.cv === 'mes') {
     const m0 = new Date(hojeD.getFullYear(), hojeD.getMonth() + UI.mes, 1);
     days = [];
     for (let d = m0; d.getMonth() === m0.getMonth(); d = addDays(d, 1)) if (isWeekday(d)) days.push(d);
-    navTit = UI.mes === 0 ? 'Mês atual' : UI.mes < 0 ? 'Mês anterior' : 'Próximo mês';
-    navTxt = `${MESES[m0.getMonth()].replace(/^./, (c) => c.toUpperCase())} de ${m0.getFullYear()}`;
+    titulo = `${MESES[m0.getMonth()].replace(/^./, (c) => c.toUpperCase())} de ${m0.getFullYear()}`;
   } else {
     const base = addDays(mondayOf(hojeD), S.week * 7);
     days = [0, 1, 2, 3, 4].map((i) => addDays(base, i));
-    navTit = S.week === 0 ? 'Semana atual' : S.week < 0 ? 'Semana anterior' : 'Próxima semana';
-    navTxt = weekLabel(days[0], days[4]);
+    titulo = weekLabel(days[0], days[4]);
   }
   const min = minAllowedGrade();
   const off = offHoursTarget();
-  const todayStr = ymd(new Date());
   const mine = S.reqs.filter((r) => r.email === S.user.email);
-  const g = grade().filter((s) => UI.per === 'todos' || periodo(s.hora) === UI.per);
+  const minhasTodas = S.reqs.filter(meuPedido);
+  const noPer = (h) => UI.per === 'todos' || periodo(h) === UI.per;
+  const g = grade().filter((s) => noPer(s.hora));
   if (UI.sel && !days.some((d) => ymd(d) === UI.sel.d)) UI.sel = null;
-
   const novas = minhasMsgs().filter((e) => !e.lida);
+  const agora = new Date();
 
-  const card = (ds, s) => {
-    const i = slotInfo(ds, s, min, mine);
-    const sel = UI.sel && UI.sel.d === ds && UI.sel.h === s.hora;
-    const p = s.paradas, via = p.slice(1, -1).map(curto).join(', ');
-    return `<button class="sc s-${i.cls}${sel ? ' sel' : ''}" data-d="${ds}" data-h="${s.hora}" title="${esc(rotaTxt(p))}">
-      <span class="sc-top"><span class="t">${s.hora}</span>${i.my ? `<span class="tag">${esc(i.lbl)}</span>` : `<span class="vg">${ico('users', 14)}${vagasTxt(i.livres)}</span>`}</span>
-      <span class="sc-r"><span>${esc(curto(p[0]))}</span> <span><i>→</i> ${esc(curto(p[p.length - 1]))}</span></span>
-      <span class="sc-m"><span>${via ? `via ${esc(via)}` : 'direto'}</span><span>${i.veic}</span></span>
-      <span class="bar"><i style="width:${i.pct}%"></i></span></button>`;
-  };
-  const aberto = (ds, s) => slotInfo(ds, s, min, mine).cls !== 'indisp'; // a viagem já marcada pela pessoa continua aparecendo
-  const col = (d) => {
-    const ds = ymd(d), hoje = ds === todayStr;
-    const vis = g.filter((s) => aberto(ds, s)); // horário que já passou (não dá mais para solicitar) some da agenda
-    const encerrado = g.length && !vis.length;
-    let html = `<section class="day${hoje ? ' today' : ''}${encerrado ? ' encerrado' : ''}"><div class="day-h"><b>${DIAS[d.getDay()]}</b>${hoje ? '<span class="hoje">Hoje</span>' : ''}<small>${pad(d.getDate())} ${MESES[d.getMonth()].slice(0, 3)}</small></div><div class="day-b">`;
-    if (!g.length) html += '<div class="empty">Nenhum horário.</div>';
-    ['Manhã', 'Tarde', 'Noite'].forEach((per) => {
-      const ss = vis.filter((s) => periodo(s.hora) === per);
-      if (!ss.length) return;
-      html += `<div class="per"><span>${per}</span><small>${ss.length} ${ss.length === 1 ? 'horário' : 'horários'}</small></div>${ss.map((s) => card(ds, s)).join('')}`;
+  // ---- eventos de um dia: horários fixos (clicar abre o painel do horário) e minhas solicitações (clicar abre o pedido)
+  const eventosDo = (ds) => {
+    const out = [], ja = new Set();
+    if (UI.fixos) g.forEach((s) => {
+      const i = slotInfo(ds, s, min, mine), p = s.paradas;
+      if (i.my) ja.add(i.my.id);
+      const sel = UI.sel && UI.sel.d === ds && UI.sel.h === s.hora;
+      out.push({ hora: s.hora, titulo: `${curto(p[0])} → ${curto(p[p.length - 1])}`, rota: rotaTxt(p),
+        cls: i.my ? `ev-${CV_COR(i.my.status)}` : 'ev-fixo', passado: i.cls === 'indisp' && !i.my, sel,
+        sub: i.my ? `Minha viagem · ${STATUS[i.my.status]}` : `${i.occ}/${i.cap} lugares`, attr: `data-d="${ds}" data-h="${s.hora}"` });
     });
-    return html + '</div></section>';
+    if (UI.minhas) minhasTodas.filter((r) => r.data === ds && !ja.has(r.id) && noPer(r.hora)).forEach((r) => {
+      const m = mot(r.motorista), st = CV_COR(r.status);
+      out.push({ hora: r.hora, titulo: `${curto(r.origem)} → ${curto(r.destino)}`, rota: `${siteName(r.origem)} → ${siteName(r.destino)}`,
+        cls: `ev-${st}${['recusada', 'cancelada'].includes(st) ? ' ev-riscado' : ''}`, passado: at(r.data, r.hora) < agora,
+        sub: [r.tipo === 'moto' ? 'Mototáxi' : r.tipo === 'grade' ? '' : 'Táxi', STATUS[r.status], m && m.nome].filter(Boolean).join(' · '), attr: `data-req="${esc(r.id)}"` });
+    });
+    return out.sort((a, b) => a.hora.localeCompare(b.hora));
   };
-  const lista = () => `<div class="card lst-wrap"><div class="table-wrap"><table class="lst"><thead><tr><th>Dia</th><th>Horário</th><th>Rota</th><th>Vagas</th><th>Situação</th></tr></thead><tbody>
-    ${days.map((d) => g.filter((s) => aberto(ymd(d), s)).map((s) => {
-      const ds = ymd(d), i = slotInfo(ds, s, min, mine), sel = UI.sel && UI.sel.d === ds && UI.sel.h === s.hora;
-      return `<tr class="sc s-${i.cls}${sel ? ' sel' : ''}" data-d="${ds}" data-h="${s.hora}" tabindex="0"><td>${DIAS[d.getDay()]} <small>${fmtDate(ds)}</small></td><td><b>${s.hora}</b></td>
-        <td>${esc(s.paradas.map(curto).join(' → '))}</td><td>${vagasTxt(i.livres)}</td><td><span class="sp sp-${i.cls}"><i></i>${esc(i.lbl)}</span></td></tr>`;
-    }).join('')).join('')}</tbody></table></div></div>`;
-  // Mês: um quadradinho por dia útil com o que ainda dá para solicitar; clicar abre o dia
-  const mesGrid = () => {
-    const vazios = (days[0].getDay() + 6) % 7; // segunda = 0
-    const cel = (d) => {
-      const ds = ymd(d), vis = g.filter((s) => aberto(ds, s));
-      const meus = mine.filter((r) => r.tipo === 'grade' && r.data === ds && ATIVOS.includes(r.status)).length;
-      const vagas = vis.reduce((n, s) => n + slotInfo(ds, s, min, mine).livres, 0);
-      const enc = g.length && !vis.length;
-      return `<button class="mc${ds === todayStr ? ' today' : ''}${enc ? ' encerrado' : ''}" data-dia="${ds}">
-        <span class="mc-d">${pad(d.getDate())}${ds === todayStr ? ' <span class="hoje">Hoje</span>' : ''}</span>
-        ${enc ? '<small>Encerrado</small>' : `<b>${vis.length} ${vis.length === 1 ? 'horário' : 'horários'}</b><small>${vagasTxt(vagas)}</small>`}
-        ${meus ? `<span class="tag">${meus} ${meus === 1 ? 'minha viagem' : 'minhas viagens'}</span>` : ''}</button>`;
+  const evCls = (e) => `ev ${e.cls}${e.passado ? ' ev-passado' : ''}${e.sel ? ' ev-sel' : ''}`;
+  const evHtml = (e, estilo = '') => `<button type="button" class="${evCls(e)}" ${e.attr} title="${esc(e.rota)}"${estilo ? ` style="${estilo}"` : ''}>
+      <span class="ev-linha"><b>${e.hora}</b><small>${esc(e.sub)}</small></span><span class="ev-titulo">${esc(e.titulo)}</span></button>`;
+  const porDia = days.map((d) => ({ d, ds: ymd(d), evs: eventosDo(ymd(d)) }));
+  const cabDia = (d, ds, curto2) => `<button type="button" class="cv-dh${ds === todayStr ? ' cv-hj' : ''}" data-dia="${ds}">${curto2 ? DIAS[d.getDay()].slice(0, 3) : DIAS[d.getDay()]}<b>${pad(d.getDate())}/${pad(d.getMonth() + 1)}</b></button>`;
+
+  // ---- Semana / Dia: grade de horas
+  const gradeHoras = () => {
+    const todosMin = porDia.flatMap((x) => x.evs.map((e) => minDe(e.hora)));
+    const h0 = Math.max(0, Math.min(6, ...todosMin.map((m) => Math.floor(m / 60))));
+    const h1 = Math.min(24, Math.max(19, ...todosMin.map((m) => Math.ceil((m + CV_DUR) / 60))));
+    const alt = (h1 - h0) * 60 * CV_MIN;
+    const rotulos = Array.from({ length: h1 - h0 }, (_, i) => `<span style="top:${i * 60 * CV_MIN}px">${pad(h0 + i)}:00</span>`).join('');
+    const coluna = ({ ds, evs }) => {
+      // corridas no mesmo horário ficam lado a lado
+      const lay = evs.map((e) => ({ e, ini: minDe(e.hora) }));
+      let cols = [], grupo = [], fimG = -1;
+      const fecha = () => { grupo.forEach((x) => { x.n = cols.length; }); cols = []; grupo = []; fimG = -1; };
+      lay.forEach((x) => {
+        if (x.ini >= fimG) fecha();
+        let c = cols.findIndex((f) => f <= x.ini);
+        if (c < 0) { c = cols.length; cols.push(0); }
+        cols[c] = x.ini + CV_DUR; x.c = c; grupo.push(x); fimG = Math.max(fimG, x.ini + CV_DUR);
+      });
+      fecha();
+      const agoraMin = agora.getHours() * 60 + agora.getMinutes();
+      const linhaAgora = ds === todayStr && agoraMin >= h0 * 60 && agoraMin <= h1 * 60 ? `<i class="cv-agora" style="top:${(agoraMin - h0 * 60) * CV_MIN}px"></i>` : '';
+      return `<div class="cv-col${ds === todayStr ? ' cv-hj' : ''}">${lay.map((x) => evHtml(x.e,
+        `top:${(x.ini - h0 * 60) * CV_MIN}px;height:${CV_DUR * CV_MIN - 2}px;left:calc(${(100 / x.n) * x.c}% + 2px);width:calc(${100 / x.n}% - 4px)`)).join('')}${linhaAgora}</div>`;
     };
-    return `<div class="mes">${['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta'].map((x) => `<div class="mes-h">${x}</div>`).join('')}
-      ${'<div></div>'.repeat(vazios)}${days.map(cel).join('')}</div>`;
+    return `<div class="cv-scroll" id="cvs"><div class="cv-tg${days.length === 1 ? ' um' : ''}" style="--cols:${days.length}">
+      <div class="cv-cab"><span></span>${porDia.map(({ d, ds }) => cabDia(d, ds)).join('')}</div>
+      <div class="cv-corpo" style="height:${alt}px"><div class="cv-horas">${rotulos}</div>${porDia.map(coluna).join('')}</div></div></div>`;
   };
-  const seg = (k, l) => `<button class="seg-b${UI.per === k ? ' on' : ''}" data-per="${k}">${l}</button>`;
-  const segF = (k, l) => `<button class="seg-b${UI.faixa === k ? ' on' : ''}" data-faixa="${k}">${l}</button>`;
+  // ---- Mês: um quadro por dia útil, até 3 corridas e "+N mais"
+  const gradeMes = () => {
+    const vazios = (days[0].getDay() + 6) % 7;
+    const cel = ({ d, ds, evs }) => `<div class="cv-mc${ds === todayStr ? ' cv-hj' : ''}" data-dia="${ds}">
+        <span class="cv-mn">${d.getDate()}</span>${evs.slice(0, 3).map((e) => evHtml(e)).join('')}
+        ${evs.length > 3 ? `<button type="button" class="cv-mais" data-dia="${ds}">+${evs.length - 3} mais</button>` : ''}</div>`;
+    return `<div class="cv-scroll" id="cvs"><div class="cv-mes"><div class="cv-mes-cab">${['Seg', 'Ter', 'Qua', 'Qui', 'Sex'].map((x) => `<span>${x}</span>`).join('')}</div>
+      <div class="cv-mes-grade">${'<div class="cv-mc vazio"></div>'.repeat(vazios)}${porDia.map(cel).join('')}</div></div></div>`;
+  };
+  // ---- Lista: a semana agrupada por dia
+  const lista = () => {
+    const comEv = porDia.filter((x) => x.evs.length);
+    return `<div class="cv-scroll" id="cvs">${comEv.length ? `<table class="cv-lista"><tbody>${comEv.map(({ d, ds, evs }) => `
+      <tr class="cv-ld"><th colspan="2">${DIAS[d.getDay()]}${ds === todayStr ? ' <span class="hoje">Hoje</span>' : ''}</th><th>${fmtDate(ds)}</th></tr>
+      ${evs.map((e) => `<tr class="cv-li${e.passado ? ' ev-passado' : ''}"><td class="cv-lh">${e.hora}</td><td class="cv-lp"><i class="${e.cls.split(' ')[0]}"></i></td>
+        <td>${evHtml(e)}</td></tr>`).join('')}`).join('')}</tbody></table>` : '<div class="cv-vazio">Nenhuma corrida neste período.</div>'}</div>`;
+  };
+
+  const segP = (k, l) => `<button class="seg-b${UI.per === k ? ' on' : ''}" data-per="${k}">${l}</button>`;
+  const segV = (k, l) => `<button aria-pressed="${UI.cv === k}" data-cv="${k}">${l}</button>`;
 
   shell(page, `
     <div class="hero">
       <div><span class="eyebrow">Mobilidade corporativa</span><h1>Olá, ${esc(S.user.nome)}</h1>
-        <p>Encontre um horário, confira os detalhes da rota e solicite sua vaga.</p></div>
+        <p>Horários fixos e as suas corridas. Clique num horário para ver a rota, as vagas e solicitar.</p></div>
       <button class="btn-cta inline" id="avulsa">${ico('plus', 18)} Solicitação avulsa</button>
     </div>
     ${novas.length ? `<div class="notif">
@@ -949,44 +983,62 @@ function renderAgenda(page) {
       ${novas.slice(0, 3).map((e) => `<button class="mail-row nova k-${e.kind || 'ok'}" data-em="${esc(e.id)}"><i></i><span><b>${esc(e.assunto)}</b><small>${esc(e.quando)} · ${esc(e.refs.join(', '))}</small></span><span class="lnk">Abrir</span></button>`).join('')}
     </div>` : ''}
     ${off ? `<div class="banner warn">${ico('clock', 18)}<div><b>Fora do expediente do Facilities.</b> Solicitações da grade feitas agora vão para o <b>2º horário do próximo dia útil: ${esc(fmtDT(off.data, off.hora))}</b>.</div></div>` : ''}
-    <div class="toolbar">
-      <div class="wk">
-        <button class="icon-btn" id="prev" aria-label="Anterior">${ico('left')}</button>
-        <div class="wk-box">${ico('cal', 18)}<span><small>${navTit}</small><b>${navTxt}</b></span></div>
-        <button class="icon-btn" id="next" aria-label="Próximo">${ico('right')}</button>
-        <button class="btn" id="hoje">Hoje</button>
-      </div>
-      <div class="wk">
-        <span class="lbl">${ico('filter', 16)} Período</span>
-        <div class="seg">${seg('todos', 'Todos')}${seg('Manhã', 'Manhã')}${seg('Tarde', 'Tarde')}</div>
-        <div class="seg">${segF('dia', 'Dia')}${segF('semana', 'Semana')}${segF('mes', 'Mês')}</div>
-        <div class="seg view"><button class="seg-b${UI.view === 'grade' ? ' on' : ''}" data-view="grade" aria-label="Ver em grade">${ico('grid', 16)}</button><button class="seg-b${UI.view === 'lista' ? ' on' : ''}" data-view="lista" aria-label="Ver em lista">${ico('list', 16)}</button></div>
-      </div>
-    </div>
     <div class="ag-body">
-      <div class="ag-main">${UI.view !== 'grade' ? lista() : UI.faixa === 'mes' ? mesGrid() : `<div class="cal-scroll"><div class="week${UI.faixa === 'dia' ? ' um' : ''}">${days.map(col).join('')}</div></div>`}</div>
+      <div class="ag-main cal-card">
+        <div class="cal-barra">
+          <div class="cal-nav">
+            <button class="btn" id="hoje">Hoje</button>
+            <button class="icon-btn" id="prev" aria-label="Anterior">${ico('left')}</button>
+            <button class="icon-btn" id="next" aria-label="Próximo">${ico('right')}</button>
+            <h2>${esc(titulo)}</h2>
+          </div>
+          <div class="segmentado">${segV('mes', 'Mês')}${segV('semana', 'Semana')}${segV('dia', 'Dia')}${segV('lista', 'Lista')}</div>
+        </div>
+        <div class="cal-filtros">
+          <label class="check"><input type="checkbox" id="cvfix" ${UI.fixos ? 'checked' : ''}> <span>Horários fixos</span></label>
+          <label class="check"><input type="checkbox" id="cvmin" ${UI.minhas ? 'checked' : ''}> <span>Minhas solicitações</span></label>
+          <div class="seg">${segP('todos', 'Todos')}${segP('Manhã', 'Manhã')}${segP('Tarde', 'Tarde')}</div>
+          <div class="cal-legenda">
+            <span><i class="ev-fixo"></i>Horário fixo</span><span><i class="ev-pendente"></i>Pendente</span><span><i class="ev-aprovada"></i>Aprovada</span>
+            <span><i class="ev-realizada"></i>Realizada</span><span><i class="ev-recusada"></i>Recusada</span><span><i class="ev-cancelada"></i>Cancelada</span>
+          </div>
+        </div>
+        ${UI.cv === 'mes' ? gradeMes() : UI.cv === 'lista' ? lista() : gradeHoras()}
+      </div>
       ${UI.sel ? `<div class="det-fundo" id="detf"></div><aside class="det gaveta" id="det" role="dialog" aria-label="Detalhes do horário">${painelSlot(UI.sel, min, mine)}</aside>` : ''}
     </div>`);
 
+  // rolagem da grade: mantém onde a pessoa estava quando a tela redesenha (clique, atualização a cada minuto)
+  const cvs = $('#cvs');
+  if (cvs) {
+    const k = `${UI.cv}|${days.length && ymd(days[0])}`;
+    if (UI.cvY && UI.cvY.k === k) cvs.scrollTop = UI.cvY.y;
+    cvs.onscroll = () => { UI.cvY = { k, y: cvs.scrollTop }; };
+  }
   const andar = (n) => {
-    if (UI.faixa === 'dia') { const d = proxUtil(addDays(days[0], n), n); UI.dia = ymd(d); route(); }
-    else if (UI.faixa === 'mes') { UI.mes += n; route(); }
+    if (UI.cv === 'dia') { const d = proxUtil(addDays(days[0], n), n); UI.dia = ymd(d); route(); }
+    else if (UI.cv === 'mes') { UI.mes += n; route(); }
     else { S.week += n; save(); route(); }
   };
+  const abreDia = (ds) => { UI.cv = 'dia'; UI.dia = ds; route(); };
   $('#prev').onclick = () => andar(-1);
   $('#next').onclick = () => andar(1);
   $('#hoje').onclick = () => { S.week = 0; UI.dia = null; UI.mes = 0; save(); route(); };
-  document.querySelectorAll('[data-faixa]').forEach((b) => { b.onclick = () => { UI.faixa = b.dataset.faixa; route(); }; });
-  document.querySelectorAll('.mc').forEach((b) => { b.onclick = () => { UI.faixa = 'dia'; UI.dia = b.dataset.dia; route(); }; });
+  document.querySelectorAll('[data-cv]').forEach((b) => { b.onclick = () => {
+    const v = b.dataset.cv;
+    if (v === 'dia' && UI.cv !== 'dia') UI.dia = ymd(days.some((d) => ymd(d) === todayStr) ? hojeD : days[0]);
+    if (v === 'semana' || v === 'lista') { if (UI.cv === 'dia' && UI.dia) { S.week = Math.round((mondayOf(at(UI.dia, '12:00')) - mondayOf(hojeD)) / 6048e5); save(); } }
+    UI.cv = v; route();
+  }; });
+  document.querySelectorAll('.cv-dh, .cv-mais').forEach((b) => { b.onclick = () => abreDia(b.dataset.dia); });
+  document.querySelectorAll('.cv-mc[data-dia]').forEach((c) => { c.onclick = (e) => { if (!e.target.closest('.ev')) abreDia(c.dataset.dia); }; });
+  $('#cvfix').onchange = (e) => { UI.fixos = e.target.checked; route(); };
+  $('#cvmin').onchange = (e) => { UI.minhas = e.target.checked; route(); };
   $('#avulsa').onclick = openAvulsa;
   document.querySelectorAll('[data-per]').forEach((b) => { b.onclick = () => { UI.per = b.dataset.per; route(); }; });
-  document.querySelectorAll('[data-view]').forEach((b) => { b.onclick = () => { UI.view = b.dataset.view; route(); }; });
   document.querySelectorAll('.notif .mail-row').forEach((b) => { b.onclick = () => openEmail(b.dataset.em); });
-  const pick = (el) => { UI.sel = { d: el.dataset.d, h: el.dataset.h }; route(); };
-  document.querySelectorAll('.sc').forEach((el) => {
-    el.onclick = () => pick(el);
-    el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(el); } };
-  });
+  document.querySelectorAll('.ev[data-h]').forEach((el) => { el.onclick = () => { UI.sel = { d: el.dataset.d, h: el.dataset.h }; route(); }; });
+  document.querySelectorAll('.ev[data-req]').forEach((el) => { el.onclick = () => openDetalhe(el.dataset.req); });
   const go = $('#go');
   if (go) go.onclick = () => { // com solicitação ativa, openSlot abre o detalhe dela
     const res = UI.res && UI.res.k === `${UI.sel.d}|${UI.sel.h}` ? UI.res : null;
