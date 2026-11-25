@@ -1365,3 +1365,34 @@ a.vc-ic:hover { border-color: var(--green); color: var(--green-dark); }
   .vc-li .vc-av, .vc-li .vc-s { display: none; }
   .vc-tag { display: none; }
 }
+
+/* ---------- Padrão visual da Visão geral aplicado às demais telas ---------- */
+.sh-main .page-head, .sh-main .pg-head, .sh-main .hero { align-items: flex-end; margin: 6px 0 22px; }
+.sh-main .eyebrow, .sh-main .crumb { font-size: 10.5px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted); }
+.sh-main .crumb b { color: var(--muted); font-weight: 800; }
+.sh-main .crumb .ico { width: 10px; height: 10px; }
+.sh-main .page-head h1, .sh-main .pg-head h1, .sh-main .hero h1 { margin: 6px 0 4px; font-size: 34px; font-weight: 800; letter-spacing: -.5px; line-height: 1.15; color: var(--navy-ink); }
+.sh-main .page-head h1::after, .sh-main .pg-head h1::after, .sh-main .hero h1::after { content: '.'; color: var(--green); }
+.sh-main .page-head p, .sh-main .pg-head p, .sh-main .hero p { font-size: 14px; color: var(--muted); }
+/* botão principal do cabeçalho */
+.sh-main .page-head .btn.green, .sh-main .page-head .btn.navy, .sh-main .pg-head .btn.green, .sh-main .pg-head .btn.navy, .sh-main .hero .btn-cta {
+  height: 46px; padding: 0 22px; border: 0; border-radius: 10px; background: var(--green-dark); color: #fff; font-weight: 800; font-size: 14px;
+  display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 6px 14px rgba(74, 131, 20, .22); width: auto; }
+.sh-main .page-head .btn.green:hover, .sh-main .page-head .btn.navy:hover, .sh-main .pg-head .btn.green:hover, .sh-main .pg-head .btn.navy:hover, .sh-main .hero .btn-cta:hover { background: #3d6e10; }
+.sh-main .page-head .btn:not(.green):not(.navy), .sh-main .pg-head .btn:not(.green):not(.navy) { height: 46px; border-radius: 10px; }
+/* cartões, faixas de números e barras de filtro */
+.sh-main .card, .sh-main .toolbar, .sh-main .cal-card, .sh-main .vp, .sh-main .vx-card { border-radius: 16px; border: 1px solid var(--line); }
+.sh-main .stat { border-radius: 16px; padding: 20px 22px; }
+.sh-main .stat b { font-size: 30px; font-weight: 800; }
+.sh-main .section-t { font-size: 18px; font-weight: 800; color: var(--navy-ink); }
+.sh-main .mini-kpis .mk { border-radius: 14px; }
+/* tabelas mais leves */
+.sh-main th { font-size: 10.5px; font-weight: 800; letter-spacing: 1.2px; color: var(--muted); border-bottom: 1px solid var(--line); padding: 12px 10px; }
+.sh-main td { padding: 14px 10px; }
+.sh-main tbody tr:hover td { background: #f8faf6; }
+@media (max-width: 900px) {
+  .sh-main .page-head h1, .sh-main .pg-head h1, .sh-main .hero h1 { font-size: 28px; }
+}
+@media (max-width: 600px) {
+  .sh-main .page-head .btn.green, .sh-main .page-head .btn.navy, .sh-main .pg-head .btn.green, .sh-main .pg-head .btn.navy, .sh-main .hero .btn-cta { width: 100%; justify-content: center; }
+}

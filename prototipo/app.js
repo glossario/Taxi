@@ -542,6 +542,9 @@ function shell(page, content) {
         <main>${content}</main>
       </div>
     </div>`;
+  // Mesmo cabeçalho em todas as telas (padrão da Visão geral): etiqueta do grupo do menu acima do título
+  const cab = document.querySelector('main .page-head > div:first-child, main .pg-head > div:first-child, main .hero > div:first-child');
+  if (cab && !cab.querySelector('.eyebrow, .crumb, .vc-eye')) cab.insertAdjacentHTML('afterbegin', `<span class="vc-eye">${esc(NAV_GRUPO[page] || 'Mobilab')}</span>`);
   const sh = $('#appsh'), rec = $('#rec');
   if (rec) {
   const marca = () => { const m = sh.classList.contains('mini'); rec.title = m ? 'Expandir menu' : 'Recolher menu'; rec.setAttribute('aria-label', rec.title); rec.setAttribute('aria-expanded', String(!m)); };
