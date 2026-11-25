@@ -521,6 +521,7 @@ function shell(page, content) {
         </div>
         <nav class="lado-nav">${itens}
           <div class="lado-sec">Suporte</div>
+          <a href="#" id="lbell" title="Mensagens do Facilities">${ico('bell', 20)}<span class="t">Mensagens</span>${nNovas ? `<span class="count">${nNovas}</span>` : ''}</a>
           <a href="#" id="ajuda" title="Ajuda">${ico('info', 20)}<span class="t">Ajuda</span></a></nav>
         ${eu}
       </aside>
@@ -546,8 +547,9 @@ function shell(page, content) {
   const fechaLado = () => sh.classList.remove('lado-on');
   $('#ladoabre').onclick = () => sh.classList.add('lado-on');
   $('#ladofundo').onclick = fechaLado;
-  $('#lado').querySelectorAll('.lado-nav a[href^="#"]:not(#ajuda)').forEach((a) => a.addEventListener('click', fechaLado));
+  $('#lado').querySelectorAll('.lado-nav a[href^="#"]:not(#ajuda):not(#lbell)').forEach((a) => a.addEventListener('click', fechaLado));
   $('#ajuda').onclick = (e) => { e.preventDefault(); fechaLado(); openAjuda(); };
+  $('#lbell').onclick = (e) => { e.preventDefault(); fechaLado(); openCaixa(); };
   }
   $('#bell').onclick = openCaixa;
   $('#umenu').onclick = () => { const m = $('#menu'); m.hidden = !m.hidden; $('#umenu').setAttribute('aria-expanded', String(!m.hidden)); };

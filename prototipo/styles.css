@@ -1265,3 +1265,8 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
 .cv-mc.cv-pass:hover { background: #fafbfb; }
 .cv-mais:disabled { color: var(--muted); cursor: default; text-decoration: none; }
 .cv-lista tr.cv-foi:hover td { background: none; }
+/* com o menu lateral, a barra branca do topo some no computador (mais espaço para a tela); o sino fica no menu, em "Mensagens".
+   No celular a barra continua: é nela que fica o botão que abre o menu. */
+@media (min-width: 901px) {
+  .app-sh:not(.sem-lado) .sh-main .topbar { display: none; }
+}
