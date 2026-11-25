@@ -1492,12 +1492,38 @@ function vehicleOptions(tipo, pax, bagPts, data, hora, ignoreIds, dur) {
     return `<option value="${v.id}" ${!fits || occ ? 'disabled' : ''}${best && best.id === v.id ? ' selected' : ''}>${esc(v.nome)} (${cap})${v.tipo === 'moto' && !fits ? ' — carga insuficiente' : why}</option>`;
   }).join('');
 }
+// Veículo que o motorista usa (cadastro em Motoristas)
+const veicDoMot = (m) => (m && m.veiculo ? veic(m.veiculo) : null);
+const veicTxt = (v) => `${v.nome} (${v.tipo === 'moto' ? `carga ${v.bag} pts` : `${v.cap} lugares`})`;
+// Confirmação de viagens: escolher o motorista seleciona o carro dele, e escolher o carro seleciona quem usa esse carro
+function ligarMotoristaVeiculo(raiz = document) {
+  const par = (el) => { const p = el.parentElement; return { sv: p.querySelector('.sv'), sd: p.querySelector('.sd') }; };
+  const pode = (sel, val) => { const o = [...sel.options].find((x) => x.value === val); return o && !o.disabled; };
+  const doMot = (sd, sv, avisa) => {
+    const v = veicDoMot(mot(sd.value));
+    if (!v || sv.value === v.id) return;
+    if (pode(sv, v.id)) sv.value = v.id;
+    else if (avisa) toast(`O veículo de ${mot(sd.value).nome} (${v.nome}) não serve ou está ocupado neste horário. Escolha outro veículo.`);
+  };
+  const doVeic = (sv, sd) => {
+    if (veicDoMot(mot(sd.value)) && veicDoMot(mot(sd.value)).id === sv.value) return;
+    const m = S.motoristas.find((x) => x.ativo && x.veiculo === sv.value && pode(sd, x.id));
+    if (m) sd.value = m.id;
+  };
+  raiz.querySelectorAll('.sd').forEach((sd) => {
+    const { sv } = par(sd);
+    if (!sv) return;
+    doVeic(sv, sd); // ao abrir: o motorista que usa o veículo sugerido
+    sd.onchange = () => doMot(sd, sv, true);
+    sv.onchange = () => doVeic(sv, sd);
+  });
+}
 function driverOptions(tipo, data, hora, ignoreIds, dur) {
   const list = S.motoristas.filter((m) => m.tipo === tipo && m.ativo);
   if (!list.length) return '<option value="" disabled selected>Nenhum motorista ativo — cadastre em “Motoristas”</option>';
   return list.map((m) => {
     const occ = busy('motorista', m.id, data, hora, ignoreIds, dur);
-    return `<option value="${m.id}" ${occ ? 'disabled' : ''}>${esc(m.nome)}${occ ? ' — ocupado' : ''}</option>`;
+    return `<option value="${m.id}" ${occ ? 'disabled' : ''}>${esc(m.nome)}${veicDoMot(m) ? ` · ${esc(veicTxt(veicDoMot(m)))}` : ''}${occ ? ' — ocupado' : ''}</option>`;
   }).join('');
 }
 
@@ -1590,6 +1616,7 @@ function renderPainel(page) {
       const h = $('.sh', g).value;
       $('.sv', g).innerHTML = vehicleOptions('moto', 0, c.pts, c.data, h, ids);
       $('.sd', g).innerHTML = driverOptions('moto', c.data, h, ids);
+      ligarMotoristaVeiculo(g);
     };
     $('.sh', g).onchange = refresh;
     $('.ok-m', g).onclick = () => {
@@ -1646,6 +1673,7 @@ function renderPainel(page) {
     };
     $('.no-a', g).onclick = () => recusar([r]);
   });
+  ligarMotoristaVeiculo();
 }
 
 function motoClusters(pend) {
@@ -2094,8 +2122,8 @@ function renderMotoristas(page) {
   shell(page, `
     <div class="page-head"><div><h1>Motoristas</h1><p>Cadastro do Facilities. O WhatsApp é usado para enviar as viagens — motoristas não acessam o sistema.</p></div>
       <button class="btn green" id="novo">+ Novo motorista</button></div>
-    <div class="card table-wrap"><table><thead><tr><th>Nome</th><th>Tipo</th><th>WhatsApp</th><th>Situação</th><th>Próximas viagens</th><th></th></tr></thead><tbody>
-      ${list.map((m) => `<tr><td><b>${esc(m.nome)}</b></td><td>${m.tipo === 'moto' ? 'Motociclista' : 'Motorista (carro)'}</td><td>${esc(fmtFone(m.fone))}</td>
+    <div class="card table-wrap"><table><thead><tr><th>Nome</th><th>Tipo</th><th>Veículo</th><th>WhatsApp</th><th>Situação</th><th>Próximas viagens</th><th></th></tr></thead><tbody>
+      ${list.map((m) => `<tr><td><b>${esc(m.nome)}</b></td><td>${m.tipo === 'moto' ? 'Motociclista' : 'Motorista (carro)'}</td><td>${veicDoMot(m) ? `<b>${esc(veicTxt(veicDoMot(m)))}</b><small>${esc(veicDoMot(m).placa)}</small>` : '<small>Sem veículo fixo</small>'}</td><td>${esc(fmtFone(m.fone))}</td>
         <td>${m.ativo ? '<span class="pill st-confirmada">Ativo</span>' : '<span class="pill st-concluida">Inativo</span>'}</td>
         <td>${futurasAtivas((r) => r.motorista === m.id).length}</td>
         <td style="white-space:nowrap"><button class="btn sm ed" data-id="${esc(m.id)}">Editar</button> <button class="btn sm tg" data-id="${esc(m.id)}">${m.ativo ? 'Desativar' : 'Ativar'}</button></td></tr>`).join('')}
@@ -2118,7 +2146,8 @@ function renderMotoristas(page) {
 }
 
 function openMotorista(id) {
-  const m = id ? mot(id) : { nome: '', tipo: 'carro', fone: '', ativo: true };
+  const m = id ? mot(id) : { nome: '', tipo: 'carro', fone: '', veiculo: '', ativo: true };
+  const opV = (tipo, sel) => `<option value="">— Sem veículo fixo —</option>${VEICULOS.filter((v) => v.tipo === tipo).map((v) => `<option value="${v.id}" ${v.id === sel ? 'selected' : ''}>${esc(veicTxt(v))} · ${esc(v.placa)}</option>`).join('')}`;
   openModal(`
     <h3>${id ? 'Editar motorista' : 'Novo motorista'}</h3>
     <p class="sub">Dados usados para atribuir viagens e enviar pelo WhatsApp.</p>
@@ -2126,12 +2155,14 @@ function openMotorista(id) {
       <div class="f full"><label for="mn">Nome</label><input id="mn" value="${esc(m.nome)}"></div>
       <div class="f"><label for="mt">Tipo</label><select id="mt"><option value="carro" ${m.tipo === 'carro' ? 'selected' : ''}>Motorista (carro)</option><option value="moto" ${m.tipo === 'moto' ? 'selected' : ''}>Motociclista</option></select></div>
       <div class="f"><label for="mf">WhatsApp (com DDD)</label><input id="mf" inputmode="tel" placeholder="(75) 99999-0000" value="${esc(m.fone ? fmtFone(m.fone) : '')}"></div>
+      <div class="f full"><label for="mv">Veículo que usa</label><select id="mv">${opV(m.tipo, m.veiculo)}</select><small>Ao escolher este motorista na confirmação de viagens, o veículo já vem selecionado.</small></div>
     </div>
     <div id="mmsg"></div>
     <div class="modal-acts"><button class="btn" id="cx">Cancelar</button><button class="btn green" id="ok">Salvar</button></div>`);
   $('#cx').onclick = closeModal;
+  $('#mt').onchange = () => { $('#mv').innerHTML = opV($('#mt').value, ''); };
   $('#ok').onclick = () => {
-    const nome = $('#mn').value.trim(), tipo = $('#mt').value;
+    const nome = $('#mn').value.trim(), tipo = $('#mt').value, veiculo = $('#mv').value;
     let fone = $('#mf').value.replace(/\D/g, '');
     if (fone.length === 13 && fone.startsWith('55')) fone = fone.slice(2);
     const msg = $('#mmsg');
@@ -2143,14 +2174,15 @@ function openMotorista(id) {
       msg.innerHTML = '<div class="msg-box bad">Há viagens futuras atribuídas — não é possível mudar o tipo agora.</div>'; return;
     }
     if (id) {
-      const antes = `${m.nome} · ${m.tipo} · ${fmtFone(m.fone)}`;
-      Object.assign(m, { nome, tipo, fone });
-      audit('Motorista alterado', m.id, antes, `${nome} · ${tipo} · ${fmtFone(fone)}`);
+      const vNome = (x) => (veic(x) ? ` · ${veic(x).nome} ${veic(x).placa}` : '');
+      const antes = `${m.nome} · ${m.tipo} · ${fmtFone(m.fone)}${vNome(m.veiculo)}`;
+      Object.assign(m, { nome, tipo, fone, veiculo });
+      audit('Motorista alterado', m.id, antes, `${nome} · ${tipo} · ${fmtFone(fone)}${vNome(veiculo)}`);
     } else {
       S.seq.mot += 1;
-      const novo = { id: `D${S.seq.mot}`, nome, tipo, fone, ativo: true };
+      const novo = { id: `D${S.seq.mot}`, nome, tipo, fone, veiculo, ativo: true };
       S.motoristas.push(novo);
-      audit('Motorista cadastrado', novo.id, '', `${nome} · ${tipo} · ${fmtFone(fone)}`);
+      audit('Motorista cadastrado', novo.id, '', `${nome} · ${tipo} · ${fmtFone(fone)}${veic(veiculo) ? ` · ${veic(veiculo).nome} ${veic(veiculo).placa}` : ''}`);
     }
     save(); closeModal(); route(); toast('Motorista salvo.');
   };
