@@ -1990,100 +1990,146 @@ function openWpp(v) {
 
 function renderViagens(page) {
   const f = renderViagens.f || (renderViagens.f = 'abertas');
+  const per = renderViagens.per || 'todas', tp = renderViagens.tp || 'todos';
+  const abertos = renderViagens.abertos || (renderViagens.abertos = new Set());
   const all = viagens();
   const cont = (s) => all.filter((v) => v.st === s).length;
   const nAbertas = cont('enviar') + cont('enviada');
   const TABS = [['abertas', 'Abertas', nAbertas], ['enviar', 'A enviar', cont('enviar')], ['enviada', 'Enviadas', cont('enviada')],
     ['concluida', 'Concluídas', cont('concluida')], ['naorealizada', 'Não realizadas', cont('naorealizada')]];
-  const list = all.filter((v) => (f === 'abertas' ? ['enviar', 'enviada'].includes(v.st) : v.st === f));
-  const MES3 = (ds) => MESES[at(ds, '12:00').getMonth()].slice(0, 3);
+  const hojeS = ymd(new Date()), amanhaS = ymd(addDays(new Date(), 1));
+  const seg = ymd(mondayOf(new Date())), dom = ymd(addDays(mondayOf(new Date()), 6));
+  const noPer = (v) => per === 'todas' || (per === 'hoje' ? v.data === hojeS : per === 'amanha' ? v.data === amanhaS : v.data >= seg && v.data <= dom);
+  const list = all.filter((v) => (f === 'abertas' ? ['enviar', 'enviada'].includes(v.st) : v.st === f) && noPer(v) && (tp === 'todos' || v.tipo === tp));
+  if (!renderViagens.iniciado && list.length) { abertos.add(list[0].k); renderViagens.iniciado = true; }
   const VST = { enviar: ['A enviar', 'vst-enviar'], enviada: ['Enviada', 'vst-enviada'], concluida: ['Concluída', 'vst-concluida'], naorealizada: ['Não realizada', 'vst-nao'] };
-
-  const trajeto = (v) => {
-    if (v.tipo === 'grade') { const s = slotOf(v.hora); if (s) return [siteName(s.paradas[0]), s.paradas.slice(1).map((c) => siteName(c)).join(' → ')]; }
-    const os = [...new Set(v.rs.map((r) => siteName(r.origem)))], ds = [...new Set(v.rs.map((r) => siteName(r.destino)))];
-    return [os.join(', '), `→ ${ds.join(', ')}`];
+  const paradas = (v) => {
+    if (v.tipo === 'grade') { const s = slotOf(v.hora); if (s) return s.paradas.map(siteName); }
+    return [...new Set([...v.rs.map((r) => siteName(r.origem)), ...v.rs.map((r) => siteName(r.destino))])];
   };
-  const linhaSol = (r, v) => `<li class="${r.faltou ? 'faltou' : ''}"><b class="sid">${esc(r.id)}</b><span class="dotsep">•</span><span>${esc(r.nome)}</span>
-      ${r.tipo === 'moto' ? `<small>${r.os ? `${esc(r.os)} · ` : ''}${esc(`${r.vol}× ${r.item}`)} → ${esc(r.recebedor)}</small>`
-        : `<small>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))} · ${r.pax} pax${bagTxt(r) !== 'N/A' ? ` · bagagem: ${esc(bagCurto(r))}` : ''}${r.perna ? ` · ${pernaTxt(r)}` : r.bv ? ' · bate-volta' : ''}</small>`}
-      ${r.faltou ? '<span class="tag-falta">Não compareceu — fora da divisão</span>' : ''}
-      ${r.tipo !== 'moto' && v.st !== 'naorealizada' ? `<button class="btn-mini falta" data-id="${esc(r.id)}">${r.faltou ? 'Desfazer: compareceu' : 'Não compareceu'}</button>` : ''}</li>`;
+  const pessoasTxt = (v) => (v.tipo === 'moto' ? `${v.rs.length} ${v.rs.length === 1 ? 'envio' : 'envios'}`
+    : (() => { const n = v.rs.reduce((t, r) => t + (Number(r.pax) || 1), 0); return `${n} ${n === 1 ? 'passageiro' : 'passageiros'}`; })());
+  const quando = (s) => { const m = String(s || '').match(/^(\d{2})\/(\d{2})\/\d{4},?\s*(\d{2}:\d{2})/); return m ? `${m[1]}/${m[2]} às ${m[3]}` : s; };
 
   const card = (v, i) => {
-    const m = mot(v.motorista), ve = veic(v.veiculo), [lbl, cls] = VST[v.st];
-    const d = at(v.data, v.hora), aberta = ['enviar', 'enviada'].includes(v.st);
-    const [t1, t2] = trajeto(v);
+    const m = mot(v.motorista) || {}, ve = veic(v.veiculo) || {}, [lbl, cls] = VST[v.st];
+    const aberta = ['enviar', 'enviada'].includes(v.st), on = abertos.has(v.k);
     const busca = [v.rs.map((r) => `${r.id} ${r.nome} ${r.os || ''} ${siteName(r.origem)} ${siteName(r.destino)}`).join(' '), m.nome, ve.nome, ve.placa, TIPOS[v.tipo]].join(' ').toLowerCase();
     const mails = [...new Set(v.rs.filter((r) => r.mail).map((r) => r.nome))];
     const rt = ratear(v);
-    return `<article class="vc ${cls}" data-i="${i}" data-q="${esc(busca)}">
-      <header class="vc-h">
-        <div class="vc-date"><small>${DIAS[d.getDay()].slice(0, 3)}</small><b>${pad(d.getDate())}</b></div>
-        <div class="vc-tt"><span>${DIAS[d.getDay()].slice(0, 3)}, ${d.getDate()} ${MES3(v.data)} <i>•</i> ${esc(v.hora)}</span><h3>${esc(TIPOS[v.tipo].replace(' (envio de itens)', ''))}</h3></div>
-        <span class="vst ${cls}"><i></i>${lbl}</span>
+    const semValor = rt.total == null && !rt.ninguem;
+    const ajustar = renderViagens.ajuste === v.k || (aberta && rt.informado && rt.base == null);
+    const pp = paradas(v);
+    const pessoa = (r) => `<li class="${r.faltou ? 'faltou' : ''}"><b>${esc(r.id)}</b><span>${esc(r.nome)}</span>
+        <small>${r.tipo === 'moto' ? `${r.os ? `${esc(r.os)} · ` : ''}${esc(`${r.vol}× ${r.item}`)} → ${esc(r.recebedor)}`
+          : `${esc(siteName(r.origem))} → ${esc(siteName(r.destino))} · ${r.pax} pax${bagTxt(r) !== 'N/A' ? ` · ${esc(bagCurto(r))}` : ''}${r.perna ? ` · ${pernaTxt(r)}` : r.bv ? ' · bate-volta' : ''}`}</small>
+        ${r.faltou ? '<em>Não compareceu — fora da divisão</em>' : ''}
+        ${r.tipo !== 'moto' && v.st !== 'naorealizada' ? `<button class="vj-lnk falta" data-id="${esc(r.id)}">${r.faltou ? 'Desfazer: compareceu' : 'Não compareceu'}</button>` : ''}</li>`;
+    return `<article class="vj ${cls}${on ? ' on' : ''}" data-i="${i}" data-q="${esc(busca)}">
+      <header class="vj-h" data-k="${esc(v.k)}" role="button" tabindex="0" aria-expanded="${on}">
+        <span class="vj-hora">${ico('clock', 13)}<b>${esc(v.hora)}</b></span>
+        <span class="vj-tt"><b>${esc(TIPOS[v.tipo].replace(' (envio de itens)', ''))}</b>
+          <small>${esc(v.rs.map((r) => r.id).join(', '))} · <i>${esc(v.rs.map((r) => r.nome.split(' ')[0]).join(', '))}</i> · ${esc(pessoasTxt(v))}</small></span>
+        ${semValor ? '<span class="vj-pill warn"><i></i>Sem valor</span>' : ''}
+        <span class="vj-pill ${cls}"><i></i>${lbl}</span>
+        <span class="vj-chev">${ico('down', 16)}</span>
       </header>
-      <div class="vc-grid">
-        <div class="vc-f">${ico('user', 18)}<div><small>${v.tipo === 'moto' ? 'Motociclista' : 'Motorista'}</small><b>${esc(m.nome)}</b><span>${esc(fmtFone(m.fone))}</span></div></div>
-        <div class="vc-f">${ico(v.tipo === 'moto' ? 'moto' : 'car', 18)}<div><small>Veículo</small><b>${esc(ve.nome)}</b><span>${esc(ve.placa)}</span></div></div>
-        <div class="vc-f">${ico('route', 18)}<div><small>Trajeto</small><b>${esc(t1)}</b><span>${esc(t2)}</span></div></div>
-      </div>
-      <div class="vc-cost">
-        <div class="vc-val">
-          <small>Valor da corrida</small>
-          ${rt.informado ? `<div class="acr-row"><span class="money sm">R$ <input class="vcor" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.base ?? ''}" placeholder="0,00" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Valor da corrida"></span>
-              <em class="vcor-n">${rt.base == null ? '<span class="warn-t">Informe o valor desta corrida</span>' : rt.corrida != null ? 'informado pelo Facilities' : 'valor anterior da tabela — confirme ou corrija'}</em></div>`
-            : rt.padrao != null ? `<div class="fixo"><b>${brl(rt.padrao)}</b><em>valor fixo da rota</em></div>`
-            : `<div class="fixo sem"><b>Sem valor</b><em>rota da grade sem valor — cadastre em <a href="#grade">Grade e rotas</a></em></div>`}
-          <small class="mt">Acréscimo <span class="opt">(espera, pedágio…)</span></small>
-          <div class="acr-row"><span class="money sm">R$ <input class="vacr" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.acrescimo || ''}" placeholder="0,00" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Acréscimo"></span>
-            <input class="vmot" placeholder="Motivo do acréscimo" value="${esc(rt.motivoAcr)}" ${v.st === 'naorealizada' ? 'disabled' : ''} aria-label="Motivo do acréscimo"></div>
-          ${rt.acrescimo && !rt.motivoAcr ? '<em class="warn-t">Informe o motivo do acréscimo</em>' : ''}
-          ${rt.total != null ? `<div class="vc-tot">Total <b>${brl(rt.total)}</b>${rt.acrescimo ? ` <em>(${brl(rt.base)} + ${brl(rt.acrescimo)})</em>` : ''}</div>` : ''}
+      <div class="vj-b">
+        <div class="vj-g">
+          <div><small class="vj-lab">Trajeto</small>
+            <ol class="vj-rota">${pp.map((p, k) => `<li class="${k === pp.length - 1 ? 'fim' : ''}">${esc(p)}</li>`).join('')}</ol></div>
+          <div><small class="vj-lab">${v.tipo === 'moto' ? 'Motociclista e moto' : 'Motorista e veículo'}</small>
+            <div class="vj-mot">${avatar(m.nome || '?', '', 'vj-av')}<span><b>${esc(m.nome || '—')}</b><small>${esc(ve.nome || '—')} · ${esc(ve.placa || '')}</small></span></div></div>
+          <div class="vj-val"><small class="vj-lab">Valor total</small>
+            ${rt.ninguem ? '<b class="vj-tot">R$ 0,00</b><small class="warn-t">Ninguém compareceu — sem cobrança</small>'
+              : rt.total != null ? `<b class="vj-tot">${brl(rt.total)}</b><div class="vj-chips">${Object.entries(rt.partes).map(([cc, x]) => `<span>${esc(setorCurto(cc))}${Object.keys(rt.partes).length > 1 ? ` ${brl(x)}` : ''}</span>`).join('')}</div>`
+              : `<b class="vj-tot sem">Sem valor</b><small class="warn-t">${rt.informado ? 'Informe o valor da corrida' : 'Rota da grade sem valor — cadastre em Grade e rotas'}</small>`}</div>
         </div>
-        <div class="vc-rat"><small>Divisão por setor</small>${rt.ninguem ? '<span class="warn-t">Ninguém compareceu — sem cobrança</span>' : rt.total != null ? `<div class="chips">${rateioChips(rt)}</div>${rt.legs.length > 1 ? `<span class="legs">${rt.legs.map((l) => `${esc(siteName(l.de))} → ${esc(siteName(l.para))}: ${brl(l.valor)} (${l.ccs.map(setorCurto).map(esc).join(' + ')})`).join(' · ')}</span>` : ''}` : '<span class="warn-t">Aguardando o valor</span>'}</div>
+        <ul class="vj-pess">${v.rs.map(pessoa).join('')}</ul>
+        <div class="vj-info">
+          <span class="vj-i">${ico('user', 16)}<span><small>Contato do ${v.tipo === 'moto' ? 'motociclista' : 'motorista'}</small><b>${esc(fmtFone(m.fone))}</b></span></span>
+          <span class="vj-i">${ico('money', 16)}<span><small>Composição do valor</small><b>${rt.informado ? 'Corrida' : 'Rota'} ${brl(rt.base)} <i>·</i> Acréscimo ${brl(rt.acrescimo || 0)}${rt.motivoAcr ? ` <em>(${esc(rt.motivoAcr)})</em>` : ''}</b></span></span>
+          ${v.st !== 'naorealizada' ? `<button class="vj-lnk vj-aj" data-k="${esc(v.k)}">${ico('gear', 14)} ${ajustar ? 'Fechar ajuste' : 'Ajustar valores'}</button>` : ''}
+        </div>
+        ${ajustar && v.st !== 'naorealizada' ? `<div class="vj-ajuste">
+          ${rt.informado ? `<label><small>Valor da corrida</small><span class="money sm">R$ <input class="vcor" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.base ?? ''}" placeholder="0,00" aria-label="Valor da corrida"></span>
+            <em>${rt.base == null ? 'informe o valor cobrado nesta corrida' : rt.corrida != null ? 'informado pelo Facilities' : 'valor anterior da tabela — confirme ou corrija'}</em></label>`
+          : `<label><small>Valor da rota</small><b>${rt.padrao != null ? brl(rt.padrao) : 'sem valor'}</b><em>fixo — alterado em <a href="#grade">Grade e rotas</a></em></label>`}
+          <label><small>Acréscimo <span class="opt">(espera, pedágio…)</span></small><span class="money sm">R$ <input class="vacr" type="number" min="0" step="0.01" inputmode="decimal" value="${rt.acrescimo || ''}" placeholder="0,00" aria-label="Acréscimo"></span></label>
+          <label class="vj-mo"><small>Motivo do acréscimo</small><input class="vmot" placeholder="Ex.: espera de 30 min" value="${esc(rt.motivoAcr)}" aria-label="Motivo do acréscimo">
+            ${rt.acrescimo && !rt.motivoAcr ? '<em class="warn-t">Informe o motivo do acréscimo</em>' : ''}</label>
+        </div>` : ''}
       </div>
-      <footer class="vc-ft">
-        <div class="vc-sols"><ul>${v.rs.map((r) => linhaSol(r, v)).join('')}</ul>
-          ${v.rs[0].wpp ? `<p class="ok">${ico('check', 14)} Enviada pelo WhatsApp em ${esc(v.rs[0].wpp)}</p>` : `<p class="warn">${ico('clock', 14)} Ainda não enviada ao motorista — ao enviar, o colaborador recebe a confirmação por e-mail.</p>`}
-          ${mails.length ? `<p class="ok">${ico('mail', 14)} Confirmação por e-mail enviada a ${esc(mails.join(', '))}</p>` : ''}
-          ${v.rs.some((r) => r.motivo && v.st === 'naorealizada') ? `<p class="bad">${esc(v.rs[0].motivo)}</p>` : ''}</div>
-        ${aberta ? `<div class="vc-acts">
-          <button class="btn-send wpp">${ico('send', 16)} ${v.st === 'enviada' ? 'Reenviar' : 'Enviar'}</button>
-          <button class="btn-out fim">${ico('check', 16)} Concluir</button>
-          <button class="btn-link nr">Não realizada</button></div>` : ''}
+      <footer class="vj-f">
+        <span class="vj-st">${v.rs[0].wpp ? `<span class="ok">${ico('check', 14)} Enviada por WhatsApp · ${esc(quando(v.rs[0].wpp))}</span>` : `<span class="warn">${ico('clock', 14)} Ainda não enviada ao motorista</span>`}
+          ${mails.length ? `<span class="ok">${ico('mail', 14)} E-mail para ${esc(mails.join(', '))}</span>` : ''}
+          ${v.rs.some((r) => r.motivo && v.st === 'naorealizada') ? `<span class="bad">${esc(v.rs[0].motivo)}</span>` : ''}</span>
+        ${aberta ? `<span class="vj-acts">
+          <button class="vj-lnk nr">Não realizada</button>
+          <button class="vj-out wpp">${ico('send', 15)} ${v.st === 'enviada' ? 'Reenviar' : 'Enviar ao motorista'}</button>
+          <button class="vj-ok fim">${ico('check', 15)} Concluir viagem</button></span>` : ''}
       </footer>
     </article>`;
   };
+  // agrupado por dia
+  let corpo = '', dia = '';
+  const porDia = {};
+  list.forEach((v) => { porDia[v.data] = (porDia[v.data] || 0) + 1; });
+  list.forEach((v, i) => {
+    if (v.data !== dia) {
+      dia = v.data; const d = at(dia, '12:00');
+      corpo += `<div class="vj-dia" data-dia="${dia}"><b>${DIAS[d.getDay()]}${isWeekday(d) ? '-feira' : ''}, ${d.getDate()} de ${MESES[d.getMonth()]}</b>${dia === hojeS ? '<span class="vj-hoje">Hoje</span>' : dia === amanhaS ? '<span class="vj-hoje">Amanhã</span>' : ''}<i></i><small>${porDia[dia]} ${porDia[dia] === 1 ? 'viagem' : 'viagens'}</small></div>`;
+    }
+    corpo += card(v, i);
+  });
+  const agora = new Date();
+  const kpi = (k, ic, cls, tit, n, sub) => `<button class="vj-k" data-f="${k}"><span class="vj-ki ${cls}">${ico(ic, 20)}</span><span><small>${tit}</small><b>${pad(n)}</b><em class="${cls}">${sub}</em></span><span class="vj-ka">${ico('arrow', 16)}</span></button>`;
 
   shell(page, `
     <div class="pg-head">
-      <div><nav class="crumb"><span>Operação</span>${ico('right', 12)}<b>Viagens</b></nav>
-        <h1>Viagens</h1><p>Acompanhe os deslocamentos, envie as informações aos motoristas e registre cada conclusão.</p></div>
-      <div class="mini-kpis">
-        <div class="mk warn"><small>A enviar</small><b>${cont('enviar')}</b></div>
-        <div class="mk"><small>Em aberto</small><b>${nAbertas}</b></div>
-        <div class="mk"><small>Enviadas</small><b>${cont('enviada')}</b></div>
+      <div><h1>Viagens</h1><p>Organize os deslocamentos. Acompanhe cada chegada.</p></div>
+      <div class="vj-data">${ico('cal', 15)}<span>${DIAS[agora.getDay()]}${isWeekday(agora) ? '-feira' : ''}, ${agora.getDate()} de ${MESES[agora.getMonth()]}</span><i></i><span>${agora.getFullYear()}</span></div>
+    </div>
+    <div class="vj-kpis">
+      ${kpi('abertas', 'route', 'g', 'Viagens em aberto', nAbertas, 'deslocamentos programados')}
+      ${kpi('enviar', 'send', 'a', 'Aguardando envio', cont('enviar'), cont('enviar') ? '• Requer sua atenção' : 'nada pendente')}
+      ${kpi('enviada', 'check', 'b', 'Enviadas aos motoristas', cont('enviada'), 'tudo pronto para a partida')}
+    </div>
+    <section class="vj-ger">
+      <div class="vj-gh"><div><h2>Gerenciar viagens</h2><p>Todos os detalhes, em um só lugar.</p></div><small class="vj-atu"><i></i>Atualizado às ${pad(agora.getHours())}:${pad(agora.getMinutes())}</small></div>
+      <nav class="vj-tabs">${TABS.map(([k, l, n]) => `<button class="${f === k ? 'on' : ''}" data-f="${k}">${l} <span>${n}</span></button>`).join('')}</nav>
+      <div class="vj-tools">
+        <label class="vj-busca">${ico('search', 16)}<input id="vq" placeholder="Buscar por viagem, pessoa, motorista ou placa…" value="${esc(renderViagens.q || '')}" aria-label="Buscar viagem"></label>
+        <span class="vj-sp"></span>
+        <label class="vj-sel">${ico('cal', 15)}<select id="vper" aria-label="Período">${[['todas', 'Todas as datas'], ['hoje', 'Hoje'], ['amanha', 'Amanhã'], ['semana', 'Esta semana']].map(([k, l]) => `<option value="${k}" ${per === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label class="vj-sel">${ico('filter', 15)}<select id="vtp" aria-label="Tipo de viagem">${[['todos', 'Todos os tipos'], ['grade', 'Entre sites'], ['cidade', 'Táxi na cidade'], ['inter', 'Intermunicipal'], ['moto', 'Moto Táxi']].map(([k, l]) => `<option value="${k}" ${tp === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       </div>
-    </div>
-    <div class="toolbar vtools">
-      <div class="seg">${TABS.map(([k, l, n]) => `<button class="seg-b${f === k ? ' on' : ''}" data-f="${k}">${l} (${n})</button>`).join('')}</div>
-      <label class="search">${ico('search', 16)}<input id="vq" placeholder="Buscar viagem, pessoa, motorista, placa…" value="${esc(renderViagens.q || '')}" aria-label="Buscar viagem"></label>
-    </div>
-    <div class="vlist">${list.length ? list.map(card).join('') : '<div class="card empty">Nenhuma viagem neste filtro. Confirme solicitações em <a href="#painel">Confirmação de viagens</a>.</div>'}
-      <div class="card empty" id="vnone" hidden>Nenhuma viagem encontrada para a busca.</div></div>`);
+      <div class="vj-cont"><small><b id="vn">${list.length}</b> ${list.length === 1 ? 'viagem encontrada' : 'viagens encontradas'}</small><small>Ordenadas por data e horário</small></div>
+      <div class="vj-list">${list.length ? corpo : '<div class="vj-vazio">Nenhuma viagem neste filtro. Confirme solicitações em <a href="#painel">Confirmação de viagens</a>.</div>'}
+        <div class="vj-vazio" id="vnone" hidden>Nenhuma viagem encontrada para a busca.</div></div>
+    </section>`);
 
   document.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => { renderViagens.f = b.dataset.f; route(); }; });
+  $('#vper').onchange = (e) => { renderViagens.per = e.target.value; route(); };
+  $('#vtp').onchange = (e) => { renderViagens.tp = e.target.value; route(); };
   const filtra = () => {
     const q = ($('#vq').value || '').trim().toLowerCase();
     renderViagens.q = q;
     let n = 0;
-    document.querySelectorAll('.vc').forEach((c) => { const ok = !q || c.dataset.q.includes(q); c.hidden = !ok; if (ok) n++; });
+    document.querySelectorAll('.vj').forEach((c) => { const ok = !q || c.dataset.q.includes(q); c.hidden = !ok; if (ok) n++; });
+    document.querySelectorAll('.vj-dia').forEach((h) => { let x = h.nextElementSibling, vis = false; while (x && x.classList.contains('vj')) { if (!x.hidden) vis = true; x = x.nextElementSibling; } h.hidden = !vis; });
+    $('#vn').textContent = n;
     if (list.length) $('#vnone').hidden = n > 0;
   };
   $('#vq').oninput = filtra;
   filtra();
-  document.querySelectorAll('.vc').forEach((g) => {
+  document.querySelectorAll('.vj-h').forEach((h) => {
+    const alterna = () => { const k = h.dataset.k; if (abertos.has(k)) abertos.delete(k); else abertos.add(k); h.closest('.vj').classList.toggle('on'); h.setAttribute('aria-expanded', String(abertos.has(k))); };
+    h.onclick = alterna;
+    h.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); alterna(); } };
+  });
+  document.querySelectorAll('.vj-aj').forEach((b) => { b.onclick = () => { renderViagens.ajuste = renderViagens.ajuste === b.dataset.k ? null : b.dataset.k; abertos.add(b.dataset.k); route(); }; });
+  document.querySelectorAll('.vj').forEach((g) => {
     const v = list[Number(g.dataset.i)];
     const w = $('.wpp', g), fim = $('.fim', g), nr = $('.nr', g);
     if (w) w.onclick = () => openWpp(v);
@@ -2101,7 +2147,7 @@ function renderViagens(page) {
       const n = raw === '' ? 0 : Number(raw);
       if (!Number.isFinite(n) || n < 0) { toast('Acréscimo inválido.'); return; }
       S.extras = S.extras || {};
-      const antes = S.extras[v.k] ? `${brl(S.extras[v.k].valor)} ${S.extras[v.k].motivo || ''}` : 'sem acréscimo';
+      const antes = S.extras[v.k] && S.extras[v.k].valor != null ? `${brl(S.extras[v.k].valor)} ${S.extras[v.k].motivo || ''}` : 'sem acréscimo';
       const motivo = vmo.value.trim();
       const resto = { ...(S.extras[v.k] || {}) }; delete resto.valor; delete resto.motivo;
       if (n === 0 && !motivo) { if (Object.keys(resto).length) S.extras[v.k] = resto; else delete S.extras[v.k]; } else S.extras[v.k] = { ...resto, valor: Math.round(n * 100) / 100, motivo };
@@ -2109,6 +2155,7 @@ function renderViagens(page) {
       save(); route(); toast(n ? `Acréscimo de ${brl(n)} lançado.` : 'Acréscimo removido.');
     };
     if (va) va.onchange = salvaAcr;
+    if (vmo) vmo.onchange = salvaAcr;
     const vc = $('.vcor', g);
     if (vc) vc.onchange = () => {
       const raw = String(vc.value).trim().replace(',', '.');
@@ -2121,9 +2168,8 @@ function renderViagens(page) {
       audit('Valor da corrida informado', v.rs.map((r) => r.id).join(', '), antes, n == null ? 'sem valor' : brl(n));
       save(); route(); toast(n == null ? 'Valor da corrida removido.' : `Valor da corrida: ${brl(n)}.`);
     };
-    if (vmo) vmo.onchange = salvaAcr;
     if (fim) fim.onclick = () => {
-      if (ratear(v).total == null) { toast('Informe o valor da corrida antes de concluir a viagem.'); const c = $('.vcor', g); if (c) c.focus(); return; }
+      if (ratear(v).total == null) { toast('Informe o valor da corrida antes de concluir a viagem.'); renderViagens.ajuste = v.k; abertos.add(v.k); route(); const c = $('.vcor'); if (c) c.focus(); return; }
       v.rs.forEach((r) => { audit('Concluída', r.id, STATUS[r.status], 'Concluída'); r.status = 'concluida'; });
       save(); route(); toast('Viagem concluída.');
     };
