@@ -441,7 +441,7 @@ td small + small { margin-top: 2px; }
 .vg-head h1 { margin: 4px 0 0; font-size: 26px; font-weight: 900; color: var(--navy-ink); }
 .vg-meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-weight: 700; color: var(--navy-ink); font-size: 14px; }
 .vg-meta .lbl { font-weight: 600; font-size: 12px; }
-.vgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 12px; height: calc(100vh - 178px); min-height: 420px; }
+.vgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 12px; height: calc(calc(100vh / var(--esc, 1)) - 178px); min-height: 420px; }
 .vp { background: #fff; border: 1px solid var(--line); border-top: 4px solid var(--c, var(--line)); border-radius: 14px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .vp.v-agora { --c: #73bc25; } .vp.v-hoje { --c: #343936; } .vp.v-amanha { --c: #5f6664; } .vp.v-semana { --c: #8a94a6; grid-column: 4; grid-row: 1 / span 2; }
 .vp.v-aprov { --c: #7b5cc4; } .vp.v-ret { --c: #0f8a7e; } .vp.v-canc { --c: #c0392b; }
@@ -879,9 +879,9 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
 .apv-ass label { display: block; font-size: 11px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
 
 /* ---------- Menu lateral (grafite). Estendido por padrão; o botão recolhe para só ícones. ---------- */
-.app-sh { --lado: 256px; display: grid; grid-template-columns: var(--lado) minmax(0, 1fr); min-height: 100vh; transition: grid-template-columns .22s ease; }
+.app-sh { --lado: 256px; display: grid; grid-template-columns: var(--lado) minmax(0, 1fr); min-height: calc(100vh / var(--esc, 1)); transition: grid-template-columns .22s ease; }
 .app-sh.mini { --lado: 88px; }
-.lado { position: sticky; top: 12px; margin: 12px 0 12px 12px; height: calc(100vh - 24px); background: var(--marca-grafite); border-radius: 20px; display: flex; flex-direction: column; padding: 18px 14px 14px; overflow: hidden; z-index: 30; }
+.lado { position: sticky; top: 12px; margin: 12px 0 12px 12px; height: calc(calc(100vh / var(--esc, 1)) - 24px); background: var(--marca-grafite); border-radius: 20px; display: flex; flex-direction: column; padding: 18px 14px 14px; overflow: hidden; z-index: 30; }
 .lado-cab { display: flex; align-items: center; gap: 8px; margin: 0 0 14px 6px; min-height: 46px; }
 .lado-logo { display: block; line-height: 0; flex: 1; min-width: 0; }
 .lado-logo img { display: block; height: 52px; width: auto; max-width: 100%; }
@@ -932,7 +932,7 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
 .app-sh.sem-lado .topo-pg, .app-sh.sem-lado .lado-abre { display: none !important; }
 .topo-eu { padding-left: 14px; border-left: 1px solid var(--line); }
 /* Início da TI dentro do layout com menu lateral: ocupa a área ao lado do menu, sem passar da tela */
-.sh-main .ti-home { width: auto; margin: 0; min-height: calc(100vh - 122px); }
+.sh-main .ti-home { width: auto; margin: 0; min-height: calc(calc(100vh / var(--esc, 1)) - 122px); }
 .sh-main .ti-brand { border-radius: var(--radius); }
 /* painel do Início igual ao lado da marca na tela de login (Portal Natulab) */
 .ti-brand.lg-marca { background: #fff; border: 1px solid var(--line); box-shadow: 0 6px 24px rgba(52, 57, 54, .07); }
@@ -944,7 +944,7 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
 @media (prefers-reduced-motion: reduce) { .app-sh, .lado-rec .ico, .lado { transition: none; } }
 @media (max-width: 900px) {
   .app-sh, .app-sh.mini { grid-template-columns: minmax(0, 1fr); }
-  .lado, .app-sh.mini .lado { position: fixed; left: 0; top: 0; margin: 0; height: 100vh; width: 272px; border-radius: 0 20px 20px 0; padding: 18px 14px 14px; align-items: stretch; transform: translateX(-105%); transition: transform .22s ease; }
+  .lado, .app-sh.mini .lado { position: fixed; left: 0; top: 0; margin: 0; height: calc(100vh / var(--esc, 1)); width: 272px; border-radius: 0 20px 20px 0; padding: 18px 14px 14px; align-items: stretch; transform: translateX(-105%); transition: transform .22s ease; }
   .app-sh.lado-on .lado { transform: none; }
   .app-sh.lado-on .lado-fundo { display: block; position: fixed; inset: 0; background: rgba(43, 47, 45, .4); z-index: 25; }
   .lado-rec { display: none; }
@@ -1064,7 +1064,7 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
 .cx-nota { margin-top: 14px; }
 .cx-fundo { position: fixed; inset: 0; background: rgba(43, 47, 45, .35); display: none; z-index: 40; }
 .cx-fundo.on { display: block; }
-.cx-gav { position: fixed; top: 0; right: 0; height: 100vh; width: min(480px, 100%); background: #fff; box-shadow: -10px 0 30px rgba(0,0,0,.12); transform: translateX(105%); transition: transform .25s; padding: 22px; overflow-y: auto; z-index: 41; outline: 0; }
+.cx-gav { position: fixed; top: 0; right: 0; height: calc(100vh / var(--esc, 1)); width: min(480px, 100%); background: #fff; box-shadow: -10px 0 30px rgba(0,0,0,.12); transform: translateX(105%); transition: transform .25s; padding: 22px; overflow-y: auto; z-index: 41; outline: 0; }
 .cx-gav.on { transform: none; }
 .cx-gav h3 { margin: 2px 0 0; font-size: 19px; font-weight: 900; }
 .cx-gav .cx-x { float: right; }
@@ -1127,8 +1127,8 @@ button.mk.mk-f:focus-visible { outline: 2px solid var(--green-dark); outline-off
 
 /* Agenda: topo, saudação, barra de filtros e nomes dos dias ficam parados; só os horários rolam (computador) */
 @media (min-width: 901px) and (min-height: 560px) {
-  .app-sh.fixo { height: 100vh; overflow: hidden; }
-  .app-sh.fixo .sh-main { height: 100vh; min-height: 0; }
+  .app-sh.fixo { height: calc(100vh / var(--esc, 1)); overflow: hidden; }
+  .app-sh.fixo .sh-main { height: calc(100vh / var(--esc, 1)); min-height: 0; }
   .app-sh.fixo .sh-main main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-bottom: 14px; }
   .app-sh.fixo .hero { margin: 4px 0 16px; }
   .app-sh.fixo .ag-body { flex: 1; min-height: 0; display: flex; align-items: stretch; }
@@ -1563,3 +1563,24 @@ select.sv:disabled { -webkit-appearance: none; -moz-appearance: none; appearance
 .vj-st { font-size: 13px; }
 .vj-out, .vj-ok { height: 42px; font-size: 14.5px; }
 .vj-cont small { font-size: 13.5px; }
+
+/* ---------- Exibição: escala, fonte e brilho ---------- */
+#app { zoom: var(--esc, 1); }
+.sh-main main { zoom: var(--fz, 1); }
+#modal .modal-card { zoom: calc(var(--esc, 1) * var(--fz, 1)); }
+#brilho { position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; }
+.ex-op { display: grid; gap: 4px; padding: 14px 0; border-top: 1px solid var(--line); }
+.ex-op b { font-size: 14.5px; color: var(--navy-ink); }
+.ex-op small { font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.ex-seg { flex-wrap: wrap; width: fit-content; max-width: 100%; }
+.ex-seg .seg-b { display: inline-flex; align-items: baseline; gap: 5px; }
+.ex-br { display: flex; align-items: center; gap: 12px; color: var(--muted); }
+.ex-br input { flex: 1; accent-color: var(--green); }
+.ex-br output { min-width: 44px; text-align: right; font-weight: 800; color: var(--navy-ink); }
+#modal h3 .ico { vertical-align: -3px; color: var(--green-dark); }
+/* Viagens: abas e busca na mesma linha */
+.vj-tabbar { display: flex; align-items: flex-end; gap: 16px; border-bottom: 1px solid var(--line); margin: 20px 0 16px; }
+.vj-tabbar .vj-tabs { flex: 1; min-width: 0; border-bottom: 0; margin: 0; }
+.vj-tabbar .vj-busca { margin-bottom: 10px; width: min(380px, 40%); }
+.vj-tools { margin-bottom: 6px; }
+@media (max-width: 900px) { .vj-tabbar { flex-direction: column-reverse; align-items: stretch; gap: 8px; } .vj-tabbar .vj-busca { width: 100%; margin: 0; } }

@@ -456,6 +456,8 @@ const ICO = {
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   clip: '<rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4.5V3h6v1.5M9 10h6M9 14h6M9 18h3"/>',
   chart: '<path d="M4 4v16h16"/><path d="M8 16v-4M12 16V8M16 16v-6"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   userplus: '<circle cx="10" cy="8" r="3.5"/><path d="M3 20c.8-3.8 3.6-5.8 7-5.8 1.4 0 2.7.3 3.8 1"/><path d="M18 14v6M15 17h6"/>',
 };
 const ico = (n, s = 18) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO[n]}</svg>`;
@@ -512,6 +514,7 @@ function shell(page, content) {
             <span class="who"><b>${esc(S.user.nome)}</b>${esc(S.user.cargo)}</span>${semLado ? ico('down', 16) : ''}</button>
           <div class="menu" id="menu" hidden>
             ${window.MOBILAB_API ? '' : '<button id="reset">Restaurar dados de exemplo</button>'}
+            <button id="umexib">Exibição</button>
             <button id="logout">Sair</button>
           </div>
         </div>`;
@@ -525,7 +528,8 @@ function shell(page, content) {
         <nav class="lado-nav">${itens}
           <div class="lado-sec">Suporte</div>
           <a href="#" id="lbell" title="Mensagens do Facilities">${ico('bell', 20)}<span class="t">Mensagens</span>${nNovas ? `<span class="count">${nNovas}</span>` : ''}</a>
-          <a href="#" id="ajuda" title="Ajuda">${ico('info', 20)}<span class="t">Ajuda</span></a></nav>
+          <a href="#" id="ajuda" title="Ajuda">${ico('info', 20)}<span class="t">Ajuda</span></a>
+          <a href="#" id="exib" title="Exibição: fonte, escala e brilho">${ico('gear', 20)}<span class="t">Exibição</span></a></nav>
         ${eu}
       </aside>
       <div class="lado-fundo" id="ladofundo"></div>`}
@@ -553,12 +557,14 @@ function shell(page, content) {
   const fechaLado = () => sh.classList.remove('lado-on');
   $('#ladoabre').onclick = () => sh.classList.add('lado-on');
   $('#ladofundo').onclick = fechaLado;
-  $('#lado').querySelectorAll('.lado-nav a[href^="#"]:not(#ajuda):not(#lbell)').forEach((a) => a.addEventListener('click', fechaLado));
+  $('#lado').querySelectorAll('.lado-nav a[href^="#"]:not(#ajuda):not(#lbell):not(#exib)').forEach((a) => a.addEventListener('click', fechaLado));
   $('#ajuda').onclick = (e) => { e.preventDefault(); fechaLado(); openAjuda(); };
   $('#lbell').onclick = (e) => { e.preventDefault(); fechaLado(); openCaixa(); };
+  $('#exib').onclick = (e) => { e.preventDefault(); fechaLado(); openExibicao(); };
   }
   $('#bell').onclick = openCaixa;
   $('#umenu').onclick = () => { const m = $('#menu'); m.hidden = !m.hidden; $('#umenu').setAttribute('aria-expanded', String(!m.hidden)); };
+  $('#umexib').onclick = () => { $('#menu').hidden = true; openExibicao(); };
   $('#logout').onclick = () => {
     if (window.MOBILAB_API) { fetch('/sair').finally(() => { location.hash = ''; location.reload(); }); return; }
     audit('Logout', S.user.email); S.user = null; save(); location.hash = ''; route();
@@ -2097,15 +2103,14 @@ function renderViagens(page) {
       ${kpi('enviada', 'check', 'b', 'Enviadas aos motoristas', cont('enviada'), 'tudo pronto para a partida')}
     </div>
     <section class="vj-ger">
-      <div class="vj-gh"><div><h2>Gerenciar viagens</h2><p>Todos os detalhes, em um só lugar.</p></div><small class="vj-atu"><i></i>Atualizado às ${pad(agora.getHours())}:${pad(agora.getMinutes())}</small></div>
-      <nav class="vj-tabs">${TABS.map(([k, l, n]) => `<button class="${f === k ? 'on' : ''}" data-f="${k}">${l} <span>${n}</span></button>`).join('')}</nav>
+      <div class="vj-gh"><div><h2>Gerenciar viagens</h2></div><small class="vj-atu"><i></i>Atualizado às ${pad(agora.getHours())}:${pad(agora.getMinutes())}</small></div>
+      <div class="vj-tabbar"><nav class="vj-tabs">${TABS.map(([k, l, n]) => `<button class="${f === k ? 'on' : ''}" data-f="${k}">${l} <span>${n}</span></button>`).join('')}</nav>
+        <label class="vj-busca">${ico('search', 16)}<input id="vq" placeholder="Buscar por viagem, pessoa, motorista ou placa…" value="${esc(renderViagens.q || '')}" aria-label="Buscar viagem"></label></div>
       <div class="vj-tools">
-        <label class="vj-busca">${ico('search', 16)}<input id="vq" placeholder="Buscar por viagem, pessoa, motorista ou placa…" value="${esc(renderViagens.q || '')}" aria-label="Buscar viagem"></label>
         <span class="vj-sp"></span>
         <label class="vj-sel">${ico('cal', 15)}<select id="vper" aria-label="Período">${[['todas', 'Todas as datas'], ['hoje', 'Hoje'], ['amanha', 'Amanhã'], ['semana', 'Esta semana'], ['mes', 'Este mês'], ['60', 'Últimos 60 dias']].map(([k, l]) => `<option value="${k}" ${per === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label class="vj-sel">${ico('filter', 15)}<select id="vtp" aria-label="Tipo de viagem">${[['todos', 'Todos os tipos'], ['grade', 'Entre sites'], ['cidade', 'Táxi na cidade'], ['inter', 'Intermunicipal'], ['moto', 'Moto Táxi']].map(([k, l]) => `<option value="${k}" ${tp === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       </div>
-      <div class="vj-cont"><small><b id="vn">${list.length}</b> ${list.length === 1 ? 'viagem encontrada' : 'viagens encontradas'}</small><small>Ordenadas por data e horário</small></div>
       <div class="vj-list">${list.length ? corpo : '<div class="vj-vazio">Nenhuma viagem neste filtro. Confirme solicitações em <a href="#painel">Confirmação de viagens</a>.</div>'}
         <div class="vj-vazio" id="vnone" hidden>Nenhuma viagem encontrada para a busca.</div></div>
     </section>`);
@@ -2119,7 +2124,6 @@ function renderViagens(page) {
     let n = 0;
     document.querySelectorAll('.vj').forEach((c) => { const ok = !q || c.dataset.q.includes(q); c.hidden = !ok; if (ok) n++; });
     document.querySelectorAll('.vj-dia').forEach((h) => { let x = h.nextElementSibling, vis = false; while (x && x.classList.contains('vj')) { if (!x.hidden) vis = true; x = x.nextElementSibling; } h.hidden = !vis; });
-    $('#vn').textContent = n;
     if (list.length) $('#vnone').hidden = n > 0;
   };
   $('#vq').oninput = filtra;
@@ -3278,6 +3282,42 @@ function renderAprovacoes(page) {
 }
 // Visão geral e Agenda se atualizam sozinhas a cada minuto (se nenhuma janela estiver aberta): na Agenda, o horário que passou some.
 if (typeof setInterval === 'function') setInterval(() => { if (S && S.user && ['visao', 'agenda'].includes(route.page) && $('#modal').hidden && !document.getElementById('confirma') && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#det'))) route(); }, 60000);
+
+// ---------------- Exibição: fonte, escala e brilho (preferência de cada pessoa, neste navegador) ----------------
+const EXIB_PADRAO = { fonte: 100, escala: 100, brilho: 100 };
+const Exib = {
+  ler() { try { return { ...EXIB_PADRAO, ...(JSON.parse(localStorage.getItem('mobilab.exibicao') || '{}')) }; } catch (e) { return { ...EXIB_PADRAO }; } },
+  gravar(x) { try { localStorage.setItem('mobilab.exibicao', JSON.stringify(x)); } catch (e) { /* sem armazenamento: vale só nesta visita */ } },
+  aplicar(x = Exib.ler()) {
+    const r = document.documentElement.style;
+    r.setProperty('--fz', String(x.fonte / 100));
+    r.setProperty('--esc', String(x.escala / 100));
+    let o = document.getElementById('brilho');
+    if (!o) { o = document.createElement('div'); o.id = 'brilho'; o.setAttribute('aria-hidden', 'true'); document.body.appendChild(o); }
+    o.style.background = x.brilho < 100 ? `rgba(0,0,0,${((100 - x.brilho) / 100).toFixed(2)})` : x.brilho > 100 ? `rgba(255,255,255,${((x.brilho - 100) / 100).toFixed(2)})` : 'transparent';
+  },
+};
+function openExibicao() {
+  const x = Exib.ler();
+  const seg = (k, ops) => `<div class="seg ex-seg" data-k="${k}">${ops.map(([v, l]) => `<button type="button" class="seg-b${x[k] === v ? ' on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>`;
+  openModal(`
+    <h3>${ico('gear', 20)} Exibição</h3>
+    <p class="sub">Ajuste como o Mobilab aparece para você. Vale só neste computador/navegador.</p>
+    <div class="ex-op"><b>Tamanho da fonte</b><small>Textos e conteúdo das telas</small>
+      ${seg('fonte', [[90, '<span style="font-size:12px">A</span> Pequena'], [100, '<span style="font-size:14px">A</span> Normal'], [112, '<span style="font-size:16px">A</span> Grande'], [125, '<span style="font-size:18px">A</span> Muito grande']])}</div>
+    <div class="ex-op"><b>Escala de exibição</b><small>Tamanho de tudo, inclusive o menu</small>
+      ${seg('escala', [[80, '80%'], [90, '90%'], [100, '100%'], [110, '110%'], [125, '125%']])}</div>
+    <div class="ex-op"><b>Brilho</b><small>Escurece ou clareia a tela do sistema</small>
+      <div class="ex-br">${ico('moon', 16)}<input type="range" id="exbr" min="60" max="120" step="5" value="${x.brilho}" aria-label="Brilho">${ico('sun', 18)}<output id="exbrv">${x.brilho}%</output></div></div>
+    <div class="modal-acts"><button class="btn" id="exrst">Restaurar padrão</button><button class="btn green" id="exok">Pronto</button></div>`);
+  const muda = (k, v) => { const y = { ...Exib.ler(), [k]: v }; Exib.gravar(y); Exib.aplicar(y); };
+  document.querySelectorAll('.ex-seg').forEach((g) => g.querySelectorAll('button').forEach((b) => { b.onclick = () => {
+    g.querySelectorAll('button').forEach((z) => z.classList.toggle('on', z === b)); muda(g.dataset.k, Number(b.dataset.v)); }; }));
+  $('#exbr').oninput = (e) => { $('#exbrv').textContent = `${e.target.value}%`; muda('brilho', Number(e.target.value)); };
+  $('#exrst').onclick = () => { Exib.gravar({ ...EXIB_PADRAO }); Exib.aplicar(); closeModal(); openExibicao(); };
+  $('#exok').onclick = closeModal;
+}
+Exib.aplicar();
 
 // ---------------- Boot ----------------
 if (window.MOBILAB_API) Srv.iniciar();
