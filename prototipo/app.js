@@ -1999,7 +1999,8 @@ function renderViagens(page) {
     ['concluida', 'Concluídas', cont('concluida')], ['naorealizada', 'Não realizadas', cont('naorealizada')]];
   const hojeS = ymd(new Date()), amanhaS = ymd(addDays(new Date(), 1));
   const seg = ymd(mondayOf(new Date())), dom = ymd(addDays(mondayOf(new Date()), 6));
-  const noPer = (v) => per === 'todas' || (per === 'hoje' ? v.data === hojeS : per === 'amanha' ? v.data === amanhaS : v.data >= seg && v.data <= dom);
+  const mesS = hojeS.slice(0, 7), d60 = ymd(addDays(new Date(), -60));
+  const noPer = (v) => per === 'todas' || (per === 'hoje' ? v.data === hojeS : per === 'amanha' ? v.data === amanhaS : per === 'mes' ? v.data.slice(0, 7) === mesS : per === '60' ? v.data >= d60 : v.data >= seg && v.data <= dom);
   const list = all.filter((v) => (f === 'abertas' ? ['enviar', 'enviada'].includes(v.st) : v.st === f) && noPer(v) && (tp === 'todos' || v.tipo === tp));
   if (!renderViagens.iniciado && list.length) { abertos.add(list[0].k); renderViagens.iniciado = true; }
   const VST = { enviar: ['A enviar', 'vst-enviar'], enviada: ['Enviada', 'vst-enviada'], concluida: ['Concluída', 'vst-concluida'], naorealizada: ['Não realizada', 'vst-nao'] };
@@ -2101,7 +2102,7 @@ function renderViagens(page) {
       <div class="vj-tools">
         <label class="vj-busca">${ico('search', 16)}<input id="vq" placeholder="Buscar por viagem, pessoa, motorista ou placa…" value="${esc(renderViagens.q || '')}" aria-label="Buscar viagem"></label>
         <span class="vj-sp"></span>
-        <label class="vj-sel">${ico('cal', 15)}<select id="vper" aria-label="Período">${[['todas', 'Todas as datas'], ['hoje', 'Hoje'], ['amanha', 'Amanhã'], ['semana', 'Esta semana']].map(([k, l]) => `<option value="${k}" ${per === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label class="vj-sel">${ico('cal', 15)}<select id="vper" aria-label="Período">${[['todas', 'Todas as datas'], ['hoje', 'Hoje'], ['amanha', 'Amanhã'], ['semana', 'Esta semana'], ['mes', 'Este mês'], ['60', 'Últimos 60 dias']].map(([k, l]) => `<option value="${k}" ${per === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
         <label class="vj-sel">${ico('filter', 15)}<select id="vtp" aria-label="Tipo de viagem">${[['todos', 'Todos os tipos'], ['grade', 'Entre sites'], ['cidade', 'Táxi na cidade'], ['inter', 'Intermunicipal'], ['moto', 'Moto Táxi']].map(([k, l]) => `<option value="${k}" ${tp === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       </div>
       <div class="vj-cont"><small><b id="vn">${list.length}</b> ${list.length === 1 ? 'viagem encontrada' : 'viagens encontradas'}</small><small>Ordenadas por data e horário</small></div>

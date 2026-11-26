@@ -1527,3 +1527,39 @@ select.sv:disabled { -webkit-appearance: none; -moz-appearance: none; appearance
   .vj-busca { width: 100%; } .vj-sp { display: none; }
   .vj-acts { width: 100%; } .vj-acts .vj-out, .vj-acts .vj-ok { flex: 1; justify-content: center; }
 }
+/* Viagens: fontes maiores */
+.vj-data { font-size: 14px; }
+.vj-k small { font-size: 15px; }
+.vj-k b { font-size: 30px; }
+.vj-k em { font-size: 13px; }
+.vj-gh h2 { font-size: 21px; }
+.vj-gh p, .vj-atu { font-size: 14px; }
+.vj-tabs button { font-size: 15px; }
+.vj-tabs button span { font-size: 12.5px; }
+.vj-busca input { font-size: 15px; }
+.vj-sel select { font-size: 14.5px; }
+.vj-cont { font-size: 13.5px; }
+.vj-dia b { font-size: 12px; }
+.vj-hoje, .vj-dia small { font-size: 12.5px; }
+.vj-hora { width: 62px; height: 62px; }
+.vj-hora b { font-size: 16px; }
+.vj-tt b { font-size: 18px; }
+.vj-tt small { font-size: 14px; }
+.vj-pill { font-size: 13px; }
+.vj-lab { font-size: 12px; }
+.vj-rota li { font-size: 15px; }
+.vj-mot b { font-size: 15px; }
+.vj-mot small { font-size: 13.5px; }
+.vj-tot { font-size: 26px; }
+.vj-chips span { font-size: 12.5px; }
+.vj-pess li { font-size: 14.5px; }
+.vj-pess li small { font-size: 13.5px; }
+.vj-pess .vj-lnk { font-size: 13px; }
+.vj-i small { font-size: 12.5px; }
+.vj-i b { font-size: 14px; }
+.vj-lnk { font-size: 14px; }
+.vj-ajuste label small, .vj-ajuste label em { font-size: 12.5px; }
+.vj-ajuste .vj-mo input { font-size: 14.5px; }
+.vj-st { font-size: 13px; }
+.vj-out, .vj-ok { height: 42px; font-size: 14.5px; }
+.vj-cont small { font-size: 13.5px; }
