@@ -16,6 +16,7 @@ import hmac
 import re
 import secrets
 import time
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from html import escape
 from types import SimpleNamespace
@@ -61,6 +62,68 @@ class Pessoa(Base):
     matricula: Mapped[str] = mapped_column(String(30), default='', index=True)  # base do RH: setor e gestor vêm do RH
     sem_email: Mapped[bool] = mapped_column(Boolean, default=False)  # conta sem caixa de e-mail (identificada pelo UPN)
     senha_hash: Mapped[str] = mapped_column(String(200), default='')  # login por senha do Mobilab (antes do Entra). Só o hash (scrypt).
+    cc_sap: Mapped[str] = mapped_column(String(10), default='')  # centro de custo SAP escolhido pela TI; vazio = automático pelo setor
+
+
+class CentroCusto(Base):
+    """Centros de custo do SAP (importados da planilha da Controladoria). 1xxxxx = Natulab Medicamentos, 2xxxxx = Natulab Suplementos.
+    A lista fica só no banco do servidor (não vai para o repositório)."""
+    __tablename__ = 'centros_custo'
+    cod: Mapped[str] = mapped_column(String(10), primary_key=True)
+    descricao: Mapped[str] = mapped_column(String(100), default='')
+    descricao_longa: Mapped[str] = mapped_column(String(200), default='')
+    valido_ate: Mapped[str] = mapped_column(String(8), default='99991231')
+
+
+def _norm_cc(t):
+    t = unicodedata.normalize('NFD', str(t or '')).encode('ascii', 'ignore').decode().lower().replace('&', ' e ')
+    t = re.sub(r'[^a-z0-9]+', ' ', t).strip()
+    return re.sub(r'^com ', 'comercial ', t)  # no SAP "COM ..." é Comercial
+
+
+def cc_do_setor(setor, centros):
+    """Código SAP sugerido para um setor do AD. Por enquanto só a série 1xxxxx (Medicamentos).
+    Nome igual ao do SAP; senão o nome do SAP (abreviado) é o começo do nome do setor. Mais de um candidato = sem sugestão."""
+    n = _norm_cc(setor)
+    if not n:
+        return ''
+    serie = [c for c in centros if c.cod.startswith('1')]
+    for campo in ('descricao_longa', 'descricao'):
+        cods = {c.cod for c in serie if _norm_cc(getattr(c, campo)) == n}
+        if cods:
+            return cods.pop() if len(cods) == 1 else ''
+    cods = set()
+    for c in serie:
+        d = _norm_cc(c.descricao)
+        if len(d) >= 4 and n.startswith(d):
+            cods.add(c.cod)
+    return cods.pop() if len(cods) == 1 else ''
+
+
+def _centros_validos(s):
+    hoje = agora().strftime('%Y%m%d')
+    return [c for c in s.scalars(select(CentroCusto).order_by(CentroCusto.cod)).all() if (c.valido_ate or '99991231') >= hoje]
+
+
+def importar_centros(lista, quem='importação TI'):
+    """lista: [{cod, descricao, descricao_longa, valido_ate}] da planilha do SAP. Atualiza e registra na trilha."""
+    novos = alterados = 0
+    with Sessao() as s:
+        for x in lista:
+            cod = str(x.get('cod', '')).strip()[:10]
+            if not cod.isdigit():
+                continue
+            c = s.get(CentroCusto, cod)
+            vals = (str(x.get('descricao', '')).strip()[:100], str(x.get('descricao_longa', '')).strip()[:200], str(x.get('valido_ate', '') or '99991231')[:8])
+            if not c:
+                s.add(CentroCusto(cod=cod, descricao=vals[0], descricao_longa=vals[1], valido_ate=vals[2]))
+                novos += 1
+            elif (c.descricao, c.descricao_longa, c.valido_ate) != vals:
+                c.descricao, c.descricao_longa, c.valido_ate = vals
+                alterados += 1
+        auditar(s, quem, 'Centros de custo importados', 'Planilha SAP', '', f'{len(lista)} na planilha · {novos} novos · {alterados} alterados')
+        s.commit()
+    return novos, alterados
 
 
 class Foto(Base):
@@ -91,7 +154,7 @@ def migrar():
                     "login varchar(100) not null default ''", "cargo varchar(200) not null default ''", "gestor_email varchar(200) not null default ''",
                     "gestor_nome varchar(200) not null default ''", "ou varchar(300) not null default ''", "travado boolean not null default false",
                     "matricula varchar(30) not null default ''", "sem_email boolean not null default false",
-                    "senha_hash varchar(200) not null default ''"):
+                    "senha_hash varchar(200) not null default ''", "cc_sap varchar(10) not null default ''"):
             c.execute(text(f'alter table pessoas add column if not exists {col}'))
 
 
@@ -1076,7 +1139,7 @@ def _ti_consulta(request):
 def _linha_usuario(p):
     return {'email': p.email, 'nome': p.nome, 'cc': p.cc, 'origem': p.origem, 'ativo': p.ativo, 'cargo': p.cargo, 'gestor': p.gestor_nome,
             'gestor_email': p.gestor_email, 'login': p.login, 'travado': p.travado, 'matricula': p.matricula, 'sem_email': p.sem_email,
-            'perfil': p.perfil or '', 'padrao': config.perfil_de(p.email),
+            'perfil': p.perfil or '', 'padrao': config.perfil_de(p.email), 'cc_sap': p.cc_sap or '',
             'ultimo_login': p.ultimo_login.astimezone(config.FUSO).strftime('%d/%m/%Y %H:%M') if p.ultimo_login else ''}
 
 
@@ -1130,6 +1193,12 @@ async def salvar_usuario(request: Request):
                 return JSONResponse({'erro': 'Gestor não encontrado. Escolha alguém da lista de usuários.'}, status_code=400)
             dados_mudaram |= ge != p.gestor_email
             p.gestor_email, p.gestor_nome = ge, (gp.nome if gp else '')
+        if 'cc_sap' in c:  # centro de custo SAP: vazio = automático pelo setor
+            cs = str(c['cc_sap'] or '').strip()
+            if cs and not s.get(CentroCusto, cs):
+                s.rollback()
+                return JSONResponse({'erro': 'Centro de custo não encontrado na lista do SAP.'}, status_code=400)
+            p.cc_sap = cs
         if 'travado' in c:
             p.travado = bool(c['travado'])
         elif dados_mudaram or ('nome' in c and antes and c['nome'] != antes.get('nome')):
@@ -1156,6 +1225,35 @@ async def salvar_usuario(request: Request):
             auditar(s, u['email'], 'Usuário alterado', email, antes[k], depois[k], nome=u.get('nome', ''), campo=k, motivo=motivo)
         s.commit()
         return {'usuario': _linha_usuario(p)}
+
+
+@rota.get('/api/centros-custo')
+def centros_custo(request: Request):
+    """Lista do SAP, código sugerido para cada setor e código de cada pessoa (escolhido pela TI ou pelo setor).
+    Só Facilities e administração: usado na tela Custos, nos relatórios e na edição do usuário."""
+    u = request.session.get('u')
+    if not u or u.get('perfil') not in ('facilities', *ADMINS):
+        return JSONResponse({'erro': 'Sem acesso.'}, status_code=403)
+    with Sessao() as s:
+        cs = _centros_validos(s)
+        ps = s.scalars(select(Pessoa)).all()
+        setores = {}
+        for p in ps:
+            if p.cc and p.cc not in setores:
+                setores[p.cc] = cc_do_setor(p.cc, cs)
+        pessoas, uso = {}, {}
+        for p in ps:
+            cod = p.cc_sap or setores.get(p.cc, '')
+            if cod:
+                pessoas[p.email] = cod
+                if not p.cc_sap and p.cc:
+                    uso.setdefault(cod, {}).setdefault(p.cc, 0)
+                    uso[cod][p.cc] += 1
+        # nome de cada código: o setor do AD mais usado com ele; senão a descrição do SAP
+        lista = [{'cod': c.cod, 'nome': max(uso[c.cod].items(), key=lambda kv: kv[1])[0] if c.cod in uso else setor_bonito(c.descricao_longa or c.descricao),
+                  'sap': c.descricao_longa or c.descricao, 'site': 'Medicamentos' if c.cod.startswith('1') else 'Suplementos' if c.cod.startswith('2') else ''}
+                 for c in cs]
+        return {'lista': lista, 'setores': {k: v for k, v in setores.items() if v}, 'pessoas': pessoas}
 
 
 @rota.get('/api/pessoas')

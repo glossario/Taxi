@@ -2519,8 +2519,30 @@ const siglaSetor = (cc) => {
   const p = setorCurto(cc).split(/\s+/).filter((w) => w.length > 2 || /^[A-Z]{2,}$/.test(w));
   return (p.length > 1 ? p[0][0] + p[1][0] : (p[0] || '?').slice(0, 2)).toUpperCase();
 };
+// Centros de custo do SAP: lista e códigos ficam no servidor (não no código). 1xxxxx = Medicamentos, 2xxxxx = Suplementos.
+// Código de cada pessoa = o escolhido pela TI na edição do usuário ou, se vazio, o sugerido pelo setor do AD.
+let CCSAP = null;
+async function carregarCCSAP(forcar) {
+  if (!window.MOBILAB_API) return null;
+  if (CCSAP && !forcar) return CCSAP;
+  try {
+    const r = await fetch('/api/centros-custo', { cache: 'no-store' });
+    const j = await r.json(); if (!r.ok) throw new Error(j.erro);
+    CCSAP = { ...j, nome: Object.fromEntries(j.lista.map((c) => [c.cod, c.nome])) };
+  } catch (e) { CCSAP = { lista: [], setores: {}, pessoas: {}, nome: {}, erro: true }; }
+  return CCSAP;
+}
+const ccCod = (cc) => { const m = String(cc || '').match(/^(\d{3,})\s*–/); return m ? m[1] : ''; };
+// custo da solicitação vai para o centro de custo de quem pediu (r.por quando pediu para outra pessoa)
+function ccChave(r) {
+  if (!CCSAP || !CCSAP.lista.length) return r.cc;
+  const em = (r.por && r.por.email) || r.email;
+  const cod = (em && CCSAP.pessoas[em]) || CCSAP.setores[r.cc];
+  return cod ? `${cod} – ${CCSAP.nome[cod] || setorCurto(r.cc)}` : r.cc;
+}
 function dadosCustos(mes, prev) {
-  const vs = viagens(true).filter((v) => v.data.slice(0, 7) === mes && (v.st === 'concluida' || (prev && ['enviar', 'enviada'].includes(v.st))) && v.rs.some((r) => !r.faltou)); // ninguém foi = sem cobrança
+  const vs = viagens(true).filter((v) => v.data.slice(0, 7) === mes && (v.st === 'concluida' || (prev && ['enviar', 'enviada'].includes(v.st))) && v.rs.some((r) => !r.faltou)) // ninguém foi = sem cobrança
+    .map((v) => ({ ...v, rs: v.rs.map((r) => ({ ...r, cc: ccChave(r) })) })); // agrupa pelo centro de custo SAP
   const porSetor = {};
   const semValor = [];
   const cat = { carro: { n: 0, valor: 0 }, moto: { n: 0, valor: 0 }, inter: { n: 0, valor: 0 } };
@@ -2569,6 +2591,7 @@ const CX_ART = `<svg class="cx-art" viewBox="0 0 200 150" aria-hidden="true">
   <g transform="translate(70 62) rotate(-14)"><rect x="0" y="16" width="70" height="20" rx="6" fill="#73bc25"/><path d="M12 16 L22 2 H50 L60 16 Z" fill="#8ccb4b"/><path d="M25 5 H36 V15 H19 Z M39 5 H48 L55 15 H39 Z" fill="#e3e7e8"/><circle cx="16" cy="38" r="8" fill="#343936"/><circle cx="16" cy="38" r="3" fill="#fff"/><circle cx="54" cy="38" r="8" fill="#343936"/><circle cx="54" cy="38" r="3" fill="#fff"/></g></svg>`;
 
 function renderCustos(page) {
+  if (window.MOBILAB_API && !CCSAP) { shell(page, skPagina()); carregarCCSAP().then(() => { if (route.page === page) route(); }); return; }
   const mes = renderCustos.mes || ymd(new Date()).slice(0, 7);
   const prev = !!renderCustos.prev;
   const filtro = renderCustos.filtro || 'todos';
@@ -2671,7 +2694,7 @@ function renderCustos(page) {
       const nV = sx.itens.length, mS = nV ? sx.valor / nV : 0;
       const sit = sx.semValor ? ['pe', `${sx.semValor} sem valor`] : media && mS > media * 1.5 ? ['al', 'Acima da média'] : ['ok', 'Dentro da média'];
       const p = totFiltro ? k(sx) / totFiltro : 0;
-      return `<tr data-cc="${esc(cc)}" tabindex="0"><td><div class="cx-st">${chip(cc)}<div><b>${esc(setorCurto(cc))}</b><small>Centro de custo ${esc(cc.split('–')[0].trim())}</small></div></div></td>
+      return `<tr data-cc="${esc(cc)}" tabindex="0"><td><div class="cx-st">${chip(cc)}<div><b>${esc(setorCurto(cc))}</b><small>${ccCod(cc) ? `Centro de custo ${esc(ccCod(cc))}` : 'Sem centro de custo SAP'}</small></div></div></td>
         <td><b>${k(sx, 1)}</b>${filtro === 'todos' ? '' : ` <small class="cx-mut">de ${nV}</small>`}</td>
         <td><div class="cx-mods">${['carro', 'moto', 'inter'].filter((c) => sx.cat[c].n).map((c) => `<span title="${esc({ carro: 'Carro', moto: 'Moto', inter: 'Intermunicipal' }[c])}">${ico(ICAT[c], 14)}${sx.cat[c].n}</span>`).join('')}</div></td>
         <td class="cx-val"><b>${brl(k(sx))}</b><small>${brl(mS)} por viagem</small></td>
@@ -2688,7 +2711,7 @@ function renderCustos(page) {
     const sx = (d.setores.find(([c]) => c === cc) || [])[1];
     if (!sx) return;
     const g = $('#cgav');
-    g.innerHTML = `<button class="btn sm cx-x" id="cfx">Fechar</button><small class="cx-cc">CENTRO DE CUSTO ${esc(cc.split('–')[0].trim())}</small><h3>${esc(setorCurto(cc))}</h3>
+    g.innerHTML = `<button class="btn sm cx-x" id="cfx">Fechar</button><small class="cx-cc">${ccCod(cc) ? `CENTRO DE CUSTO ${esc(ccCod(cc))}` : 'SEM CENTRO DE CUSTO SAP'}</small><h3>${esc(setorCurto(cc))}</h3>
       <p class="cx-mut">${brl(sx.valor)} em ${sx.itens.length} viagem(ns) · ${d.total ? pctBr(sx.valor / d.total, 1) : '—'} do mês</p>
       <ul>${[...sx.itens].sort((a, b) => at(a.v.data, a.v.hora) - at(b.v.data, b.v.hora)).map(({ v, val, rt }) => `<li><div>
         <b>${esc(v.rs.filter((r) => r.cc === cc).map((r) => r.id).join(', '))}</b> · ${fmtDate(v.data)} ${esc(v.hora)}
@@ -2819,10 +2842,10 @@ function csvCustos(d) {
   if (!d || !d.setores.length) { toast('Nada para exportar.'); return; }
   const q = (v) => { let x = String(v ?? ''); if (/^[=+\-@]/.test(x)) x = `'${x}`; return `"${x.replace(/"/g, '""')}"`; };
   const num = (n) => Number(n).toFixed(2).replace('.', ',');
-  const head = ['setor', 'centro_custo', 'data', 'hora', 'tipo', 'solicitacoes', 'valor_viagem', 'parte_do_setor'];
+  const head = ['setor', 'centro_custo_sap', 'data', 'hora', 'tipo', 'solicitacoes', 'valor_viagem', 'parte_do_setor'];
   const lines = [];
-  d.setores.forEach(([cc, sx]) => sx.itens.forEach(({ v, val, rt }) => lines.push([setorCurto(cc), cc, fmtDate(v.data), v.hora, TIPOS[v.tipo], v.rs.map((r) => r.id).join(' '), num(rt.total), num(val)].map(q).join(';'))));
-  d.setores.forEach(([cc, sx]) => lines.push([setorCurto(cc), cc, 'TOTAL DO MÊS', '', '', '', '', num(sx.valor)].map(q).join(';')));
+  d.setores.forEach(([cc, sx]) => sx.itens.forEach(({ v, val, rt }) => lines.push([setorCurto(cc), ccCod(cc), fmtDate(v.data), v.hora, TIPOS[v.tipo], v.rs.map((r) => r.id).join(' '), num(rt.total), num(val)].map(q).join(';'))));
+  d.setores.forEach(([cc, sx]) => lines.push([setorCurto(cc), ccCod(cc), 'TOTAL DO MÊS', '', '', '', '', num(sx.valor)].map(q).join(';')));
   const blob = new Blob(['﻿' + [head.join(';'), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `custos_por_setor_${d.mes}.csv`; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -3276,7 +3299,8 @@ async function renderUsuarios(page) {
   ligarBarraUsr();
   if (foco) { const i = $('#uq'); i.focus(); i.setSelectionRange(foco[0], foco[1]); }
   document.querySelectorAll('.uperf').forEach((sel) => { sel.onchange = () => salvar({ email: sel.dataset.e, perfil: sel.value }, `Perfil alterado para ${PERFIL_L[sel.value]}.`); });
-  const editor = (u) => {
+  const editor = async (u) => {
+    await carregarCCSAP();
     const novo = !u, adm = !novo && u.email === ADMIN_MOBILAB;
     u = u || { email: '', nome: '', login: '', cc: '', cargo: '', gestor_email: '', gestor: '', perfil: 'colaborador', ativo: true, travado: true };
     const setores = [...new Set(us.map((x) => x.cc).filter(Boolean))].sort((x, y) => x.localeCompare(y));
@@ -3290,6 +3314,14 @@ async function renderUsuarios(page) {
         <div class="f"><label>Login de rede</label><input class="input" id="ue_login" value="${esc(u.login || '')}" placeholder="nome.sobrenome"></div>
         <div class="f"><label>Setor</label><input class="input" id="ue_cc" list="ue_setores" value="${esc(u.cc || '')}"><datalist id="ue_setores">${setores.map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
         <div class="f"><label>Cargo</label><input class="input" id="ue_cargo" value="${esc(u.cargo || '')}"></div>
+        ${CCSAP && CCSAP.lista.length ? (() => {
+          const auto = CCSAP.setores[u.cc || ''];
+          const rot = (c) => `${c.cod} · ${c.sap}${c.site ? ` (${c.site})` : ''}`;
+          const ca = CCSAP.lista.find((c) => c.cod === auto);
+          return `<div class="f full"><label for="ue_ccsap">Centro de custo (SAP) <small>(onde os custos das viagens desta pessoa são lançados)</small></label>
+          <select class="input" id="ue_ccsap"><option value="">Automático pelo setor — ${ca ? esc(rot(ca)) : 'sem correspondência'}</option>
+            ${CCSAP.lista.map((c) => `<option value="${esc(c.cod)}" ${u.cc_sap === c.cod ? 'selected' : ''}>${esc(rot(c))}</option>`).join('')}</select></div>`;
+        })() : ''}
         <div class="f full"><label>Gestor imediato <small>(aprova as viagens intermunicipais)</small></label>
           <input class="input" id="ue_gestor" list="ue_gestores" value="${g0 ? esc(gtxt(g0)) : ''}" placeholder="Digite o nome e escolha na lista">
           <datalist id="ue_gestores">${us.filter((x) => x.email !== u.email && x.ativo).map((x) => `<option value="${esc(gtxt(x))}">`).join('')}</datalist></div>
@@ -3319,10 +3351,11 @@ async function renderUsuarios(page) {
       if (gv && !us.some((x) => x.email === ge)) { $('#uemsg').innerHTML = '<div class="msg-box bad">Escolha o gestor na lista (digite o nome e clique na sugestão).</div>'; return; }
       const dados = { email: $('#ue_email').value.trim().toLowerCase(), nome: $('#ue_nome').value.trim(), login: $('#ue_login').value.trim(),
         cc: $('#ue_cc').value.trim(), cargo: $('#ue_cargo').value.trim(), gestor_email: ge, perfil: adm ? 'ti' : $('#ue_perfil').value,
-        travado: $('#ue_trava').checked };
+        travado: $('#ue_trava').checked, ...($('#ue_ccsap') ? { cc_sap: $('#ue_ccsap').value } : {}) };
       try {
         await Usr.salvar(dados);
         if (nsenha) await Usr.senha(dados.email, nsenha);
+        if ($('#ue_ccsap')) CCSAP = null; // códigos das pessoas mudaram: a tela Custos busca de novo
         closeModal(); toast((novo ? 'Usuário cadastrado.' : 'Usuário atualizado.') + (nsenha ? ' Senha alterada — passe para a pessoa por um canal seguro.' : '')); route();
       }
       catch (e) { $('#uemsg').innerHTML = `<div class="msg-box bad">${esc(e.message)}</div>`; }
