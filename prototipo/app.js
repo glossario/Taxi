@@ -1654,11 +1654,6 @@ function renderPainel(page) {
   if (!P.tab) P.tab = (ABAS.find((a) => a[3].length) || ABAS[0])[0];
   const aba = ABAS.find((a) => a[0] === P.tab) || ABAS[0];
   const itens = aba[3].slice().sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
-  const SUB = {
-    grade: 'Pedidos do mesmo horário aparecem juntos. Carros sem lugar, sem porta-malas ou já em outra viagem ficam bloqueados.',
-    moto: `Envios no mesmo dia, com a mesma retirada e entrega e até ${MOTO_TOL_MIN} min de diferença, seguem juntos se couberem na moto.`,
-    avulso: 'Táxi na cidade e intermunicipal. O valor da corrida é informado depois, em Viagens.',
-  };
   let corpo = '', dia = '';
   const porDia = {};
   itens.forEach((x) => { porDia[x.data] = (porDia[x.data] || 0) + x.n; });
@@ -1683,12 +1678,9 @@ function renderPainel(page) {
       <a class="cf-k" href="#viagens"><small>Envio por WhatsApp</small>${ico('arrow', 18)}<span class="cf-kv"><b>${pad(aEnviar)}</b><em>prontas para enviar</em></span></a>
     </div>
     <section class="cf-box">
-      <nav class="cf-tabs">${ABAS.map(([k, l, ic, xs]) => `<button type="button" class="${aba[0] === k ? 'on' : ''}" data-tab="${k}">${ico(ic, 17)} ${l} <span>${soma(xs)}</span></button>`).join('')}</nav>
+      <div class="cf-tabbar"><nav class="cf-tabs">${ABAS.map(([k, l, ic, xs]) => `<button type="button" class="${aba[0] === k ? 'on' : ''}" data-tab="${k}">${ico(ic, 17)} ${l} <span>${soma(xs)}</span></button>`).join('')}</nav>
+        <label class="vj-busca cf-busca">${ico('search', 16)}<input id="cfq" placeholder="Buscar solicitação…" value="${esc(P.q || '')}" aria-label="Buscar solicitação"></label></div>
       <div class="cf-in">
-        <div class="cf-sh">
-          <div><h2>Solicitações pendentes <span>${soma(itens)}</span></h2><p>${SUB[aba[0]]}</p></div>
-          <label class="vj-busca cf-busca">${ico('search', 16)}<input id="cfq" placeholder="Buscar solicitação…" value="${esc(P.q || '')}" aria-label="Buscar solicitação"></label>
-        </div>
         ${itens.length ? corpo : `<div class="cf-vazio">Nenhuma solicitação ${aba[0] === 'grade' ? 'entre sites' : aba[0] === 'moto' ? 'de Moto Táxi' : 'de táxi avulso'} pendente${per !== 'todas' ? ' neste período' : ''}.</div>`}
         <div class="cf-vazio" id="cfnone" hidden>Nenhuma solicitação encontrada para a busca.</div>
       </div>

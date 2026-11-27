@@ -1689,3 +1689,13 @@ a.cf-k:hover > .ico { color: var(--green-dark); }
   .cf-acts { width: 100%; justify-content: stretch; } .cf-sel { width: 100%; } .cf-sel select { flex: 1; max-width: none; border-color: var(--line); background-color: var(--white); }
   .cf-ok { flex: 1; justify-content: center; }
 }
+/* Confirmação: busca na linha das abas */
+.cf-tabbar { display: flex; align-items: center; gap: 16px; padding-right: 26px; border-bottom: 1px solid var(--line); }
+.cf-tabbar .cf-tabs { flex: 1; min-width: 0; border-bottom: 0; }
+.cf-in > .cf-dia:first-child { margin-top: 0; }
+@media (max-width: 700px) { .cf-tabbar { flex-direction: column-reverse; align-items: stretch; gap: 0; padding: 14px 14px 0; } .cf-tabbar .cf-tabs { padding: 0; } }
+@media (max-width: 700px) {
+  .cf-pills .cf-pill { white-space: normal; }
+  .cf-sel { flex-wrap: wrap; } .cf-sel select { flex: 1 1 140px; min-width: 0; }
+  .cf-top { min-width: 0; } .cf-tt { min-width: 0; }
+}
