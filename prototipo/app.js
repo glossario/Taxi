@@ -2101,6 +2101,8 @@ function openWpp(v) {
 }
 
 // ---------------- Grade do motorista: viagens do dia (manhã, tarde ou dia inteiro) numa mensagem só ----------------
+// Envio da grade ao motorista: DESLIGADO até avaliar com o Facilities (pedido do dono, 27/11). Para ligar, troque para true.
+const GRADE_MOTORISTA = false;
 const PERIODOS_GRADE = { manha: ['Manhã', '00:00', '11:59'], tarde: ['Tarde', '12:00', '23:59'], dia: ['Dia inteiro', '00:00', '23:59'] };
 const viagensDoMotorista = (motId, data, per) => {
   const [, de, ate] = PERIODOS_GRADE[per];
@@ -2337,7 +2339,7 @@ function renderViagens(page) {
     <div class="pg-head">
       <div><h1>Viagens</h1><p>Organize os deslocamentos. Acompanhe cada chegada.</p></div>
       <div class="vj-hd"><div class="vj-data">${ico('cal', 15)}<span>${DIAS[agora.getDay()]}${isWeekday(agora) ? '-feira' : ''}, ${agora.getDate()} de ${MESES[agora.getMonth()]}</span><i></i><span>${agora.getFullYear()}</span></div>
-        <button class="btn green" id="vgrade">${ico('send', 16)} Enviar grade ao motorista</button></div>
+        ${GRADE_MOTORISTA ? `<button class="btn green" id="vgrade">${ico('send', 16)} Enviar grade ao motorista</button>` : ''}</div>
     </div>
     <div class="vj-kpis">
       ${kpi('abertas', 'route', 'g', 'Viagens em aberto', nAbertas, 'deslocamentos programados')}
@@ -2359,7 +2361,7 @@ function renderViagens(page) {
 
   document.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => { renderViagens.f = b.dataset.f; route(); }; });
   $('#vper').onchange = (e) => { renderViagens.per = e.target.value; route(); };
-  $('#vgrade').onclick = () => openGradeMotorista();
+  if (GRADE_MOTORISTA) $('#vgrade').onclick = () => openGradeMotorista();
   $('#vtp').onchange = (e) => { renderViagens.tp = e.target.value; route(); };
   const filtra = () => {
     const q = ($('#vq').value || '').trim().toLowerCase();
