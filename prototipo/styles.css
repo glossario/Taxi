@@ -1584,3 +1584,108 @@ select.sv:disabled { -webkit-appearance: none; -moz-appearance: none; appearance
 .vj-tabbar .vj-busca { margin-bottom: 10px; width: min(380px, 40%); }
 .vj-tools { margin-bottom: 6px; }
 @media (max-width: 900px) { .vj-tabbar { flex-direction: column-reverse; align-items: stretch; gap: 8px; } .vj-tabbar .vj-busca { width: 100%; margin: 0; } }
+
+/* ---------- Confirmação de viagens (redesenho) ---------- */
+.cf-per { align-self: flex-start; margin-top: 8px; }
+.cf-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 28px; }
+.cf-k { position: relative; display: flex; flex-direction: column; gap: 18px; background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 22px 22px 24px; color: inherit; text-decoration: none; }
+a.cf-k:hover { border-color: #cfe5b6; box-shadow: 0 6px 18px rgba(52, 57, 54, .06); }
+a.cf-k:hover > .ico { color: var(--green-dark); }
+.cf-k > small { font-size: 13.5px; font-weight: 600; color: var(--ink); padding-right: 28px; }
+.cf-k > .ico { position: absolute; top: 20px; right: 20px; color: var(--muted); }
+.cf-kv { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.cf-kv b { font-size: 32px; font-weight: 800; color: var(--navy-ink); font-variant-numeric: tabular-nums; line-height: 1; }
+.cf-kv b small { font-size: 18px; font-weight: 700; color: var(--muted); margin-left: 2px; }
+.cf-kv em { font-style: normal; font-size: 13px; color: var(--muted); }
+.cf-kv em.chip { background: var(--amber-soft); color: #9a6400; border-radius: 6px; padding: 4px 9px; font-weight: 700; font-size: 12px; }
+.cf-oc { width: 70px; height: 5px; border-radius: 3px; background: var(--bg); overflow: hidden; }
+.cf-oc i { display: block; height: 100%; background: var(--green); border-radius: 3px; }
+
+.cf-box { background: var(--white); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+.cf-tabs { display: flex; gap: 34px; padding: 0 26px; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.cf-tabs button { border: 0; background: none; font: inherit; font-size: 15px; font-weight: 600; color: var(--muted); padding: 22px 2px 18px; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; }
+.cf-tabs button:hover { color: var(--navy-ink); }
+.cf-tabs button span { font-size: 11.5px; font-weight: 700; background: var(--bg); color: var(--muted); border-radius: 5px; padding: 1px 7px; }
+.cf-tabs button.on { color: var(--green-dark); border-bottom-color: var(--green); }
+.cf-tabs button.on span { background: var(--lime-soft); color: var(--green-dark); }
+.cf-in { padding: 24px 26px 26px; }
+.cf-sh { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+.cf-sh h2 { margin: 0; font-size: 18px; font-weight: 800; color: var(--navy-ink); display: flex; gap: 10px; align-items: baseline; }
+.cf-sh h2 span { font-size: 13px; color: var(--muted); font-weight: 600; }
+.cf-sh p { margin: 6px 0 0; font-size: 13px; color: var(--muted); max-width: 640px; }
+.cf-busca { width: min(320px, 100%); }
+
+.cf-dia { display: flex; align-items: center; gap: 10px; margin: 22px 0 12px; color: var(--muted); }
+.cf-dia b { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.cf-dia i { flex: 1; height: 1px; background: var(--line); }
+.cf-dia small { font-size: 12px; }
+.cf-hj { font-size: 11px; font-weight: 700; background: var(--lime-soft); color: var(--green-dark); border-radius: 5px; padding: 2px 8px; }
+
+.cf { border: 1px solid var(--line); border-radius: 14px; margin-bottom: 12px; overflow: hidden; background: var(--white); }
+.cf:hover { border-color: #d6e6c4; }
+.cf.bad { border-color: #f0c9c4; }
+.cf-top { display: flex; align-items: center; gap: 22px; padding: 22px 24px; }
+.cf-hora { width: 66px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-right: 22px; border-right: 1px solid var(--line); box-sizing: content-box; }
+.cf-hora b { font-size: 22px; font-weight: 700; color: var(--navy-ink); font-variant-numeric: tabular-nums; }
+.cf-hora small { font-size: 11.5px; color: var(--muted); }
+.cf-tt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
+.cf-rota { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 16px; font-weight: 700; color: var(--navy-ink); }
+.cf-rota .ico { color: var(--muted); }
+.cf-mais { font-size: 12px; font-weight: 600; color: var(--muted); }
+.cf-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.cf-meta span { display: inline-flex; align-items: center; gap: 5px; }
+.cf-meta .id { font-size: 12px; font-weight: 700; }
+.cf-meta em { font-style: normal; color: var(--green-dark); }
+.cf-meta .s { width: 1px; height: 13px; background: var(--line); margin: 0 4px; }
+.cf-pills { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-self: flex-start; }
+.cf-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; border-radius: 6px; padding: 4px 10px; background: var(--amber-soft); color: #9a6400; white-space: nowrap; }
+.cf-pill i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.cf-pill.g { background: var(--lime-soft); color: var(--green-dark); }
+.cf-pill.n { background: var(--bg); color: var(--ink); }
+.cf-pill.r { background: var(--red-soft); color: var(--red); }
+
+.cf-det { display: none; padding: 0 24px 16px 134px; }
+.cf.on .cf-det { display: block; }
+.cf-pess { list-style: none; margin: 0; padding: 14px 0; border-top: 1px dashed var(--line); display: grid; gap: 10px; }
+.cf-pess li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 13.5px; }
+.cf-pess li b { color: var(--navy-ink); }
+.cf-pess li small { color: var(--muted); font-size: 12.5px; }
+.cf-just { font-style: italic; color: var(--ink); }
+.cf-x { font-style: normal; font-size: 12px; font-weight: 700; color: var(--red); }
+.cf-lnk { border: 0; background: none; font: inherit; font-size: 12px; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 0; }
+.cf-lnk:hover { color: var(--red); }
+.cf-info { display: flex; gap: 24px; flex-wrap: wrap; padding-top: 12px; border-top: 1px dashed var(--line); font-size: 13px; color: var(--muted); }
+.cf-info b { color: var(--navy-ink); }
+
+.cf-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 24px; background: #fafbf9; border-top: 1px solid var(--line); }
+.cf-ver { border: 0; background: none; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 6px 0; }
+.cf-ver:hover { color: var(--green-dark); }
+.cf-ver .ico { transition: transform .15s; }
+.cf.on .cf-ver .ico { transform: rotate(180deg); }
+.cf-acts { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+.cf-sel { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); min-width: 0; }
+.cf-sel select, .cf-saida select { height: 40px; border: 1px solid transparent; background-color: transparent; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--ink); max-width: 360px; cursor: pointer; border-radius: 8px; padding: 0 30px 0 8px; }
+.cf-sel select:hover, .cf-sel select:focus, .cf-saida select:hover, .cf-saida select:focus { border-color: var(--line); background-color: var(--white); }
+.cf-sel select.sv:disabled { display: none; }
+.cf-saida { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+.cf-saida small { font-size: 12px; color: var(--muted); }
+.cf-rec { border: 0; background: none; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--muted); cursor: pointer; padding: 6px 4px; }
+.cf-rec:hover { color: var(--red); }
+.cf-ok { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 20px; border: 0; border-radius: 8px; background: var(--green-dark); color: #fff; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.cf-ok:hover { background: #3d6e10; }
+.cf-mv { height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--white); font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink); cursor: pointer; }
+.cf-mv:hover { border-color: var(--green); color: var(--green-dark); }
+.cf-alerta { font-size: 13px; font-weight: 600; color: var(--red); }
+.cf-vazio { padding: 44px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 14px; margin-top: 18px; }
+
+@media (max-width: 1200px) { .cf-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cf-det { padding-left: 24px; } }
+@media (max-width: 700px) {
+  .cf-kpis { gap: 10px; } .cf-k { padding: 16px; gap: 12px; } .cf-kv b { font-size: 26px; }
+  .cf-tabs { padding: 0 14px; gap: 22px; } .cf-tabs button { font-size: 14px; padding: 16px 2px 14px; }
+  .cf-in { padding: 16px; } .cf-busca { width: 100%; }
+  .cf-top { flex-wrap: wrap; gap: 14px; padding: 16px; } .cf-hora { width: auto; padding-right: 14px; } .cf-tt { flex-basis: calc(100% - 110px); }
+  .cf-pills { width: 100%; justify-content: flex-start; }
+  .cf-det { padding: 0 16px 14px; } .cf-bar { padding: 12px 16px; }
+  .cf-acts { width: 100%; justify-content: stretch; } .cf-sel { width: 100%; } .cf-sel select { flex: 1; max-width: none; border-color: var(--line); background-color: var(--white); }
+  .cf-ok { flex: 1; justify-content: center; }
+}

@@ -460,6 +460,7 @@ const ICO = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   cadastro: '<path d="M19 10.1A8.5 8.5 0 1 1 13.9 5"/><circle cx="11" cy="11" r="3"/><path d="M5.5 19.5c1-2.6 3-3.9 5.5-3.9s4.5 1.3 5.5 3.9"/><circle cx="18" cy="6" r="3.2"/><path d="M18 4.6v2.8M16.6 6h2.8"/>',
   sliders: '<path d="M3 6h2.5M10.5 6H21M3 12h10.5M18.5 12H21M3 18h4.5M12.5 18H21"/><circle cx="8" cy="6" r="2.5"/><circle cx="16" cy="12" r="2.5"/><circle cx="10" cy="18" r="2.5"/>',
+  mala: '<rect x="5" y="7" width="14" height="13" rx="2"/><path d="M9 7V4.5h6V7M9 11v5M15 11v5"/>',
   userplus: '<circle cx="10" cy="8" r="3.5"/><path d="M3 20c.8-3.8 3.6-5.8 7-5.8 1.4 0 2.7.3 3.8 1"/><path d="M18 14v6M15 17h6"/>',
 };
 const ico = (n, s = 18) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO[n]}</svg>`;
@@ -1542,18 +1543,48 @@ function driverOptions(tipo, data, hora, ignoreIds, dur) {
 }
 
 function renderPainel(page) {
-  const pend = S.reqs.filter((r) => r.status === 'analise');
-  const today = ymd(new Date());
-  const confHoje = S.reqs.filter((r) => r.data === today && ['confirmada', 'andamento', 'concluida'].includes(r.status));
+  const P = renderPainel;
+  const per = P.per || 'todas';
+  const abertos = P.abertos || (P.abertos = new Set());
+  const hojeS = ymd(new Date()), amanhaS = ymd(addDays(new Date(), 1));
+  const seg = ymd(mondayOf(new Date())), dom = ymd(addDays(mondayOf(new Date()), 6));
+  const noPer = (d) => per === 'todas' || (per === 'hoje' ? d === hojeS : per === 'amanha' ? d === amanhaS : d >= seg && d <= dom);
+  const pendTodas = S.reqs.filter((r) => r.status === 'analise');
+  const pend = pendTodas.filter((r) => noPer(r.data));
+  const viagensHoje = viagens().filter((v) => v.data === hojeS && v.st !== 'naorealizada').length;
   const gradeConf = S.reqs.filter((r) => r.tipo === 'grade' && r.status === 'confirmada' && r.veiculo);
   const occAvg = gradeConf.length ? Math.round(gradeConf.reduce((s, r) => s + r.pax / veic(r.veiculo).cap, 0) / gradeConf.length * 100) : 0;
   const aEnviar = viagens().filter((v) => v.st === 'enviar').length;
 
-  // agrupamento por horário da grade
+  // ---- peças do cartão
+  const dataCurta = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+  const seta = ico('arrow', 14);
+  const rotaHtml = (pares) => {
+    if (pares.length === 1) return `<span>${esc(pares[0][0])}</span>${seta}<span>${esc(pares[0][1])}</span>`;
+    return `<span>${esc(pares[0][0])}</span>${seta}<span>${esc(pares[0][1])}</span><small class="cf-mais">+${pares.length - 1} ${pares.length - 1 === 1 ? 'trecho' : 'trechos'}</small>`;
+  };
+  const sep = '<i class="s"></i>';
+  const nomes = (rs) => [...new Set(rs.map((r) => r.nome))].join(', ');
+  const idsTxt = (rs) => (rs.length === 1 ? rs[0].id : `${rs[0].id} +${rs.length - 1}`);
+  const card = ({ key, attr, bad, hora, data, rota, meta, chips = '', det, acts, q }) => `
+    <article class="cf${bad ? ' bad' : ''}${abertos.has(key) ? ' on' : ''}" ${attr} data-ck="${esc(key)}" data-q="${esc(q.toLowerCase())}">
+      <div class="cf-top">
+        <span class="cf-hora"><b>${esc(hora)}</b><small>${dataCurta(data)}</small></span>
+        <span class="cf-tt"><b class="cf-rota">${rota}</b><span class="cf-meta">${meta}</span></span>
+        <span class="cf-pills">${chips}<span class="cf-pill"><i></i>Pendente</span></span>
+      </div>
+      <div class="cf-det">${det}</div>
+      <div class="cf-bar">
+        <button class="cf-ver" type="button" aria-expanded="${abertos.has(key)}">${abertos.has(key) ? 'Ocultar detalhes' : 'Ver detalhes'} ${ico('down', 14)}</button>
+        <span class="cf-acts">${acts}</span>
+      </div>
+    </article>`;
+  const selMot = (tipo, opD, opV) => `<span class="cf-sel" title="${tipo === 'moto' ? 'Motociclista e moto' : 'Motorista e carro'}">${ico(tipo === 'moto' ? 'moto' : 'car', 17)}<select class="sd" aria-label="${tipo === 'moto' ? 'Motociclista' : 'Motorista'}">${opD}</select><select class="sv" aria-label="Veículo">${opV}</select></span>`;
+
+  // ---- Entre sites: agrupado por horário da grade
   const groups = {};
   pend.filter((r) => r.tipo === 'grade').forEach((r) => { (groups[`${r.data} ${r.hora}`] ||= []).push(r); });
-  const groupKeys = Object.keys(groups).sort();
-  const groupHtml = groupKeys.map((k) => {
+  const itensG = Object.keys(groups).sort().map((k) => {
     const rs = groups[k]; const [data, hora] = k.split(' ');
     const pax = rs.reduce((s, r) => s + r.pax, 0);
     const bagPts = 0; // bagagem é descritiva: o Facilities avalia o porta-malas
@@ -1561,69 +1592,132 @@ function renderPainel(page) {
     const ids = rs.map((r) => r.id);
     const anyVeh = VEICULOS.some((v) => v.tipo === 'carro' && v.cap >= pax && v.bag >= bagPts && !busy('veiculo', v.id, data, hora, ids));
     const setores = [...new Set(rs.map((r) => r.cc.split('–')[1]?.trim() || r.cc))];
-    return `<div class="group ${anyVeh ? 'ok' : 'bad'}" data-k="${esc(k)}">
-      <div class="group-h"><b>${esc(fmtDT(data, hora))}</b><span class="tipo">${rs.length > 1 ? `Sugestão de agrupamento: ${esc(setores.join(' + '))}` : 'Solicitação única'}</span></div>
-      <ul>${rs.map((r) => `<li><span><b>${esc(r.id)}</b> · ${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small>${r.perna ? ` <span class="tag">${pernaTxt(r)} · ${esc(r.par)}</span>` : ''}</span><span>${esc(SITE_SHORT[r.origem])}→${esc(SITE_SHORT[r.destino])} · ${r.pax} pax · ${esc(bagCurto(r))}</span></li>`).join('')}</ul>
-      <div class="meter"><span>Total: <b>${pax} passageiros</b></span><span>Bagagem: <b>${esc(bagsTxt)}</b></span><span>Veículo: <b>${pax > CAP_PADRAO ? 'Spin (passou de ' + CAP_PADRAO + ')' : 'carro de ' + CAP_PADRAO + ' vagas'}</b></span></div>
-      ${anyVeh ? `<div class="assign"><select class="sd" aria-label="Motorista">${driverOptions('carro', data, hora, ids)}</select><select class="sv" aria-label="Veículo">${vehicleOptions('carro', pax, bagPts, data, hora, ids)}</select>
-        <button class="btn green sm ok-g">Confirmar ${rs.length > 1 ? 'grupo' : ''}</button><button class="btn sm red no-g">Recusar</button></div>`
-      : `<div class="alert">Nenhum veículo comporta ${pax} passageiros / ${bagPts} pts de bagagem. Separe as solicitações ou sugira o próximo horário.</div>
-         <div class="assign">${rs.map((r) => `<button class="btn sm mv" data-id="${esc(r.id)}">Mover ${esc(r.id)} p/ próximo horário</button>`).join('')}</div>`}
-    </div>`;
-  }).join('') || '<div class="empty">Nenhuma solicitação da grade pendente.</div>';
+    const pares = [...new Map(rs.map((r) => [`${r.origem}|${r.destino}`, [siteName(r.origem), siteName(r.destino)]])).values()];
+    const bag1 = rs.length === 1 ? bagCurto(rs[0]) : (bagsTxt === 'N/A' ? 'Sem bagagem' : `${rs.filter((r) => bagTxt(r) !== 'N/A').length} com bagagem`);
+    const html = card({
+      key: `g:${k}`, attr: `data-k="${esc(k)}"`, bad: !anyVeh, hora, data, rota: rotaHtml(pares),
+      meta: `<span class="id">${esc(idsTxt(rs))}</span><em>${esc(nomes(rs))}</em>${sep}<span>${ico('users', 13)} ${pax} ${pax === 1 ? 'passageiro' : 'passageiros'}</span>${sep}<span>${ico('mala', 13)} ${esc(bag1)}</span>`,
+      chips: (rs.length > 1 ? `<span class="cf-pill g"><i></i>Grupo: ${esc(setores.join(' + '))}</span>` : '') + (!anyVeh ? '<span class="cf-pill r"><i></i>Sem veículo</span>' : ''),
+      det: `<ul class="cf-pess">${rs.map((r) => `<li><b>${esc(r.id)}</b><span>${esc(r.nome)}</span><small>${esc(r.cc)}</small><small>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))} · ${r.pax} pax · ${esc(bagCurto(r))}</small>${r.perna ? `<span class="tag">${pernaTxt(r)} · ${esc(r.par)}</span>` : ''}</li>`).join('')}</ul>
+        <div class="cf-info"><span>Total: <b>${pax} ${pax === 1 ? 'passageiro' : 'passageiros'}</b></span><span>Bagagem: <b>${esc(bagsTxt)}</b></span><span>Veículo indicado: <b>${pax > CAP_PADRAO ? `Spin (passou de ${CAP_PADRAO})` : `carro de ${CAP_PADRAO} vagas`}</b></span></div>`,
+      acts: anyVeh ? `${selMot('carro', driverOptions('carro', data, hora, ids), vehicleOptions('carro', pax, bagPts, data, hora, ids))}
+          <button class="cf-rec no-g" type="button">Recusar</button><button class="cf-ok ok-g" type="button">${ico('check', 15)} Confirmar${rs.length > 1 ? ' grupo' : ''}</button>`
+        : `<span class="cf-alerta">Nenhum veículo comporta ${pax} passageiros neste horário.</span>${rs.map((r) => `<button class="cf-mv mv" type="button" data-id="${esc(r.id)}">Mover ${esc(r.id)} p/ próximo horário</button>`).join('')}<button class="cf-rec no-g" type="button">Recusar</button>`,
+      q: `${ids.join(' ')} ${rs.map((r) => `${r.nome} ${r.cc}`).join(' ')} ${pares.flat().join(' ')}`,
+    });
+    return { data, hora, n: rs.length, html };
+  });
 
-  // Moto Táxi: envios com mesmo dia, mesma retirada e mesma entrega, dentro da janela, que cabem em uma moto
+  // ---- Moto Táxi: envios com mesmo dia, mesma retirada e mesma entrega, dentro da janela, que cabem em uma moto
   const clusters = motoClusters(pend);
-  const motoHtml = clusters.map((c, i) => {
+  const itensM = clusters.map((c, i) => {
     const ids = c.rs.map((r) => r.id);
     const horas = [...new Set(c.rs.map((r) => r.hora))].sort();
     const saida = horas[horas.length - 1];
     const varios = c.rs.length > 1;
-    return `<div class="group ok" data-m="${i}">
-      <div class="group-h"><b>${esc(fmtDay(at(c.data, '00:00')))} · ${esc(siteName(c.origem))} → ${esc(siteName(c.destino))}</b>
-        <span class="tipo">${varios ? `Sugestão: ${c.rs.length} envios em 1 viagem` : 'Envio único'}</span></div>
-      <ul>${c.rs.map((r) => `<li><span><b>${esc(r.id)}</b> · ${esc(r.hora)} · ${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small><br>
-          ${esc(resumo(r))} → recebe: ${esc(r.recebedor)}${r.excecao ? ' · <b style="color:var(--red)">fora do prazo</b>' : ''}</span>
-          ${varios ? `<button class="btn sm red rx" data-id="${esc(r.id)}">Recusar este</button>` : ''}</li>`).join('')}</ul>
-      <div class="meter"><span>Carga: <b>${c.pts}/${MOTO_CARGA} pts</b></span>${varios ? `<span>Pedidos entre <b>${horas[0]}</b> e <b>${saida}</b></span>` : ''}</div>
-      <div class="assign">
-        <label class="f" style="display:flex;align-items:center;gap:6px;margin:0"><small>Saída</small><select class="sh">${horas.map((h) => `<option ${h === saida ? 'selected' : ''}>${h}</option>`).join('')}</select></label>
-        <select class="sd" aria-label="Motorista">${driverOptions('moto', c.data, saida, ids)}</select><select class="sv" aria-label="Veículo">${vehicleOptions('moto', 0, c.pts, c.data, saida, ids)}</select>
-        <button class="btn green sm ok-m">${varios ? 'Agrupar e gerar OS' : 'Aprovar e gerar OS'}</button><button class="btn sm red no-m">Recusar${varios ? ' todos' : ''}</button></div>
-    </div>`;
-  }).join('') || '<div class="empty">Nenhum envio de Moto Táxi pendente.</div>';
+    const html = card({
+      key: `m:${ids.join('+')}`, attr: `data-m="${i}"`, hora: saida, data: c.data, rota: rotaHtml([[siteName(c.origem), siteName(c.destino)]]),
+      meta: `<span class="id">${esc(idsTxt(c.rs))}</span><em>${esc(nomes(c.rs))}</em>${sep}<span>${ico('clip', 13)} ${c.rs.length} ${varios ? 'envios' : 'envio'}</span>${sep}<span>Carga ${c.pts}/${MOTO_CARGA} pts</span>`,
+      chips: (varios ? `<span class="cf-pill g"><i></i>${c.rs.length} envios em 1 viagem</span>` : '') + (c.rs.some((r) => r.excecao) ? '<span class="cf-pill r"><i></i>Fora do prazo</span>' : ''),
+      det: `<ul class="cf-pess">${c.rs.map((r) => `<li><b>${esc(r.id)}</b><span>${esc(r.hora)} · ${esc(r.nome)}</span><small>${esc(r.cc)}</small><small>${esc(resumo(r))} → recebe: ${esc(r.recebedor)}</small>${r.excecao ? '<em class="cf-x">fora do prazo</em>' : ''}
+          ${varios ? `<button class="cf-lnk rx" type="button" data-id="${esc(r.id)}">Recusar este</button>` : ''}</li>`).join('')}</ul>
+        <div class="cf-info"><span>Carga: <b>${c.pts}/${MOTO_CARGA} pts</b></span>${varios ? `<span>Pedidos entre <b>${horas[0]}</b> e <b>${saida}</b> — a saída é o horário mais tarde, para todos os itens estarem prontos</span>` : ''}</div>`,
+      acts: `<label class="cf-saida"><small>Saída</small><select class="sh" aria-label="Horário de saída">${horas.map((h) => `<option ${h === saida ? 'selected' : ''}>${h}</option>`).join('')}</select></label>
+        ${selMot('moto', driverOptions('moto', c.data, saida, ids), vehicleOptions('moto', 0, c.pts, c.data, saida, ids))}
+        <button class="cf-rec no-m" type="button">Recusar${varios ? ' todos' : ''}</button><button class="cf-ok ok-m" type="button">${ico('check', 15)} ${varios ? 'Agrupar e gerar OS' : 'Aprovar e gerar OS'}</button>`,
+      q: `${ids.join(' ')} ${c.rs.map((r) => `${r.nome} ${r.cc} ${r.item || ''} ${r.recebedor || ''}`).join(' ')} ${siteName(c.origem)} ${siteName(c.destino)}`,
+    });
+    return { data: c.data, hora: saida, n: c.rs.length, html };
+  });
 
+  // ---- Táxi avulso: na cidade e intermunicipal
   const av = pend.filter((r) => r.tipo !== 'grade' && r.tipo !== 'moto').sort((a, b) => at(a.data, a.hora) - at(b.data, b.hora));
-  const avHtml = av.map((r) => {
+  const itensA = av.map((r) => {
     const t = r.tipo === 'moto' ? 'moto' : 'carro';
-    return `<div class="group" data-id="${esc(r.id)}">
-      <div class="group-h"><b>${esc(r.id)} · ${esc(TIPOS[r.tipo])}</b><span>${esc(fmtDT(r.data, r.hora))}</span></div>
-      <ul><li><span>${esc(r.nome)} <small style="display:inline;color:var(--muted)">(${esc(r.cc)})</small></span><span>${r.pax} pax · ${esc(bagCurto(r))}</span></li>
-        <li><span>${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}${r.perna ? ` <span class="tag">${pernaTxt(r)} · ${esc(r.par)}</span>` : ''}</span></li>
-        ${r.bv ? `<li><span><b>🔁 ${esc(bvTxt(r))}</b> — veículo e motorista ficam reservados ~${fmtMin(durOf(r))}</span></li>` : ''}<li><span><i>${esc(r.just)}</i></span></li></ul>
-      ${r.excecao ? '<div class="alert">⚠ Pedido fora do prazo mínimo — requer autorização excepcional.</div>' : ''}
-      <div class="assign"><select class="sd" aria-label="Motorista">${driverOptions(t, r.data, r.hora, [r.id], durOf(r))}</select><select class="sv" aria-label="Veículo">${vehicleOptions(t, r.pax, 0, r.data, r.hora, [r.id], durOf(r))}</select>
-        <button class="btn green sm ok-a">${r.tipo === 'moto' ? 'Aprovar e gerar OS' : 'Aprovar'}</button><button class="btn sm red no-a">Recusar</button></div>
-    </div>`;
-  }).join('') || '<div class="empty">Nenhuma solicitação avulsa pendente.</div>';
+    const html = card({
+      key: `a:${r.id}`, attr: `data-id="${esc(r.id)}"`, hora: r.hora, data: r.data, rota: rotaHtml([[siteName(r.origem), siteName(r.destino)]]),
+      meta: `<span class="id">${esc(r.id)}</span><em>${esc(r.nome)}</em>${sep}<span>${ico('users', 13)} ${r.pax} ${r.pax === 1 ? 'passageiro' : 'passageiros'}</span>${sep}<span>${ico('mala', 13)} ${esc(bagCurto(r))}</span>`,
+      chips: `<span class="cf-pill n"><i></i>${esc(TIPOS[r.tipo])}</span>${r.bv ? '<span class="cf-pill g"><i></i>Bate-volta</span>' : ''}${r.excecao ? '<span class="cf-pill r"><i></i>Fora do prazo</span>' : ''}`,
+      det: `<ul class="cf-pess"><li><b>${esc(r.id)}</b><span>${esc(r.nome)}</span><small>${esc(r.cc)}</small>${r.perna ? `<span class="tag">${pernaTxt(r)} · ${esc(r.par)}</span>` : ''}</li>
+          ${r.bv ? `<li><span><b>${esc(bvTxt(r))}</b> — veículo e motorista ficam reservados ~${fmtMin(durOf(r))}</span></li>` : ''}
+          <li><small>Justificativa:</small><span class="cf-just">${esc(r.just)}</span></li></ul>
+        ${r.excecao ? '<div class="cf-info"><span class="cf-alerta">Pedido fora do prazo mínimo — requer autorização excepcional.</span></div>' : ''}`,
+      acts: `${selMot(t, driverOptions(t, r.data, r.hora, [r.id], durOf(r)), vehicleOptions(t, r.pax, 0, r.data, r.hora, [r.id], durOf(r)))}
+        <button class="cf-rec no-a" type="button">Recusar</button><button class="cf-ok ok-a" type="button">${ico('check', 15)} ${r.tipo === 'moto' ? 'Aprovar e gerar OS' : 'Confirmar'}</button>`,
+      q: `${r.id} ${r.nome} ${r.cc} ${siteName(r.origem)} ${siteName(r.destino)} ${TIPOS[r.tipo]}`,
+    });
+    return { data: r.data, hora: r.hora, n: 1, html };
+  });
+
+  const soma = (xs) => xs.reduce((s, x) => s + x.n, 0);
+  const ABAS = [['grade', 'Entre sites', 'car', itensG], ['moto', 'Moto táxi', 'moto', itensM], ['avulso', 'Táxi avulso', 'route', itensA]];
+  if (!P.tab) P.tab = (ABAS.find((a) => a[3].length) || ABAS[0])[0];
+  const aba = ABAS.find((a) => a[0] === P.tab) || ABAS[0];
+  const itens = aba[3].slice().sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
+  const SUB = {
+    grade: 'Pedidos do mesmo horário aparecem juntos. Carros sem lugar, sem porta-malas ou já em outra viagem ficam bloqueados.',
+    moto: `Envios no mesmo dia, com a mesma retirada e entrega e até ${MOTO_TOL_MIN} min de diferença, seguem juntos se couberem na moto.`,
+    avulso: 'Táxi na cidade e intermunicipal. O valor da corrida é informado depois, em Viagens.',
+  };
+  let corpo = '', dia = '';
+  const porDia = {};
+  itens.forEach((x) => { porDia[x.data] = (porDia[x.data] || 0) + x.n; });
+  itens.forEach((x) => {
+    if (x.data !== dia) {
+      dia = x.data; const d = at(dia, '12:00');
+      corpo += `<div class="cf-dia">${ico('cal', 14)}<b>${DIAS[d.getDay()]}${isWeekday(d) ? '-feira' : ''}, ${d.getDate()} de ${MESES[d.getMonth()]}</b>${dia === hojeS ? '<span class="cf-hj">Hoje</span>' : dia === amanhaS ? '<span class="cf-hj">Amanhã</span>' : ''}<i></i><small>${porDia[dia]} ${porDia[dia] === 1 ? 'solicitação' : 'solicitações'}</small></div>`;
+    }
+    corpo += x.html;
+  });
+  const PER = [['todas', 'Todas as datas'], ['hoje', 'Hoje'], ['amanha', 'Amanhã'], ['semana', 'Esta semana']];
 
   shell(page, `
-    <div class="page-head"><div><h1>Confirmação de viagens</h1><p>Analise, agrupe e atribua veículo e motorista. A decisão final é sempre do Facilities.</p></div></div>
-    <div class="kpis">
-      <div class="kpi"><div class="v">${pend.length}</div><div class="l">Pendentes de análise</div></div>
-      <div class="kpi"><div class="v">${confHoje.length}</div><div class="l">Viagens hoje</div></div>
-      <div class="kpi"><div class="v">${occAvg}%</div><div class="l">Ocupação média (grade confirmada)</div></div>
-      <a class="kpi" href="#viagens" style="text-decoration:none"><div class="v">${aEnviar}</div><div class="l">Viagens a enviar no WhatsApp →</div></a>
+    <div class="pg-head">
+      <div><h1>Confirmação de viagens</h1><p>Organize as solicitações. Conecte pessoas e destinos.</p></div>
+      <label class="vj-sel cf-per">${ico('cal', 15)}<select id="cfper" aria-label="Período">${PER.map(([k, l]) => `<option value="${k}" ${per === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     </div>
-    <div class="grid-2">
-      <section class="card"><h2 class="section-t">Grade entre sites</h2><p class="section-s">Solicitações do mesmo horário agrupadas. Veículos incompatíveis (capacidade, bagagem ou já alocados) ficam bloqueados.</p>${groupHtml}</section>
-      <div>
-        <section class="card" style="margin-bottom:16px"><h2 class="section-t">Moto Táxi — envio de itens</h2><p class="section-s">Envios no mesmo dia, mesma retirada e mesma entrega, com até ${MOTO_TOL_MIN} min de diferença e que cabem em uma moto, aparecem juntos. A saída é o horário mais tarde do grupo, para todos os itens estarem prontos.</p>${motoHtml}</section>
-        <section class="card"><h2 class="section-t">Táxi avulso</h2><p class="section-s">Táxi na cidade e intermunicipal.</p>${avHtml}</section>
+    <div class="cf-kpis">
+      <div class="cf-k"><small>Pendentes de análise</small>${ico('clock', 18)}<span class="cf-kv"><b>${pad(pendTodas.length)}</b>${pendTodas.length ? '<em class="chip">Aguardando você</em>' : '<em>tudo em dia</em>'}</span></div>
+      <div class="cf-k"><small>Viagens hoje</small>${ico('route', 18)}<span class="cf-kv"><b>${pad(viagensHoje)}</b><em>viagens confirmadas</em></span></div>
+      <div class="cf-k"><small>Ocupação média</small>${ico('users', 18)}<span class="cf-kv"><b>${occAvg}<small>%</small></b><span class="cf-oc" title="Ocupação média dos carros da grade confirmados"><i style="width:${Math.min(100, occAvg)}%"></i></span></span></div>
+      <a class="cf-k" href="#viagens"><small>Envio por WhatsApp</small>${ico('arrow', 18)}<span class="cf-kv"><b>${pad(aEnviar)}</b><em>prontas para enviar</em></span></a>
+    </div>
+    <section class="cf-box">
+      <nav class="cf-tabs">${ABAS.map(([k, l, ic, xs]) => `<button type="button" class="${aba[0] === k ? 'on' : ''}" data-tab="${k}">${ico(ic, 17)} ${l} <span>${soma(xs)}</span></button>`).join('')}</nav>
+      <div class="cf-in">
+        <div class="cf-sh">
+          <div><h2>Solicitações pendentes <span>${soma(itens)}</span></h2><p>${SUB[aba[0]]}</p></div>
+          <label class="vj-busca cf-busca">${ico('search', 16)}<input id="cfq" placeholder="Buscar solicitação…" value="${esc(P.q || '')}" aria-label="Buscar solicitação"></label>
+        </div>
+        ${itens.length ? corpo : `<div class="cf-vazio">Nenhuma solicitação ${aba[0] === 'grade' ? 'entre sites' : aba[0] === 'moto' ? 'de Moto Táxi' : 'de táxi avulso'} pendente${per !== 'todas' ? ' neste período' : ''}.</div>`}
+        <div class="cf-vazio" id="cfnone" hidden>Nenhuma solicitação encontrada para a busca.</div>
       </div>
-    </div>`);
+    </section>`);
 
-  document.querySelectorAll('.group[data-m]').forEach((g) => {
+  $('#cfper').onchange = (e) => { P.per = e.target.value; route(); };
+  document.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { P.tab = b.dataset.tab; route(); }; });
+  const filtra = () => {
+    const q = ($('#cfq').value || '').trim().toLowerCase();
+    P.q = q;
+    let n = 0;
+    document.querySelectorAll('.cf').forEach((c) => { const ok = !q || c.dataset.q.includes(q); c.hidden = !ok; if (ok) n++; });
+    document.querySelectorAll('.cf-dia').forEach((h) => { let x = h.nextElementSibling, vis = false; while (x && x.classList.contains('cf')) { if (!x.hidden) vis = true; x = x.nextElementSibling; } h.hidden = !vis; });
+    if (itens.length) $('#cfnone').hidden = n > 0;
+  };
+  $('#cfq').oninput = filtra;
+  filtra();
+  document.querySelectorAll('.cf').forEach((g) => {
+    const b = $('.cf-ver', g);
+    b.onclick = () => {
+      const k = g.dataset.ck;
+      if (abertos.has(k)) abertos.delete(k); else abertos.add(k);
+      const on = abertos.has(k);
+      g.classList.toggle('on', on); b.setAttribute('aria-expanded', String(on));
+      b.firstChild.textContent = on ? 'Ocultar detalhes ' : 'Ver detalhes ';
+    };
+  });
+
+  document.querySelectorAll('.cf[data-m]').forEach((g) => {
     const c = clusters[Number(g.dataset.m)];
     const ids = c.rs.map((r) => r.id);
     const refresh = () => {
@@ -1655,7 +1749,7 @@ function renderPainel(page) {
     g.querySelectorAll('.rx').forEach((b) => { b.onclick = () => recusar([S.reqs.find((x) => x.id === b.dataset.id)]); });
   });
 
-  document.querySelectorAll('.group[data-k]').forEach((g) => {
+  document.querySelectorAll('.cf[data-k]').forEach((g) => {
     const rs = groups[g.dataset.k];
     const okb = $('.ok-g', g), nob = $('.no-g', g);
     if (okb) okb.onclick = () => {
@@ -1672,7 +1766,7 @@ function renderPainel(page) {
     if (nob) nob.onclick = () => recusar(rs);
     g.querySelectorAll('.mv').forEach((b) => { b.onclick = () => mover(b.dataset.id); });
   });
-  document.querySelectorAll('.group[data-id]').forEach((g) => {
+  document.querySelectorAll('.cf[data-id]').forEach((g) => {
     const r = S.reqs.find((x) => x.id === g.dataset.id);
     $('.ok-a', g).onclick = () => {
       const v = $('.sv', g).value, d = $('.sd', g).value;
