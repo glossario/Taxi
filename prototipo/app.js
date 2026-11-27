@@ -1956,31 +1956,30 @@ function viagens(custos) {
   }).sort((a, b) => at(a.data, a.hora) - at(b.data, b.hora));
 }
 const paxTxt = (r) => `${r.nome}${r.pax > 1 ? ` +${r.pax - 1}` : ''}`;
+// Mensagem ao motorista: só o que ele precisa (sem emojis, sem dados do carro e sem a justificativa da viagem).
 function wppMsg(v) {
-  const ve = veic(v.veiculo);
   const moto = v.tipo === 'moto';
-  const L = [`*Mobilab · Natulab — ${moto ? 'Serviço de Moto Táxi' : 'Viagem confirmada'}*`, '', `📅 ${fmtDT(v.data, v.hora)}`];
+  const L = [`*Mobilab · Natulab — ${moto ? 'Serviço de Moto Táxi' : 'Viagem confirmada'}*`, '', `Data e hora: ${fmtDT(v.data, v.hora)}`];
   if (v.tipo === 'grade') {
     const slot = slotOf(v.hora);
-    if (slot) L.push(`🛣️ Rota: ${rotaTxt(slot.paradas)}`);
-    L.push(`🚗 ${ve.nome} · ${ve.placa}`, '', '*Passageiros:*');
+    if (slot) L.push(`Rota: ${rotaTxt(slot.paradas)}`);
+    L.push('', '*Passageiros:*');
     v.rs.forEach((r) => L.push(`• ${paxTxt(r)} — embarca em ${siteName(r.origem)}, desce em ${siteName(r.destino)}`));
     L.push('', `Total: ${v.rs.reduce((s, r) => s + r.pax, 0)} passageiro(s)`);
   } else if (moto) {
     const oss = [...new Set(v.rs.map((r) => r.os).filter(Boolean))];
-    if (oss.length) L.push(`🧾 OS: ${oss.join(', ')}`);
-    L.push(`🏍️ ${ve.nome} · ${ve.placa}`);
+    if (oss.length) L.push(`OS: ${oss.join(', ')}`);
     const rotas = [...new Set(v.rs.map((r) => `${siteName(r.origem)} → ${siteName(r.destino)}`))];
-    if (rotas.length === 1) L.push(`📍 ${rotas[0]}`);
+    if (rotas.length === 1) L.push(`Trajeto: ${rotas[0]}`);
     L.push('', `*Itens (${v.rs.length}):*`);
     v.rs.forEach((r) => L.push(`• ${r.vol}× ${r.item} (${tamCurto(r.tam)}) — retirar com ${r.nome}${rotas.length > 1 ? ` em ${siteName(r.origem)}` : ''}; entregar a ${r.recebedor}${rotas.length > 1 ? ` em ${siteName(r.destino)}` : ''}`));
   } else {
     const r = v.rs[0];
-    L.push(`🚗 ${ve.nome} · ${ve.placa}`, `📍 Embarque: ${siteName(r.origem)}`, `🏁 Destino: ${siteName(r.destino)}`, `👥 ${paxTxt(r)}`, `📝 ${r.just}`);
-    if (r.bv) L.push(`🔁 *Bate-volta:* aguardar até ${fmtMin(r.bv.espera)} no destino e levar o passageiro para ${siteName(r.bv.volta)}`);
+    L.push(`Embarque: ${siteName(r.origem)}`, `Destino: ${siteName(r.destino)}`, `Passageiro(s): ${paxTxt(r)}`);
+    if (r.bv) L.push(`*Bate-volta:* aguardar até ${fmtMin(r.bv.espera)} no destino e levar o passageiro para ${siteName(r.bv.volta)}`);
   }
   const bags = v.rs.map(bagTxt).filter((t) => t !== 'N/A');
-  if (bags.length) L.push(`🧳 Bagagem: ${bags.join(', ')}`);
+  if (bags.length) L.push(`Bagagem: ${bags.join(', ')}`);
   L.push('', `Ref.: ${v.rs.map((r) => r.id).join(', ')}`, 'Dúvidas: falar com o Facilities.');
   return L.join('\n');
 }
@@ -2109,8 +2108,8 @@ const viagensDoMotorista = (motId, data, per) => {
 };
 function gradeMsg(m, data, per, vs) {
   const d = at(data, '12:00');
-  const L = ['*Mobilab · Natulab — Grade de viagens*', '', `📅 ${DIAS[d.getDay()]}, ${fmtDate(data)} · ${PERIODOS_GRADE[per][0]}`, `👤 ${m.nome}`,
-    `🧾 ${vs.length} ${vs.length === 1 ? 'viagem' : 'viagens'}`];
+  const L = ['*Mobilab · Natulab — Grade de viagens*', '', `${DIAS[d.getDay()]}, ${fmtDate(data)} · ${PERIODOS_GRADE[per][0]}`, `Motorista: ${m.nome}`,
+    `${vs.length} ${vs.length === 1 ? 'viagem' : 'viagens'}`];
   vs.forEach((v, i) => {
     // reaproveita a mensagem de cada viagem, sem o título, a data (já estão no topo) e o rodapé
     const corpo = wppMsg(v).split('\n').slice(3).filter((l) => l !== 'Dúvidas: falar com o Facilities.');
@@ -2120,6 +2119,48 @@ function gradeMsg(m, data, per, vs) {
   L.push('', 'Dúvidas: falar com o Facilities.');
   return L.join('\n');
 }
+// Desenha a mensagem da grade (o texto do quadro, já com os ajustes) numa imagem PNG para encaminhar no WhatsApp.
+// *texto* vira negrito; a linha de traços vira um divisor.
+function gradeCanvas(texto) {
+  const W = 1080, P = 56, LH = 40, FZ = 28, FONTE = '"Nunito Sans", "Segoe UI", Arial, sans-serif';
+  const cv = document.createElement('canvas'), c = cv.getContext('2d');
+  const linhas = texto.replace(/\r/g, '').split('\n');
+  const titulo = (linhas[0] || '').replace(/\*/g, '');
+  const corpo = linhas.slice(1);
+  const quebra = (t, bold) => { // quebra a linha na largura útil
+    c.font = `${bold ? 800 : 400} ${FZ}px ${FONTE}`;
+    const out = []; let cur = '';
+    t.split(' ').forEach((w) => { const x = cur ? cur + ' ' + w : w; if (c.measureText(x).width > W - 2 * P && cur) { out.push(cur); cur = w; } else cur = x; });
+    out.push(cur); return out;
+  };
+  const itens = [];
+  corpo.forEach((l) => {
+    if (/^━+$/.test(l.trim())) { itens.push({ div: true }); return; }
+    const bold = /^\*.*\*$/.test(l.trim()) && l.trim().length > 1;
+    const t = l.replace(/\*/g, '');
+    if (!t.trim()) { itens.push({ vazio: true }); return; }
+    quebra(t, bold).forEach((x) => itens.push({ t: x, bold }));
+  });
+  const HT = 120;
+  const H = HT + P / 2 + itens.reduce((a, it) => a + (it.div ? 34 : it.vazio ? LH / 2 : LH), 0) + P;
+  cv.width = W; cv.height = H;
+  c.fillStyle = '#ffffff'; c.fillRect(0, 0, W, H);
+  c.fillStyle = '#343936'; c.fillRect(0, 0, W, HT);
+  c.fillStyle = '#73bc25'; c.fillRect(0, HT - 8, W, 8);
+  c.fillStyle = '#ffffff'; c.font = `800 38px ${FONTE}`; c.textBaseline = 'middle'; c.fillText(titulo, P, HT / 2 - 4);
+  let y = HT + P / 2;
+  c.textBaseline = 'top';
+  itens.forEach((it) => {
+    if (it.div) { c.fillStyle = '#d9dcd8'; c.fillRect(P, y + 14, W - 2 * P, 3); y += 34; return; }
+    if (it.vazio) { y += LH / 2; return; }
+    c.font = `${it.bold ? 800 : 400} ${FZ}px ${FONTE}`;
+    c.fillStyle = it.bold ? '#2d3a20' : '#343936';
+    c.fillText(it.t, P, y + 4); y += LH;
+  });
+  return cv;
+}
+const pngDe = (cv) => new Promise((ok) => cv.toBlob(ok, 'image/png'));
+
 function openGradeMotorista() {
   const hoje = ymd(new Date());
   const st = openGradeMotorista.st || (openGradeMotorista.st = { data: hoje, per: new Date().getHours() < 12 ? 'manha' : 'tarde', mot: '' });
@@ -2143,7 +2184,8 @@ function openGradeMotorista() {
     </div>
     ${vs.length ? `<p class="section-s">Para <b>${esc(m.nome)}</b> · WhatsApp ${esc(fmtFone(m.fone))}. ${novas.length ? `Ao enviar, ${novas.length === 1 ? '1 viagem passa' : `${novas.length} viagens passam`} para <b>Enviada</b> e os colaboradores recebem a confirmação por e-mail.` : 'Todas as viagens do período já foram enviadas: este envio é só um lembrete e não gera novos e-mails.'}</p>` : ''}
     <div class="modal-acts"><button class="btn" id="cx">Fechar</button>
-      ${vs.length ? '<button class="btn" id="cp">Copiar texto</button><button class="btn" id="mk">Marcar como enviada</button><a class="btn green" id="wa" target="_blank" rel="noopener" href="#" style="text-decoration:none">Abrir WhatsApp</a>' : ''}</div>`);
+      ${vs.length ? '<button class="btn" id="cp">Copiar texto</button><button class="btn" id="mk">Marcar como enviada</button><a class="btn green" id="wa" target="_blank" rel="noopener" href="#" style="text-decoration:none">Abrir WhatsApp</a>' : ''}</div>
+    ${vs.length ? `<div class="modal-acts" style="margin-top:8px"><button class="btn" id="pngb">${ico('download', 16)} Baixar imagem (PNG)</button><button class="btn green" id="pngw">Enviar como imagem</button></div>` : ''}`);
   $('#cx').onclick = () => { closeModal(); route(); };
   $('#gm_mot').onchange = (e) => { st.mot = e.target.value; st.fixo = true; openGradeMotorista(); };
   $('#gm_data').onchange = (e) => { if (e.target.value) { st.data = e.target.value < hoje ? hoje : e.target.value; openGradeMotorista(); } };
@@ -2161,6 +2203,32 @@ function openGradeMotorista() {
   const aviso = (n) => `Grade de ${m.nome} enviada (${vs.length} ${vs.length === 1 ? 'viagem' : 'viagens'}).${n ? ` E-mail de confirmação para ${n} colaborador${n > 1 ? 'es' : ''}.` : ''}`;
   $('#cp').onclick = async () => { try { await navigator.clipboard.writeText($('#gm_msg').value); toast('Texto copiado.'); } catch (e) { $('#gm_msg').select(); toast('Selecione e copie com Ctrl+C.'); } };
   $('#mk').onclick = () => { const n = marcar(); closeModal(); route(); toast(aviso(n)); };
+  const nomeArq = () => `grade-${m.nome.split(' ')[0].toLowerCase()}-${st.data}-${st.per}.png`;
+  $('#pngb').onclick = async () => {
+    const b = await pngDe(gradeCanvas($('#gm_msg').value));
+    const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = nomeArq(); a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  };
+  // Enviar como imagem: no celular abre o compartilhar (escolher WhatsApp e o motorista);
+  // no computador copia a imagem e abre a conversa do motorista no WhatsApp para colar (Ctrl+V).
+  $('#pngw').onclick = async () => {
+    const cv = gradeCanvas($('#gm_msg').value);
+    const celular = matchMedia('(pointer: coarse)').matches;
+    if (celular && navigator.canShare) {
+      const arq = new File([await pngDe(cv)], nomeArq(), { type: 'image/png' });
+      if (navigator.canShare({ files: [arq] })) {
+        try { await navigator.share({ files: [arq] }); } catch (e) { if (e.name === 'AbortError') return; }
+        const n = marcar(); closeModal(); route(); toast(aviso(n)); return;
+      }
+    }
+    let copiou = false;
+    try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngDe(cv) })]); copiou = true; } catch (e) { /* sem permissão: baixa o arquivo */ }
+    if (!copiou) { const a = document.createElement('a'); a.href = cv.toDataURL('image/png'); a.download = nomeArq(); a.click(); }
+    window.open(`https://wa.me/55${m.fone}`, '_blank', 'noopener');
+    const n = marcar(); closeModal(); route();
+    toast(copiou ? 'Imagem copiada: na conversa do motorista, cole com Ctrl+V e envie.' : 'Imagem baixada: anexe na conversa do motorista e envie.');
+    setTimeout(() => toast(aviso(n)), 4500);
+  };
   $('#wa').onclick = () => {
     $('#wa').href = `https://wa.me/55${m.fone}?text=${encodeURIComponent($('#gm_msg').value)}`;
     const n = marcar(); setTimeout(() => { closeModal(); route(); toast(aviso(n)); }, 300);
