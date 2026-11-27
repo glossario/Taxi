@@ -2537,7 +2537,8 @@ const ccCod = (cc) => { const m = String(cc || '').match(/^(\d{3,})\s*–/); ret
 function ccChave(r) {
   if (!CCSAP || !CCSAP.lista.length) return r.cc;
   const em = (r.por && r.por.email) || r.email;
-  const cod = (em && CCSAP.pessoas[em]) || CCSAP.setores[r.cc];
+  const proprio = CCSAP.nome[ccCod(r.cc)] ? ccCod(r.cc) : ''; // solicitação que já guarda o código SAP ("106007 – Garantia…")
+  const cod = (em && CCSAP.pessoas[em]) || proprio || CCSAP.setores[r.cc];
   return cod ? `${cod} – ${CCSAP.nome[cod] || setorCurto(r.cc)}` : r.cc;
 }
 function dadosCustos(mes, prev) {
