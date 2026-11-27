@@ -55,6 +55,7 @@ const VEICULOS = [
   { id: 'V1', nome: 'Chevrolet Spin', placa: 'RFA-1A23', tipo: 'carro', cap: 6, bag: 6 },
   { id: 'V2', nome: 'Onix Sedan', placa: 'RFB-2B34', tipo: 'carro', cap: 4, bag: 4 },
   { id: 'V3', nome: 'HB20 Hatch', placa: 'RFC-3C45', tipo: 'carro', cap: 4, bag: 2 },
+  { id: 'V4', nome: 'BYD King', placa: 'placa a informar', tipo: 'carro', cap: 3, bag: 3 },
   { id: 'M1', nome: 'Moto 01', placa: 'PKM-4D56', tipo: 'moto', cap: 0, bag: 4 },
   { id: 'M2', nome: 'Moto 02', placa: 'PKM-5E67', tipo: 'moto', cap: 0, bag: 4 },
 ];
