@@ -458,6 +458,8 @@ const ICO = {
   chart: '<path d="M4 4v16h16"/><path d="M8 16v-4M12 16V8M16 16v-6"/>',
   moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  cadastro: '<path d="M19 10.1A8.5 8.5 0 1 1 13.9 5"/><circle cx="11" cy="11" r="3"/><path d="M5.5 19.5c1-2.6 3-3.9 5.5-3.9s4.5 1.3 5.5 3.9"/><circle cx="18" cy="6" r="3.2"/><path d="M18 4.6v2.8M16.6 6h2.8"/>',
+  sliders: '<path d="M3 6h2.5M10.5 6H21M3 12h10.5M18.5 12H21M3 18h4.5M12.5 18H21"/><circle cx="8" cy="6" r="2.5"/><circle cx="16" cy="12" r="2.5"/><circle cx="10" cy="18" r="2.5"/>',
   userplus: '<circle cx="10" cy="8" r="3.5"/><path d="M3 20c.8-3.8 3.6-5.8 7-5.8 1.4 0 2.7.3 3.8 1"/><path d="M18 14v6M15 17h6"/>',
 };
 const ico = (n, s = 18) => `<svg class="ico" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO[n]}</svg>`;
@@ -484,7 +486,7 @@ function openAjuda() {
 const MARCA = (location.protocol === 'file:' || location.pathname.startsWith('/prototipo')) ? 'marca/' : '/prototipo/marca/';
 // Menu lateral: ícone e grupo de cada tela
 const NAV_ICO = { inicio: 'home', visao: 'grid', painel: 'list', viagens: 'route', solicitacoes: 'filter', motoristas: 'car', grade: 'clock', custos: 'money',
-  agenda: 'cal', minhas: 'user', aprovacoes: 'check', usuarios: 'users', historico: 'history', cadastros: 'gear' };
+  agenda: 'cal', minhas: 'user', aprovacoes: 'check', usuarios: 'users', historico: 'history', cadastros: 'cadastro' };
 const NAV_GRUPO = { visao: 'Operação', painel: 'Operação', viagens: 'Operação', solicitacoes: 'Operação', motoristas: 'Operação', grade: 'Operação', custos: 'Gestão',
   agenda: 'Minhas viagens', minhas: 'Minhas viagens', aprovacoes: 'Minhas viagens', usuarios: 'Administração', historico: 'Administração', cadastros: 'Administração' };
 const GRUPOS = ['', 'Operação', 'Gestão', 'Minhas viagens', 'Administração'];
@@ -529,7 +531,7 @@ function shell(page, content) {
           <div class="lado-sec">Suporte</div>
           <a href="#" id="lbell" title="Mensagens do Facilities">${ico('bell', 20)}<span class="t">Mensagens</span>${nNovas ? `<span class="count">${nNovas}</span>` : ''}</a>
           <a href="#" id="ajuda" title="Ajuda">${ico('info', 20)}<span class="t">Ajuda</span></a>
-          <a href="#" id="exib" title="Exibição: fonte, escala e brilho">${ico('gear', 20)}<span class="t">Exibição</span></a></nav>
+          <a href="#" id="exib" title="Exibição: fonte, escala e brilho">${ico('sliders', 20)}<span class="t">Exibição</span></a></nav>
         ${eu}
       </aside>
       <div class="lado-fundo" id="ladofundo"></div>`}
@@ -3035,7 +3037,7 @@ const TILES_TI = [
   ['solicitacoes', 'Solicitações', 'filter', 'Facilities'], ['motoristas', 'Motoristas', 'car', 'Facilities'], ['grade', 'Grade e rotas', 'clock', 'Facilities'],
   ['custos', 'Custos por setor', 'money', 'Facilities'], ['agenda', 'Agenda', 'cal', 'Colaborador'], ['minhas', 'Minhas solicitações', 'user', 'Colaborador'],
   ['aprovacoes', 'Aprovações', 'check', 'Gestor'], ['usuarios', 'Usuários', 'users', 'Administração'], ['historico', 'Histórico', 'history', 'Administração'],
-  ['cadastros', 'Cadastros e parâmetros', 'gear', 'Administração'], ['#ajuda', 'Ajuda', 'info', 'Administração'],
+  ['cadastros', 'Cadastros e parâmetros', 'cadastro', 'Administração'], ['#ajuda', 'Ajuda', 'info', 'Administração'],
 ];
 function renderInicioTI(page) {
   const ok = navDe(S.user).map(([k]) => k);
@@ -3301,7 +3303,7 @@ function openExibicao() {
   const x = Exib.ler();
   const seg = (k, ops) => `<div class="seg ex-seg" data-k="${k}">${ops.map(([v, l]) => `<button type="button" class="seg-b${x[k] === v ? ' on' : ''}" data-v="${v}">${l}</button>`).join('')}</div>`;
   openModal(`
-    <h3>${ico('gear', 20)} Exibição</h3>
+    <h3>${ico('sliders', 20)} Exibição</h3>
     <p class="sub">Ajuste como o Mobilab aparece para você. Vale só neste computador/navegador.</p>
     <div class="ex-op"><b>Tamanho da fonte</b><small>Textos e conteúdo das telas</small>
       ${seg('fonte', [[90, '<span style="font-size:12px">A</span> Pequena'], [100, '<span style="font-size:14px">A</span> Normal'], [112, '<span style="font-size:16px">A</span> Grande'], [125, '<span style="font-size:18px">A</span> Muito grande']])}</div>
