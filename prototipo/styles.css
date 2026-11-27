@@ -1699,3 +1699,7 @@ a.cf-k:hover > .ico { color: var(--green-dark); }
   .cf-sel { flex-wrap: wrap; } .cf-sel select { flex: 1 1 140px; min-width: 0; }
   .cf-top { min-width: 0; } .cf-tt { min-width: 0; }
 }
+/* Viagens: data e botão "Enviar grade ao motorista" no cabeçalho */
+.vj-hd { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.vj-hd .vj-data { margin-top: 0; }
+@media (max-width: 600px) { .vj-hd { align-items: stretch; width: 100%; } }

@@ -1461,16 +1461,34 @@ function openDetalhe(id) {
     <div class="modal-acts">${canCancel ? '<button class="btn red" id="cancel">Cancelar solicitação</button>' : ''}<button class="btn" id="cx">Fechar</button></div>`);
   $('#cx').onclick = closeModal;
   if (par) $('#vpar').onclick = () => openDetalhe(par.id);
-  if (canCancel) $('#cancel').onclick = () => {
-    const tarde = !!r.veiculo && new Date() >= new Date(at(r.data, r.hora).getTime() - CANCEL_MIN * 60000);
-    if (!confirm(tarde ? `Faltam menos de ${CANCEL_MIN} minutos para a viagem. O cancelamento será registrado, mas o custo da corrida continua no centro de custo.
-
-Cancelar mesmo assim?` : `Cancelar ${r.id}?`)) return;
+  if (canCancel) $('#cancel').onclick = async () => {
+    // mesma regra do servidor: corrida já alocada (veículo e motorista) e 30 min ou menos para a saída
+    const tarde = !!(r.veiculo && r.motorista) && ['confirmada', 'andamento'].includes(r.status) && new Date() >= new Date(at(r.data, r.hora).getTime() - CANCEL_MIN * 60000);
+    if (tarde) { if (!(await avisoCancelTardio(r))) { openDetalhe(r.id); return; } }
+    else if (!confirm(`Cancelar ${r.id}?`)) return;
     const alvo = [r];
     if (par && ['analise', 'gestor', 'confirmada', 'reagendada'].includes(par.status) && at(par.data, par.hora) > new Date() && confirm(`Cancelar também ${r.perna === 'ida' ? 'o retorno' : 'a ida'} ${par.id}?`)) alvo.push(par);
     alvo.forEach((x) => { audit('Cancelada pelo solicitante', x.id, STATUS[x.status], 'Cancelada'); x.status = 'cancelada'; x.motivo = 'Cancelada pelo solicitante'; });
-    save(); closeModal(); route(); toast(`${alvo.map((x) => x.id).join(' e ')} cancelada${alvo.length > 1 ? 's' : ''}${tarde ? ' — o custo da corrida continua no centro de custo' : ''}.`);
+    save(); closeModal(); route(); toast(`${alvo.map((x) => x.id).join(' e ')} cancelada${alvo.length > 1 ? 's' : ''}${tarde ? ' — custeada no centro de custo por cancelamento pós-prazo' : ''}.`);
   };
+}
+// Aviso de cancelamento pós-prazo (30 min ou menos antes da saída): a corrida é custeada no centro de custo da pessoa.
+// Devolve true (cancelar mesmo assim) ou false (manter a viagem).
+function avisoCancelTardio(r) {
+  return new Promise((ok) => {
+    const saida = at(r.data, r.hora);
+    const faltam = Math.max(0, Math.ceil((saida - new Date()) / 60000));
+    openModal(`
+      <h3>${ico('info', 22)} Cancelamento fora do prazo</h3>
+      <p class="sub">${esc(r.id)} · ${esc(fmtDT(r.data, r.hora))} · ${esc(siteName(r.origem))} → ${esc(siteName(r.destino))}</p>
+      <div class="msg-box warn">${faltam ? `Faltam <b>${faltam} min</b> para a saída.` : 'O horário de saída já chegou.'} O prazo para cancelar sem custo era até <b>${esc(limiteCancel(r))}</b> (${CANCEL_MIN} minutos antes).</div>
+      <p style="margin:14px 0 0;font-size:15px;line-height:1.5">Se você cancelar agora, a viagem <b>será custeada no centro de custo ${esc(r.cc || 'do solicitante')}</b> por <b>cancelamento pós-prazo</b>: o motorista e o veículo já estão reservados para você.</p>
+      <div class="modal-acts"><button class="btn red" id="ct_sim">Cancelar mesmo assim</button><button class="btn green" id="ct_nao">Manter viagem</button></div>`);
+    $('#modal').dataset.fixo = '1'; // só fecha pelos botões
+    $('#ct_nao').onclick = () => { closeModal(); ok(false); };
+    $('#ct_sim').onclick = () => { closeModal(); ok(true); };
+    $('#ct_nao').focus();
+  });
 }
 
 function renderMinhas(page) {
@@ -2082,6 +2100,72 @@ function openWpp(v) {
   };
 }
 
+// ---------------- Grade do motorista: viagens do dia (manhã, tarde ou dia inteiro) numa mensagem só ----------------
+const PERIODOS_GRADE = { manha: ['Manhã', '00:00', '11:59'], tarde: ['Tarde', '12:00', '23:59'], dia: ['Dia inteiro', '00:00', '23:59'] };
+const viagensDoMotorista = (motId, data, per) => {
+  const [, de, ate] = PERIODOS_GRADE[per];
+  return viagens().filter((v) => v.motorista === motId && v.data === data && v.hora >= de && v.hora <= ate && ['enviar', 'enviada'].includes(v.st));
+};
+function gradeMsg(m, data, per, vs) {
+  const d = at(data, '12:00');
+  const L = ['*Mobilab · Natulab — Grade de viagens*', '', `📅 ${DIAS[d.getDay()]}, ${fmtDate(data)} · ${PERIODOS_GRADE[per][0]}`, `👤 ${m.nome}`,
+    `🧾 ${vs.length} ${vs.length === 1 ? 'viagem' : 'viagens'}`];
+  vs.forEach((v, i) => {
+    // reaproveita a mensagem de cada viagem, sem o título, a data (já estão no topo) e o rodapé
+    const corpo = wppMsg(v).split('\n').slice(3).filter((l) => l !== 'Dúvidas: falar com o Facilities.');
+    while (corpo.length && corpo[corpo.length - 1] === '') corpo.pop();
+    L.push('', '━━━━━━━━━━', `*${i + 1}. ${v.hora} — ${TIPOS[v.tipo].replace(' (envio de itens)', '')}*`, ...corpo);
+  });
+  L.push('', 'Dúvidas: falar com o Facilities.');
+  return L.join('\n');
+}
+function openGradeMotorista() {
+  const hoje = ymd(new Date());
+  const st = openGradeMotorista.st || (openGradeMotorista.st = { data: hoje, per: new Date().getHours() < 12 ? 'manha' : 'tarde', mot: '' });
+  if (st.data < hoje) st.data = hoje;
+  const ativos = S.motoristas.filter((x) => x.ativo !== false);
+  const nDe = (id) => viagensDoMotorista(id, st.data, st.per).length;
+  if (!ativos.some((x) => x.id === st.mot) || (!st.fixo && !nDe(st.mot) && ativos.some((x) => nDe(x.id)))) st.mot = (ativos.find((x) => nDe(x.id)) || ativos[0] || {}).id || '';
+  const m = mot(st.mot);
+  const vs = m ? viagensDoMotorista(m.id, st.data, st.per) : [];
+  const novas = vs.filter((v) => v.st === 'enviar');
+  openModal(`
+    <h3>${ico('send', 20)} Enviar grade ao motorista</h3>
+    <p class="sub">Junta numa mensagem só as viagens em aberto do motorista no período escolhido.</p>
+    <div class="form-grid">
+      <div class="f"><label for="gm_mot">Motorista</label><select id="gm_mot">${ativos.map((x) => `<option value="${esc(x.id)}" ${x.id === st.mot ? 'selected' : ''}>${esc(x.nome)} · ${nDe(x.id)} ${nDe(x.id) === 1 ? 'viagem' : 'viagens'}</option>`).join('')}</select></div>
+      <div class="f"><label for="gm_data">Dia</label><input id="gm_data" type="date" min="${hoje}" value="${st.data}"></div>
+      <div class="f full"><label>Período</label><div class="seg" id="gm_per">${Object.entries(PERIODOS_GRADE).map(([k, [l, de, ate]]) => `<button type="button" class="seg-b${st.per === k ? ' on' : ''}" data-p="${k}" title="${de}–${ate}">${l}</button>`).join('')}</div>
+        <small>Manhã: até 11:59 · Tarde: a partir de 12:00</small></div>
+      <div class="f full"><label for="gm_msg">Mensagem <small>(pode ajustar antes de enviar)</small></label>
+        ${vs.length ? `<textarea id="gm_msg" style="min-height:300px;font-family:inherit">${esc(gradeMsg(m, st.data, st.per, vs))}</textarea>` : '<div class="empty">Nenhuma viagem em aberto deste motorista no período.</div>'}</div>
+    </div>
+    ${vs.length ? `<p class="section-s">Para <b>${esc(m.nome)}</b> · WhatsApp ${esc(fmtFone(m.fone))}. ${novas.length ? `Ao enviar, ${novas.length === 1 ? '1 viagem passa' : `${novas.length} viagens passam`} para <b>Enviada</b> e os colaboradores recebem a confirmação por e-mail.` : 'Todas as viagens do período já foram enviadas: este envio é só um lembrete e não gera novos e-mails.'}</p>` : ''}
+    <div class="modal-acts"><button class="btn" id="cx">Fechar</button>
+      ${vs.length ? '<button class="btn" id="cp">Copiar texto</button><button class="btn" id="mk">Marcar como enviada</button><a class="btn green" id="wa" target="_blank" rel="noopener" href="#" style="text-decoration:none">Abrir WhatsApp</a>' : ''}</div>`);
+  $('#cx').onclick = () => { closeModal(); route(); };
+  $('#gm_mot').onchange = (e) => { st.mot = e.target.value; st.fixo = true; openGradeMotorista(); };
+  $('#gm_data').onchange = (e) => { if (e.target.value) { st.data = e.target.value < hoje ? hoje : e.target.value; openGradeMotorista(); } };
+  document.querySelectorAll('#gm_per [data-p]').forEach((b) => { b.onclick = () => { st.per = b.dataset.p; openGradeMotorista(); }; });
+  if (!vs.length) return;
+  // marca como enviadas só as que ainda não tinham sido enviadas (as já enviadas não geram e-mail de novo)
+  const marcar = () => {
+    const ts = nowStamp();
+    let n = 0;
+    novas.forEach((v) => { const reenvio = v.rs.some((r) => r.wpp); v.rs.forEach((r) => { r.wpp = ts; }); n += emailConfirmacao(v, reenvio).length; });
+    audit('Grade enviada ao motorista (WhatsApp)', vs.flatMap((v) => v.rs.map((r) => r.id)).join(', '), '', `${m.nome} · ${fmtFone(m.fone)} · ${fmtDate(st.data)} · ${PERIODOS_GRADE[st.per][0]}`);
+    save();
+    return n;
+  };
+  const aviso = (n) => `Grade de ${m.nome} enviada (${vs.length} ${vs.length === 1 ? 'viagem' : 'viagens'}).${n ? ` E-mail de confirmação para ${n} colaborador${n > 1 ? 'es' : ''}.` : ''}`;
+  $('#cp').onclick = async () => { try { await navigator.clipboard.writeText($('#gm_msg').value); toast('Texto copiado.'); } catch (e) { $('#gm_msg').select(); toast('Selecione e copie com Ctrl+C.'); } };
+  $('#mk').onclick = () => { const n = marcar(); closeModal(); route(); toast(aviso(n)); };
+  $('#wa').onclick = () => {
+    $('#wa').href = `https://wa.me/55${m.fone}?text=${encodeURIComponent($('#gm_msg').value)}`;
+    const n = marcar(); setTimeout(() => { closeModal(); route(); toast(aviso(n)); }, 300);
+  };
+}
+
 function renderViagens(page) {
   const f = renderViagens.f || (renderViagens.f = 'abertas');
   const per = renderViagens.per || 'todas', tp = renderViagens.tp || 'todos';
@@ -2183,7 +2267,8 @@ function renderViagens(page) {
   shell(page, `
     <div class="pg-head">
       <div><h1>Viagens</h1><p>Organize os deslocamentos. Acompanhe cada chegada.</p></div>
-      <div class="vj-data">${ico('cal', 15)}<span>${DIAS[agora.getDay()]}${isWeekday(agora) ? '-feira' : ''}, ${agora.getDate()} de ${MESES[agora.getMonth()]}</span><i></i><span>${agora.getFullYear()}</span></div>
+      <div class="vj-hd"><div class="vj-data">${ico('cal', 15)}<span>${DIAS[agora.getDay()]}${isWeekday(agora) ? '-feira' : ''}, ${agora.getDate()} de ${MESES[agora.getMonth()]}</span><i></i><span>${agora.getFullYear()}</span></div>
+        <button class="btn green" id="vgrade">${ico('send', 16)} Enviar grade ao motorista</button></div>
     </div>
     <div class="vj-kpis">
       ${kpi('abertas', 'route', 'g', 'Viagens em aberto', nAbertas, 'deslocamentos programados')}
@@ -2205,6 +2290,7 @@ function renderViagens(page) {
 
   document.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => { renderViagens.f = b.dataset.f; route(); }; });
   $('#vper').onchange = (e) => { renderViagens.per = e.target.value; route(); };
+  $('#vgrade').onclick = () => openGradeMotorista();
   $('#vtp').onchange = (e) => { renderViagens.tp = e.target.value; route(); };
   const filtra = () => {
     const q = ($('#vq').value || '').trim().toLowerCase();
